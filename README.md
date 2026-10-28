@@ -2,7 +2,7 @@
 
 This repository contains the analysis code accompanying the manuscript and Supporting Information, together with the docking package. Non-docking input datasets are supplied with the article's supplementary files. 
 
-## Obtain and place the supplementary inputs
+## Obtain and place the inputs
 
 Download `Input_Source_Files.zip` from the article's supplementary files. Extract its contents directly into the downloaded repository root, preserving the folder names. After extraction, the following folders must exist:
 
