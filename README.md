@@ -1,6 +1,6 @@
 # EXO-ISO analysis code and AK1 docking
 
-This repository contains the analysis code accompanying the manuscript and Supporting Information, together with the docking package. Non-docking input datasets are supplied with the article's supplementary files. 
+This repository contains the analysis code accompanying the manuscript and Supporting Information, together with the docking package.
 
 ## Obtain and place the inputs
 
