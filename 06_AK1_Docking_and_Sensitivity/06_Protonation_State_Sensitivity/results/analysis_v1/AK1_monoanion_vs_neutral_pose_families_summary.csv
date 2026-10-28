@@ -1,0 +1,3 @@
+Comparison,Mean_nearest_RMSD_A,SD_nearest_RMSD_A,Minimum_RMSD_A,Maximum_RMSD_A,n_within_2A,Percent_within_2A,n_within_3A,Percent_within_3A
+7-O- monoanion vs neutral alternative family,0.048681765462543845,0.013666262566219412,0.03339877633790731,0.08272216463402732,10,100.0,10,100.0
+7-O- monoanion vs neutral dominant family,7.338081943343769,0.00631130325338787,7.328564979051078,7.346302716924728,0,0.0,0,0.0

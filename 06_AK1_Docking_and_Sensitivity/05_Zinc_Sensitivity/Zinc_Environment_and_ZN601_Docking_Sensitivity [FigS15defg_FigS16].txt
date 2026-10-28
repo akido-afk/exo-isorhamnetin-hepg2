@@ -1,0 +1,10884 @@
+Crystallographic zinc environments and ZN601-retained docking sensitivity
+Figure S15d–g: zinc environments, scores, retained-zinc pose RMSD and comparison with Zn-free families. Figure S16: representative Zn-free versus ZN601-retained pose overlay.
+
+COMPLETE ORIGINAL SOURCE CODE
+
+Use the separate executable source files in code/. Each section below contains the complete original source for one file. This TXT is a readable record, not one combined executable script.
+
+================================================================================
+FILE: AK1_ZN601_10seed_comprehensive.py
+Executable source: code/AK1_ZN601_10seed_comprehensive.py
+================================================================================
+from pathlib import Path
+
+import subprocess
+
+import sys
+
+import math
+
+import csv
+
+import statistics
+
+from collections import Counter
+
+
+
+from rdkit import Chem
+
+from scipy.cluster.hierarchy import linkage, fcluster
+
+from scipy.spatial.distance import squareform
+
+import numpy as np
+
+import xlsxwriter
+
+
+
+
+
+# ============================================================
+
+# PROJECT PATHS
+
+# ============================================================
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+
+
+DOCKING = PROJECT / "docking"
+
+RECEPTORS = PROJECT / "receptors"
+
+
+
+OUTPUT_DIR = (
+
+    PROJECT
+
+    / "results"
+
+    / "AK1_ZN_sensitivity"
+
+    / "ZN601_10seed"
+
+)
+
+
+
+POSE_DIR = OUTPUT_DIR / "poses"
+
+
+
+ORIGINAL_POSE_DIR = (
+
+    OUTPUT_DIR
+
+    / "original_Znfree_reference_poses"
+
+)
+
+
+
+OUTPUT_DIR.mkdir(
+
+    parents=True,
+
+    exist_ok=True
+
+)
+
+
+
+POSE_DIR.mkdir(
+
+    parents=True,
+
+    exist_ok=True
+
+)
+
+
+
+ORIGINAL_POSE_DIR.mkdir(
+
+    parents=True,
+
+    exist_ok=True
+
+)
+
+
+
+
+
+# ============================================================
+
+# SEEDS
+
+# ============================================================
+
+
+
+SEEDS = [
+
+    1001,
+
+    2002,
+
+    3003,
+
+    4004,
+
+    5005,
+
+    6006,
+
+    7007,
+
+    8008,
+
+    9009,
+
+    10101
+
+]
+
+
+
+
+
+# ============================================================
+
+# ORIGINAL Zn-FREE CLUSTERS
+
+# ============================================================
+
+
+
+ORIGINAL_DOMINANT = {
+
+    1001,
+
+    2002,
+
+    3003,
+
+    4004,
+
+    5005,
+
+    7007,
+
+    9009,
+
+    10101
+
+}
+
+
+
+ORIGINAL_ALTERNATIVE = {
+
+    6006,
+
+    8008
+
+}
+
+
+
+
+
+# ============================================================
+
+# MEEKO EXPORT
+
+# ============================================================
+
+
+
+MEEKO_EXPORT = (
+
+    Path(sys.prefix)
+
+    / "Lib"
+
+    / "site-packages"
+
+    / "meeko"
+
+    / "cli"
+
+    / "mk_export.py"
+
+)
+
+
+
+
+
+# ============================================================
+
+# ZN601 COORDINATE
+
+# ============================================================
+
+
+
+ZN_RECEPTOR = (
+
+    RECEPTORS
+
+    / "AK1_chainA_FIXED_ZN601.pdb"
+
+)
+
+
+
+zn_coord = None
+
+
+
+with open(ZN_RECEPTOR, "r") as f:
+
+
+
+    for line in f:
+
+
+
+        if (
+
+            line.startswith("HETATM")
+
+            and line[17:20].strip() == "ZN"
+
+            and line[22:26].strip() == "601"
+
+        ):
+
+
+
+            zn_coord = (
+
+                float(line[30:38]),
+
+                float(line[38:46]),
+
+                float(line[46:54])
+
+            )
+
+
+
+            break
+
+
+
+
+
+if zn_coord is None:
+
+
+
+    raise RuntimeError(
+
+        "Could not locate ZN601."
+
+    )
+
+
+
+
+
+# ============================================================
+
+# READ BEST VINA SCORE
+
+# ============================================================
+
+
+
+def read_best_score(pdbqt):
+
+
+
+    with open(
+
+        pdbqt,
+
+        "r",
+
+        encoding="utf-8"
+
+    ) as f:
+
+
+
+        for line in f:
+
+
+
+            if line.startswith(
+
+                "REMARK VINA RESULT:"
+
+            ):
+
+
+
+                return float(
+
+                    line.split()[3]
+
+                )
+
+
+
+    raise RuntimeError(
+
+        f"No score found in {pdbqt}"
+
+    )
+
+
+
+
+
+# ============================================================
+
+# EXPORT BEST POSE
+
+# ============================================================
+
+
+
+def export_best_pose(
+
+    pdbqt,
+
+    output_dir,
+
+    prefix
+
+):
+
+
+
+    all_sdf = (
+
+        output_dir
+
+        / f"{prefix}_allposes.sdf"
+
+    )
+
+
+
+    best_sdf = (
+
+        output_dir
+
+        / f"{prefix}_best.sdf"
+
+    )
+
+
+
+
+
+    if not all_sdf.exists():
+
+
+
+        subprocess.run(
+
+            [
+
+                sys.executable,
+
+                str(MEEKO_EXPORT),
+
+                str(pdbqt),
+
+                "-s",
+
+                str(all_sdf)
+
+            ],
+
+            check=True
+
+        )
+
+
+
+
+
+    supplier = Chem.SDMolSupplier(
+
+        str(all_sdf),
+
+        removeHs=False
+
+    )
+
+
+
+
+
+    mol = None
+
+
+
+    for candidate in supplier:
+
+
+
+        if candidate is not None:
+
+
+
+            mol = candidate
+
+            break
+
+
+
+
+
+    if mol is None:
+
+
+
+        raise RuntimeError(
+
+            f"Could not extract pose from {pdbqt}"
+
+        )
+
+
+
+
+
+    if not best_sdf.exists():
+
+
+
+        writer = Chem.SDWriter(
+
+            str(best_sdf)
+
+        )
+
+
+
+        writer.write(mol)
+
+        writer.close()
+
+
+
+
+
+    return mol, best_sdf
+
+
+
+
+
+# ============================================================
+
+# POSITIONAL RMSD
+
+#
+
+# No superposition:
+
+# all poses are already in the common AK1 coordinate frame.
+
+# ============================================================
+
+
+
+def positional_rmsd(
+
+    mol1,
+
+    mol2
+
+):
+
+
+
+    if (
+
+        mol1.GetNumAtoms()
+
+        != mol2.GetNumAtoms()
+
+    ):
+
+
+
+        raise RuntimeError(
+
+            "Different ligand atom counts."
+
+        )
+
+
+
+
+
+    c1 = mol1.GetConformer()
+
+    c2 = mol2.GetConformer()
+
+
+
+    values = []
+
+
+
+
+
+    for i in range(
+
+        mol1.GetNumAtoms()
+
+    ):
+
+
+
+        a1 = mol1.GetAtomWithIdx(i)
+
+        a2 = mol2.GetAtomWithIdx(i)
+
+
+
+        if (
+
+            a1.GetAtomicNum()
+
+            != a2.GetAtomicNum()
+
+        ):
+
+
+
+            raise RuntimeError(
+
+                f"Atom-order mismatch at index {i}"
+
+            )
+
+
+
+
+
+        if a1.GetAtomicNum() == 1:
+
+            continue
+
+
+
+
+
+        p1 = c1.GetAtomPosition(i)
+
+        p2 = c2.GetAtomPosition(i)
+
+
+
+
+
+        values.append(
+
+            (p1.x - p2.x) ** 2
+
+            +
+
+            (p1.y - p2.y) ** 2
+
+            +
+
+            (p1.z - p2.z) ** 2
+
+        )
+
+
+
+
+
+    return math.sqrt(
+
+        sum(values)
+
+        /
+
+        len(values)
+
+    )
+
+
+
+
+
+# ============================================================
+
+# ZN601 -> ISO DISTANCES
+
+# ============================================================
+
+
+
+def zn_distances(mol):
+
+
+
+    conf = mol.GetConformer()
+
+
+
+    minimum_heavy = None
+
+    heavy_atom = None
+
+
+
+    minimum_polar = None
+
+    polar_atom = None
+
+
+
+
+
+    for atom in mol.GetAtoms():
+
+
+
+        if atom.GetAtomicNum() == 1:
+
+            continue
+
+
+
+
+
+        i = atom.GetIdx()
+
+
+
+        p = conf.GetAtomPosition(i)
+
+
+
+
+
+        d = math.sqrt(
+
+            (p.x - zn_coord[0]) ** 2
+
+            +
+
+            (p.y - zn_coord[1]) ** 2
+
+            +
+
+            (p.z - zn_coord[2]) ** 2
+
+        )
+
+
+
+
+
+        atom_name = (
+
+            f"{atom.GetSymbol()}{i + 1}"
+
+        )
+
+
+
+
+
+        if (
+
+            minimum_heavy is None
+
+            or d < minimum_heavy
+
+        ):
+
+
+
+            minimum_heavy = d
+
+            heavy_atom = atom_name
+
+
+
+
+
+        if (
+
+            atom.GetSymbol().upper()
+
+            in {"O", "N", "S"}
+
+        ):
+
+
+
+            if (
+
+                minimum_polar is None
+
+                or d < minimum_polar
+
+            ):
+
+
+
+                minimum_polar = d
+
+                polar_atom = atom_name
+
+
+
+
+
+    return (
+
+        minimum_heavy,
+
+        heavy_atom,
+
+        minimum_polar,
+
+        polar_atom
+
+    )
+
+
+
+
+
+# ============================================================
+
+# LOAD ALL ZN601 POSES + SCORES
+
+# ============================================================
+
+
+
+zn_poses = {}
+
+zn_scores = {}
+
+
+
+zn_rows = []
+
+
+
+
+
+for seed in SEEDS:
+
+
+
+    pdbqt = (
+
+        DOCKING
+
+        / f"AK1_ZN601_ISO_seed{seed}.pdbqt"
+
+    )
+
+
+
+
+
+    if not pdbqt.exists():
+
+
+
+        raise FileNotFoundError(
+
+            pdbqt
+
+        )
+
+
+
+
+
+    score = read_best_score(
+
+        pdbqt
+
+    )
+
+
+
+
+
+    mol, best_sdf = export_best_pose(
+
+        pdbqt,
+
+        POSE_DIR,
+
+        f"AK1_ZN601_ISO_seed{seed}"
+
+    )
+
+
+
+
+
+    zn_poses[seed] = mol
+
+    zn_scores[seed] = score
+
+
+
+
+
+    (
+
+        min_heavy,
+
+        heavy_atom,
+
+        min_polar,
+
+        polar_atom
+
+    ) = zn_distances(mol)
+
+
+
+
+
+    zn_rows.append({
+
+        "Seed": seed,
+
+        "Best Vina score": score,
+
+        "Closest ISO heavy atom": heavy_atom,
+
+        "Closest heavy-atom distance to ZN601 (A)": min_heavy,
+
+        "Closest ISO polar atom": polar_atom,
+
+        "Closest polar distance to ZN601 (A)": min_polar
+
+    })
+
+
+
+
+
+# ============================================================
+
+# ORIGINAL Zn-FREE POSES + SCORES
+
+# ============================================================
+
+
+
+original_poses = {}
+
+original_scores = {}
+
+
+
+
+
+for seed in SEEDS:
+
+
+
+    pdbqt = (
+
+        DOCKING
+
+        / f"AK1_ISO_seed{seed}.pdbqt"
+
+    )
+
+
+
+
+
+    if not pdbqt.exists():
+
+
+
+        raise FileNotFoundError(
+
+            pdbqt
+
+        )
+
+
+
+
+
+    original_scores[seed] = (
+
+        read_best_score(pdbqt)
+
+    )
+
+
+
+
+
+    mol, _ = export_best_pose(
+
+        pdbqt,
+
+        ORIGINAL_POSE_DIR,
+
+        f"AK1_ISO_seed{seed}"
+
+    )
+
+
+
+
+
+    original_poses[seed] = mol
+
+
+
+
+
+# ============================================================
+
+# ZN601 PAIRWISE RMSD MATRIX
+
+# ============================================================
+
+
+
+n = len(SEEDS)
+
+
+
+rmsd_matrix = np.zeros(
+
+    (n, n),
+
+    dtype=float
+
+)
+
+
+
+
+
+for i, seed_i in enumerate(SEEDS):
+
+
+
+    for j, seed_j in enumerate(SEEDS):
+
+
+
+        if j < i:
+
+
+
+            rmsd_matrix[
+
+                i,
+
+                j
+
+            ] = rmsd_matrix[
+
+                j,
+
+                i
+
+            ]
+
+
+
+            continue
+
+
+
+
+
+        if i == j:
+
+
+
+            value = 0.0
+
+
+
+        else:
+
+
+
+            value = positional_rmsd(
+
+                zn_poses[seed_i],
+
+                zn_poses[seed_j]
+
+            )
+
+
+
+
+
+        rmsd_matrix[
+
+            i,
+
+            j
+
+        ] = value
+
+
+
+        rmsd_matrix[
+
+            j,
+
+            i
+
+        ] = value
+
+
+
+
+
+# ============================================================
+
+# CLUSTERING FUNCTION
+
+# Complete-link hierarchical clustering
+
+# ============================================================
+
+
+
+def cluster_at_threshold(
+
+    matrix,
+
+    threshold
+
+):
+
+
+
+    condensed = squareform(
+
+        matrix,
+
+        checks=False
+
+    )
+
+
+
+
+
+    Z = linkage(
+
+        condensed,
+
+        method="complete"
+
+    )
+
+
+
+
+
+    raw_labels = fcluster(
+
+        Z,
+
+        t=threshold,
+
+        criterion="distance"
+
+    )
+
+
+
+
+
+    # Remap labels by cluster size
+
+    counts = Counter(
+
+        raw_labels
+
+    )
+
+
+
+
+
+    ordered_old_labels = sorted(
+
+        counts.keys(),
+
+        key=lambda lab:
+
+            (
+
+                -counts[lab],
+
+                lab
+
+            )
+
+    )
+
+
+
+
+
+    mapping = {
+
+        old:
+
+        new_index + 1
+
+
+
+        for new_index, old
+
+        in enumerate(
+
+            ordered_old_labels
+
+        )
+
+    }
+
+
+
+
+
+    labels = [
+
+        mapping[x]
+
+        for x in raw_labels
+
+    ]
+
+
+
+
+
+    return labels
+
+
+
+
+
+clusters_2A = cluster_at_threshold(
+
+    rmsd_matrix,
+
+    2.0
+
+)
+
+
+
+clusters_3A = cluster_at_threshold(
+
+    rmsd_matrix,
+
+    3.0
+
+)
+
+
+
+
+
+# ============================================================
+
+# DOMINANT ZN601 CLUSTER + REPRESENTATIVE POSE
+
+# ============================================================
+
+
+
+counts_2A = Counter(
+
+    clusters_2A
+
+)
+
+
+
+dominant_cluster_id = max(
+
+    counts_2A,
+
+    key=counts_2A.get
+
+)
+
+
+
+
+
+dominant_indices = [
+
+    i for i, c
+
+    in enumerate(clusters_2A)
+
+    if c == dominant_cluster_id
+
+]
+
+
+
+
+
+dominant_seeds = [
+
+    SEEDS[i]
+
+    for i in dominant_indices
+
+]
+
+
+
+
+
+representative_candidates = []
+
+
+
+
+
+for i in dominant_indices:
+
+
+
+    other_indices = [
+
+        j for j
+
+        in dominant_indices
+
+        if j != i
+
+    ]
+
+
+
+
+
+    if not other_indices:
+
+
+
+        mean_rmsd = 0.0
+
+
+
+    else:
+
+
+
+        mean_rmsd = statistics.mean(
+
+            rmsd_matrix[
+
+                i,
+
+                j
+
+            ]
+
+            for j in other_indices
+
+        )
+
+
+
+
+
+    representative_candidates.append(
+
+        (
+
+            mean_rmsd,
+
+            SEEDS[i]
+
+        )
+
+    )
+
+
+
+
+
+representative_candidates.sort()
+
+
+
+representative_mean_rmsd = (
+
+    representative_candidates[0][0]
+
+)
+
+
+
+representative_seed = (
+
+    representative_candidates[0][1]
+
+)
+
+
+
+
+
+# ============================================================
+
+# COMPARE ZN601 POSES WITH ORIGINAL Zn-FREE FAMILIES
+
+# ============================================================
+
+
+
+comparison_rows = []
+
+
+
+
+
+for zn_seed in SEEDS:
+
+
+
+    rmsd_to_original = {}
+
+
+
+
+
+    for original_seed in SEEDS:
+
+
+
+        rmsd_to_original[
+
+            original_seed
+
+        ] = positional_rmsd(
+
+            zn_poses[zn_seed],
+
+            original_poses[
+
+                original_seed
+
+            ]
+
+        )
+
+
+
+
+
+    dominant_values = [
+
+        rmsd_to_original[s]
+
+        for s in ORIGINAL_DOMINANT
+
+    ]
+
+
+
+
+
+    alternative_values = [
+
+        rmsd_to_original[s]
+
+        for s in ORIGINAL_ALTERNATIVE
+
+    ]
+
+
+
+
+
+    mean_dom = statistics.mean(
+
+        dominant_values
+
+    )
+
+
+
+    mean_alt = statistics.mean(
+
+        alternative_values
+
+    )
+
+
+
+
+
+    nearest_seed = min(
+
+        rmsd_to_original,
+
+        key=rmsd_to_original.get
+
+    )
+
+
+
+
+
+    nearest_rmsd = (
+
+        rmsd_to_original[
+
+            nearest_seed
+
+        ]
+
+    )
+
+
+
+
+
+    nearest_family = (
+
+        "Dominant"
+
+        if nearest_seed
+
+        in ORIGINAL_DOMINANT
+
+        else "Alternative"
+
+    )
+
+
+
+
+
+    closer_family = (
+
+        "Dominant"
+
+        if mean_dom < mean_alt
+
+        else "Alternative"
+
+    )
+
+
+
+
+
+    # Conservative match classification
+
+    if nearest_rmsd <= 2.0:
+
+
+
+        family_match = (
+
+            f"Matches original {nearest_family} family"
+
+        )
+
+
+
+    else:
+
+
+
+        family_match = (
+
+            "Distinct from original Zn-free families"
+
+        )
+
+
+
+
+
+    comparison_rows.append({
+
+        "ZN601 seed": zn_seed,
+
+        "Mean RMSD to original dominant (A)": mean_dom,
+
+        "Mean RMSD to original alternative (A)": mean_alt,
+
+        "Closer original family": closer_family,
+
+        "Nearest original seed": nearest_seed,
+
+        "Nearest original family": nearest_family,
+
+        "Nearest original RMSD (A)": nearest_rmsd,
+
+        "Family match interpretation": family_match
+
+    })
+
+
+
+
+
+# ============================================================
+
+# SCORE COMPARISON
+
+# ============================================================
+
+
+
+score_rows = []
+
+
+
+
+
+for seed in SEEDS:
+
+
+
+    diff = (
+
+        zn_scores[seed]
+
+        -
+
+        original_scores[seed]
+
+    )
+
+
+
+
+
+    score_rows.append({
+
+        "Seed": seed,
+
+        "Zn-free score": original_scores[seed],
+
+        "ZN601-retained score": zn_scores[seed],
+
+        "Score difference ZN601-minus-Znfree": diff
+
+    })
+
+
+
+
+
+zn_score_values = [
+
+    zn_scores[s]
+
+    for s in SEEDS
+
+]
+
+
+
+original_score_values = [
+
+    original_scores[s]
+
+    for s in SEEDS
+
+]
+
+
+
+score_differences = [
+
+    r[
+
+        "Score difference ZN601-minus-Znfree"
+
+    ]
+
+    for r in score_rows
+
+]
+
+
+
+
+
+# ============================================================
+
+# PRINT SUMMARY
+
+# ============================================================
+
+
+
+print()
+
+print("=" * 90)
+
+print("AK1 ZN601 — 10-SEED COMPREHENSIVE ANALYSIS")
+
+print("=" * 90)
+
+
+
+print()
+
+
+
+print("ZN601-retained scores")
+
+print("---------------------")
+
+
+
+for row in zn_rows:
+
+
+
+    print(
+
+        f"Seed {row['Seed']}: "
+
+        f"{row['Best Vina score']:.3f} kcal/mol   "
+
+        f"Zn-polar distance = "
+
+        f"{row['Closest polar distance to ZN601 (A)']:.3f} A"
+
+    )
+
+
+
+
+
+print()
+
+print("Score statistics")
+
+print("----------------")
+
+
+
+print(
+
+    "ZN601 mean:",
+
+    f"{statistics.mean(zn_score_values):.3f}"
+
+)
+
+
+
+print(
+
+    "ZN601 median:",
+
+    f"{statistics.median(zn_score_values):.3f}"
+
+)
+
+
+
+print(
+
+    "ZN601 SD:",
+
+    f"{statistics.stdev(zn_score_values):.3f}"
+
+)
+
+
+
+print(
+
+    "ZN601 range:",
+
+    f"{max(zn_score_values)-min(zn_score_values):.3f}"
+
+)
+
+
+
+print()
+
+
+
+print(
+
+    "Zn-free mean:",
+
+    f"{statistics.mean(original_score_values):.3f}"
+
+)
+
+
+
+print(
+
+    "Mean paired score shift:",
+
+    f"{statistics.mean(score_differences):+.3f} kcal/mol"
+
+)
+
+
+
+
+
+print()
+
+print("2.0 A clustering")
+
+print("----------------")
+
+
+
+for cluster_id in sorted(
+
+    set(clusters_2A)
+
+):
+
+
+
+    seeds = [
+
+        SEEDS[i]
+
+        for i, c
+
+        in enumerate(clusters_2A)
+
+        if c == cluster_id
+
+    ]
+
+
+
+    print(
+
+        f"Cluster {cluster_id}: "
+
+        f"{len(seeds)} poses -> {seeds}"
+
+    )
+
+
+
+
+
+print()
+
+print("3.0 A clustering")
+
+print("----------------")
+
+
+
+for cluster_id in sorted(
+
+    set(clusters_3A)
+
+):
+
+
+
+    seeds = [
+
+        SEEDS[i]
+
+        for i, c
+
+        in enumerate(clusters_3A)
+
+        if c == cluster_id
+
+    ]
+
+
+
+    print(
+
+        f"Cluster {cluster_id}: "
+
+        f"{len(seeds)} poses -> {seeds}"
+
+    )
+
+
+
+
+
+print()
+
+print(
+
+    "Dominant ZN601 cluster:",
+
+    dominant_seeds
+
+)
+
+
+
+print(
+
+    "Representative ZN601 pose:",
+
+    representative_seed
+
+)
+
+
+
+print(
+
+    "Representative mean RMSD:",
+
+    f"{representative_mean_rmsd:.3f} A"
+
+)
+
+
+
+
+
+print()
+
+print(
+
+    "Comparison with original Zn-free families"
+
+)
+
+
+
+print(
+
+    "-----------------------------------------"
+
+)
+
+
+
+
+
+for row in comparison_rows:
+
+
+
+    print(
+
+        f"Seed {row['ZN601 seed']}: "
+
+        f"mean-to-dominant "
+
+        f"{row['Mean RMSD to original dominant (A)']:.3f} A, "
+
+        f"mean-to-alternative "
+
+        f"{row['Mean RMSD to original alternative (A)']:.3f} A, "
+
+        f"nearest original "
+
+        f"{row['Nearest original seed']} "
+
+        f"({row['Nearest original family']}) "
+
+        f"{row['Nearest original RMSD (A)']:.3f} A"
+
+    )
+
+
+
+
+
+# ============================================================
+
+# SAVE CSV FILES
+
+# ============================================================
+
+
+
+def save_csv(
+
+    path,
+
+    rows
+
+):
+
+
+
+    with open(
+
+        path,
+
+        "w",
+
+        newline="",
+
+        encoding="utf-8"
+
+    ) as f:
+
+
+
+        writer = csv.DictWriter(
+
+            f,
+
+            fieldnames=list(
+
+                rows[0].keys()
+
+            )
+
+        )
+
+
+
+        writer.writeheader()
+
+        writer.writerows(rows)
+
+
+
+
+
+scores_csv = (
+
+    OUTPUT_DIR
+
+    / "AK1_ZN601_scores.csv"
+
+)
+
+
+
+zn_csv = (
+
+    OUTPUT_DIR
+
+    / "AK1_ZN601_Zn_distances.csv"
+
+)
+
+
+
+comparison_csv = (
+
+    OUTPUT_DIR
+
+    / "AK1_ZN601_vs_Znfree_families.csv"
+
+)
+
+
+
+rmsd_csv = (
+
+    OUTPUT_DIR
+
+    / "AK1_ZN601_pose_RMSD_matrix.csv"
+
+)
+
+
+
+
+
+save_csv(
+
+    scores_csv,
+
+    score_rows
+
+)
+
+
+
+save_csv(
+
+    zn_csv,
+
+    zn_rows
+
+)
+
+
+
+save_csv(
+
+    comparison_csv,
+
+    comparison_rows
+
+)
+
+
+
+
+
+with open(
+
+    rmsd_csv,
+
+    "w",
+
+    newline="",
+
+    encoding="utf-8"
+
+) as f:
+
+
+
+    writer = csv.writer(f)
+
+
+
+    writer.writerow(
+
+        ["Seed"] + SEEDS
+
+    )
+
+
+
+    for i, seed in enumerate(
+
+        SEEDS
+
+    ):
+
+
+
+        writer.writerow(
+
+            [seed]
+
+            +
+
+            [
+
+                f"{x:.6f}"
+
+                for x in rmsd_matrix[i]
+
+            ]
+
+        )
+
+
+
+
+
+# ============================================================
+
+# EXCEL WORKBOOK
+
+# ============================================================
+
+
+
+XLSX = (
+
+    OUTPUT_DIR
+
+    / "AK1_ZN601_10seed_comprehensive.xlsx"
+
+)
+
+
+
+workbook = xlsxwriter.Workbook(
+
+    XLSX
+
+)
+
+
+
+
+
+title_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_size": 15,
+
+    "font_color": "white",
+
+    "bg_color": "#1F4E78"
+
+})
+
+
+
+header_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_color": "white",
+
+    "bg_color": "#4472C4",
+
+    "border": 1,
+
+    "align": "center",
+
+    "text_wrap": True
+
+})
+
+
+
+normal_fmt = workbook.add_format({
+
+    "border": 1
+
+})
+
+
+
+number_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "num_format": "0.000"
+
+})
+
+
+
+dominant_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "bg_color": "#FFF2CC"
+
+})
+
+
+
+
+
+# ============================================================
+
+# SHEET 1 — SUMMARY
+
+# ============================================================
+
+
+
+ws = workbook.add_worksheet(
+
+    "Summary"
+
+)
+
+
+
+
+
+summary_rows = [
+
+
+
+    [
+
+        "ZN601 mean Vina score",
+
+        statistics.mean(
+
+            zn_score_values
+
+        )
+
+    ],
+
+
+
+    [
+
+        "ZN601 median Vina score",
+
+        statistics.median(
+
+            zn_score_values
+
+        )
+
+    ],
+
+
+
+    [
+
+        "ZN601 score SD",
+
+        statistics.stdev(
+
+            zn_score_values
+
+        )
+
+    ],
+
+
+
+    [
+
+        "ZN601 score range",
+
+        max(zn_score_values)
+
+        -
+
+        min(zn_score_values)
+
+    ],
+
+
+
+    [
+
+        "Zn-free mean Vina score",
+
+        statistics.mean(
+
+            original_score_values
+
+        )
+
+    ],
+
+
+
+    [
+
+        "Mean paired score shift",
+
+        statistics.mean(
+
+            score_differences
+
+        )
+
+    ],
+
+
+
+    [
+
+        "Dominant ZN601 cluster size",
+
+        len(
+
+            dominant_seeds
+
+        )
+
+    ],
+
+
+
+    [
+
+        "Dominant ZN601 cluster seeds",
+
+        ", ".join(
+
+            str(x)
+
+            for x in dominant_seeds
+
+        )
+
+    ],
+
+
+
+    [
+
+        "Representative ZN601 seed",
+
+        representative_seed
+
+    ],
+
+
+
+    [
+
+        "Representative mean RMSD",
+
+        representative_mean_rmsd
+
+    ],
+
+
+
+    [
+
+        "Mean closest ZN601-polar distance",
+
+        statistics.mean(
+
+            row[
+
+                "Closest polar distance to ZN601 (A)"
+
+            ]
+
+            for row in zn_rows
+
+        )
+
+    ]
+
+]
+
+
+
+
+
+ws.write(
+
+    0,
+
+    0,
+
+    "Metric",
+
+    header_fmt
+
+)
+
+
+
+ws.write(
+
+    0,
+
+    1,
+
+    "Value",
+
+    header_fmt
+
+)
+
+
+
+
+
+for row_i, values in enumerate(
+
+    summary_rows,
+
+    start=1
+
+):
+
+
+
+    ws.write(
+
+        row_i,
+
+        0,
+
+        values[0],
+
+        normal_fmt
+
+    )
+
+
+
+    if isinstance(
+
+        values[1],
+
+        float
+
+    ):
+
+
+
+        ws.write_number(
+
+            row_i,
+
+            1,
+
+            values[1],
+
+            number_fmt
+
+        )
+
+
+
+    else:
+
+
+
+        ws.write(
+
+            row_i,
+
+            1,
+
+            values[1],
+
+            normal_fmt
+
+        )
+
+
+
+
+
+ws.set_column(
+
+    "A:A",
+
+    42
+
+)
+
+
+
+ws.set_column(
+
+    "B:B",
+
+    55
+
+)
+
+
+
+
+
+# ============================================================
+
+# SHEET 2 — SCORES
+
+# ============================================================
+
+
+
+ws2 = workbook.add_worksheet(
+
+    "Score_Comparison"
+
+)
+
+
+
+headers = list(
+
+    score_rows[0].keys()
+
+)
+
+
+
+
+
+for col, h in enumerate(
+
+    headers
+
+):
+
+
+
+    ws2.write(
+
+        0,
+
+        col,
+
+        h,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for row_i, row in enumerate(
+
+    score_rows,
+
+    start=1
+
+):
+
+
+
+    for col, h in enumerate(
+
+        headers
+
+    ):
+
+
+
+        value = row[h]
+
+
+
+        if isinstance(
+
+            value,
+
+            float
+
+        ):
+
+
+
+            ws2.write_number(
+
+                row_i,
+
+                col,
+
+                value,
+
+                number_fmt
+
+            )
+
+
+
+        else:
+
+
+
+            ws2.write(
+
+                row_i,
+
+                col,
+
+                value,
+
+                normal_fmt
+
+            )
+
+
+
+
+
+ws2.set_column(
+
+    0,
+
+    len(headers)-1,
+
+    24
+
+)
+
+
+
+
+
+# ============================================================
+
+# SHEET 3 — RMSD MATRIX
+
+# ============================================================
+
+
+
+ws3 = workbook.add_worksheet(
+
+    "ZN601_RMSD_Matrix"
+
+)
+
+
+
+
+
+ws3.write(
+
+    0,
+
+    0,
+
+    "Seed",
+
+    header_fmt
+
+)
+
+
+
+
+
+for j, seed in enumerate(
+
+    SEEDS,
+
+    start=1
+
+):
+
+
+
+    ws3.write_number(
+
+        0,
+
+        j,
+
+        seed,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for i, seed in enumerate(
+
+    SEEDS,
+
+    start=1
+
+):
+
+
+
+    ws3.write_number(
+
+        i,
+
+        0,
+
+        seed,
+
+        header_fmt
+
+    )
+
+
+
+
+
+    for j, value in enumerate(
+
+        rmsd_matrix[
+
+            i-1
+
+        ],
+
+        start=1
+
+    ):
+
+
+
+        ws3.write_number(
+
+            i,
+
+            j,
+
+            float(value),
+
+            number_fmt
+
+        )
+
+
+
+
+
+ws3.set_column(
+
+    0,
+
+    len(SEEDS),
+
+    13
+
+)
+
+
+
+
+
+# ============================================================
+
+# SHEET 4 — CLUSTERS
+
+# ============================================================
+
+
+
+ws4 = workbook.add_worksheet(
+
+    "Clusters"
+
+)
+
+
+
+cluster_headers = [
+
+    "Seed",
+
+    "Cluster at 2 A",
+
+    "Cluster at 3 A",
+
+    "Representative dominant pose"
+
+]
+
+
+
+
+
+for col, h in enumerate(
+
+    cluster_headers
+
+):
+
+
+
+    ws4.write(
+
+        0,
+
+        col,
+
+        h,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for i, seed in enumerate(
+
+    SEEDS,
+
+    start=1
+
+):
+
+
+
+    is_rep = (
+
+        "YES"
+
+        if seed == representative_seed
+
+        else ""
+
+    )
+
+
+
+
+
+    fmt = (
+
+        dominant_fmt
+
+        if clusters_2A[
+
+            i-1
+
+        ] == dominant_cluster_id
+
+        else normal_fmt
+
+    )
+
+
+
+
+
+    ws4.write_number(
+
+        i,
+
+        0,
+
+        seed,
+
+        fmt
+
+    )
+
+
+
+    ws4.write_number(
+
+        i,
+
+        1,
+
+        clusters_2A[
+
+            i-1
+
+        ],
+
+        fmt
+
+    )
+
+
+
+    ws4.write_number(
+
+        i,
+
+        2,
+
+        clusters_3A[
+
+            i-1
+
+        ],
+
+        fmt
+
+    )
+
+
+
+    ws4.write(
+
+        i,
+
+        3,
+
+        is_rep,
+
+        fmt
+
+    )
+
+
+
+
+
+ws4.set_column(
+
+    "A:D",
+
+    25
+
+)
+
+
+
+
+
+# ============================================================
+
+# SHEET 5 — Zn DISTANCES
+
+# ============================================================
+
+
+
+ws5 = workbook.add_worksheet(
+
+    "ZN601_Distances"
+
+)
+
+
+
+headers = list(
+
+    zn_rows[0].keys()
+
+)
+
+
+
+
+
+for col, h in enumerate(
+
+    headers
+
+):
+
+
+
+    ws5.write(
+
+        0,
+
+        col,
+
+        h,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for row_i, row in enumerate(
+
+    zn_rows,
+
+    start=1
+
+):
+
+
+
+    for col, h in enumerate(
+
+        headers
+
+    ):
+
+
+
+        value = row[h]
+
+
+
+        if isinstance(
+
+            value,
+
+            float
+
+        ):
+
+
+
+            ws5.write_number(
+
+                row_i,
+
+                col,
+
+                value,
+
+                number_fmt
+
+            )
+
+
+
+        else:
+
+
+
+            ws5.write(
+
+                row_i,
+
+                col,
+
+                value,
+
+                normal_fmt
+
+            )
+
+
+
+
+
+ws5.set_column(
+
+    0,
+
+    len(headers)-1,
+
+    30
+
+)
+
+
+
+
+
+# ============================================================
+
+# SHEET 6 — FAMILY COMPARISON
+
+# ============================================================
+
+
+
+ws6 = workbook.add_worksheet(
+
+    "Vs_ZnFree_Families"
+
+)
+
+
+
+headers = list(
+
+    comparison_rows[0].keys()
+
+)
+
+
+
+
+
+for col, h in enumerate(
+
+    headers
+
+):
+
+
+
+    ws6.write(
+
+        0,
+
+        col,
+
+        h,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for row_i, row in enumerate(
+
+    comparison_rows,
+
+    start=1
+
+):
+
+
+
+    for col, h in enumerate(
+
+        headers
+
+    ):
+
+
+
+        value = row[h]
+
+
+
+        if isinstance(
+
+            value,
+
+            float
+
+        ):
+
+
+
+            ws6.write_number(
+
+                row_i,
+
+                col,
+
+                value,
+
+                number_fmt
+
+            )
+
+
+
+        else:
+
+
+
+            ws6.write(
+
+                row_i,
+
+                col,
+
+                value,
+
+                normal_fmt
+
+            )
+
+
+
+
+
+ws6.set_column(
+
+    0,
+
+    len(headers)-1,
+
+    31
+
+)
+
+
+
+
+
+# ============================================================
+
+# SHEET 7 — METHOD
+
+# ============================================================
+
+
+
+ws7 = workbook.add_worksheet(
+
+    "Method"
+
+)
+
+
+
+method_rows = [
+
+
+
+    [
+
+        "Receptor",
+
+        "AK1 fixed chain A with crystallographic ZN601 retained."
+
+    ],
+
+
+
+    [
+
+        "Scoring",
+
+        "AutoDock Vina 1.2.7 standard Vina scoring."
+
+    ],
+
+
+
+    [
+
+        "Seeds",
+
+        ", ".join(
+
+            str(s)
+
+            for s in SEEDS
+
+        )
+
+    ],
+
+
+
+    [
+
+        "Exhaustiveness",
+
+        "16"
+
+    ],
+
+
+
+    [
+
+        "Modes",
+
+        "10 per seed"
+
+    ],
+
+
+
+    [
+
+        "RMSD",
+
+        "Direct heavy-atom positional RMSD in the common AK1 coordinate frame; no ligand superposition."
+
+    ],
+
+
+
+    [
+
+        "Clustering",
+
+        "Complete-link hierarchical clustering of pairwise positional RMSD; evaluated at 2.0 A and 3.0 A thresholds."
+
+    ],
+
+
+
+    [
+
+        "Representative",
+
+        "Medoid-like pose: member of the largest 2.0 A cluster with the lowest mean RMSD to other members."
+
+    ],
+
+
+
+    [
+
+        "Metal interpretation",
+
+        "Standard-Vina Zn-retained analysis is a receptor-state sensitivity test and not a dedicated metallodocking/free-energy calculation."
+
+    ]
+
+]
+
+
+
+
+
+for row_i, values in enumerate(
+
+    method_rows
+
+):
+
+
+
+    ws7.write(
+
+        row_i,
+
+        0,
+
+        values[0],
+
+        header_fmt
+
+    )
+
+
+
+    ws7.write(
+
+        row_i,
+
+        1,
+
+        values[1],
+
+        normal_fmt
+
+    )
+
+
+
+
+
+ws7.set_column(
+
+    "A:A",
+
+    30
+
+)
+
+
+
+ws7.set_column(
+
+    "B:B",
+
+    110
+
+)
+
+
+
+
+
+workbook.close()
+
+
+
+
+
+# ============================================================
+
+# FINISHED
+
+# ============================================================
+
+
+
+print()
+
+print("=" * 90)
+
+print("FILES SAVED")
+
+print("=" * 90)
+
+
+
+print()
+
+print(XLSX)
+
+
+
+print()
+
+print(scores_csv)
+
+print(rmsd_csv)
+
+print(comparison_csv)
+
+print(zn_csv)
+
+END FILE: AK1_ZN601_10seed_comprehensive.py
+
+================================================================================
+FILE: AK1_ZN601_classify_pose.py
+Executable source: code/AK1_ZN601_classify_pose.py
+================================================================================
+from pathlib import Path
+
+import subprocess
+
+import sys
+
+import math
+
+
+
+from rdkit import Chem
+
+import xlsxwriter
+
+
+
+
+
+# ============================================================
+
+# PATHS
+
+# ============================================================
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+
+
+DOCKING = PROJECT / "docking"
+
+
+
+OUTPUT_DIR = (
+
+    PROJECT
+
+    / "results"
+
+    / "AK1_ZN_sensitivity"
+
+)
+
+
+
+OUTPUT_DIR.mkdir(
+
+    parents=True,
+
+    exist_ok=True
+
+)
+
+
+
+POSE_DIR = OUTPUT_DIR / "original_10_reference_poses"
+
+
+
+POSE_DIR.mkdir(
+
+    parents=True,
+
+    exist_ok=True
+
+)
+
+
+
+
+
+# ============================================================
+
+# ORIGINAL SEEDS / CLUSTER MEMBERSHIP
+
+# ============================================================
+
+
+
+SEEDS = [
+
+    1001,
+
+    2002,
+
+    3003,
+
+    4004,
+
+    5005,
+
+    6006,
+
+    7007,
+
+    8008,
+
+    9009,
+
+    10101
+
+]
+
+
+
+DOMINANT = {
+
+    1001,
+
+    2002,
+
+    3003,
+
+    4004,
+
+    5005,
+
+    7007,
+
+    9009,
+
+    10101
+
+}
+
+
+
+ALTERNATIVE = {
+
+    6006,
+
+    8008
+
+}
+
+
+
+
+
+# ============================================================
+
+# Zn601 PILOT POSE
+
+# ============================================================
+
+
+
+ZN_POSE_FILE = (
+
+    OUTPUT_DIR
+
+    / "AK1_ISO_seed9009_ZN601_best.sdf"
+
+)
+
+
+
+
+
+# ============================================================
+
+# MEEKO EXPORT
+
+# ============================================================
+
+
+
+MEEKO_EXPORT = (
+
+    Path(sys.prefix)
+
+    / "Lib"
+
+    / "site-packages"
+
+    / "meeko"
+
+    / "cli"
+
+    / "mk_export.py"
+
+)
+
+
+
+
+
+# ============================================================
+
+# EXPORT FIRST/BEST ORIGINAL POSE
+
+# ============================================================
+
+
+
+def get_original_pose(seed):
+
+
+
+    pdbqt = (
+
+        DOCKING
+
+        / f"AK1_ISO_seed{seed}.pdbqt"
+
+    )
+
+
+
+    all_sdf = (
+
+        POSE_DIR
+
+        / f"AK1_ISO_seed{seed}_all.sdf"
+
+    )
+
+
+
+    best_sdf = (
+
+        POSE_DIR
+
+        / f"AK1_ISO_seed{seed}_best.sdf"
+
+    )
+
+
+
+    if not all_sdf.exists():
+
+
+
+        subprocess.run(
+
+            [
+
+                sys.executable,
+
+                str(MEEKO_EXPORT),
+
+                str(pdbqt),
+
+                "-s",
+
+                str(all_sdf)
+
+            ],
+
+            check=True
+
+        )
+
+
+
+    supplier = Chem.SDMolSupplier(
+
+        str(all_sdf),
+
+        removeHs=False
+
+    )
+
+
+
+    mol = None
+
+
+
+    for candidate in supplier:
+
+
+
+        if candidate is not None:
+
+            mol = candidate
+
+            break
+
+
+
+    if mol is None:
+
+        raise RuntimeError(
+
+            f"Could not read seed {seed}"
+
+        )
+
+
+
+    if not best_sdf.exists():
+
+
+
+        writer = Chem.SDWriter(
+
+            str(best_sdf)
+
+        )
+
+
+
+        writer.write(mol)
+
+        writer.close()
+
+
+
+    return mol
+
+
+
+
+
+# ============================================================
+
+# READ Zn601 POSE
+
+# ============================================================
+
+
+
+zn_pose = Chem.MolFromMolFile(
+
+    str(ZN_POSE_FILE),
+
+    removeHs=False
+
+)
+
+
+
+if zn_pose is None:
+
+
+
+    raise RuntimeError(
+
+        "Could not read ZN601 pilot pose."
+
+    )
+
+
+
+
+
+# ============================================================
+
+# POSITIONAL RMSD
+
+# No superposition: all poses are already in same AK1 frame
+
+# ============================================================
+
+
+
+def positional_rmsd(mol1, mol2):
+
+
+
+    if (
+
+        mol1.GetNumAtoms()
+
+        !=
+
+        mol2.GetNumAtoms()
+
+    ):
+
+
+
+        raise RuntimeError(
+
+            "Different atom counts."
+
+        )
+
+
+
+    conf1 = mol1.GetConformer()
+
+    conf2 = mol2.GetConformer()
+
+
+
+    values = []
+
+
+
+    for i in range(
+
+        mol1.GetNumAtoms()
+
+    ):
+
+
+
+        a1 = mol1.GetAtomWithIdx(i)
+
+        a2 = mol2.GetAtomWithIdx(i)
+
+
+
+        if (
+
+            a1.GetAtomicNum()
+
+            !=
+
+            a2.GetAtomicNum()
+
+        ):
+
+
+
+            raise RuntimeError(
+
+                f"Atom mismatch at {i}"
+
+            )
+
+
+
+        if a1.GetAtomicNum() == 1:
+
+            continue
+
+
+
+        p1 = conf1.GetAtomPosition(i)
+
+        p2 = conf2.GetAtomPosition(i)
+
+
+
+        values.append(
+
+            (p1.x - p2.x) ** 2
+
+            +
+
+            (p1.y - p2.y) ** 2
+
+            +
+
+            (p1.z - p2.z) ** 2
+
+        )
+
+
+
+    return math.sqrt(
+
+        sum(values)
+
+        /
+
+        len(values)
+
+    )
+
+
+
+
+
+# ============================================================
+
+# COMPARE AGAINST ALL ORIGINAL POSES
+
+# ============================================================
+
+
+
+rows = []
+
+
+
+for seed in SEEDS:
+
+
+
+    original = get_original_pose(seed)
+
+
+
+    rmsd = positional_rmsd(
+
+        zn_pose,
+
+        original
+
+    )
+
+
+
+    if seed in DOMINANT:
+
+
+
+        cluster = "Dominant"
+
+
+
+    else:
+
+
+
+        cluster = "Alternative"
+
+
+
+    rows.append({
+
+        "Seed": seed,
+
+        "Original cluster": cluster,
+
+        "RMSD to ZN601 pose (A)": rmsd
+
+    })
+
+
+
+
+
+rows.sort(
+
+    key=lambda x:
+
+        x["RMSD to ZN601 pose (A)"]
+
+)
+
+
+
+
+
+# ============================================================
+
+# CLUSTER SUMMARIES
+
+# ============================================================
+
+
+
+dominant_values = [
+
+    r["RMSD to ZN601 pose (A)"]
+
+    for r in rows
+
+    if r["Original cluster"] == "Dominant"
+
+]
+
+
+
+alternative_values = [
+
+    r["RMSD to ZN601 pose (A)"]
+
+    for r in rows
+
+    if r["Original cluster"] == "Alternative"
+
+]
+
+
+
+
+
+dominant_mean = (
+
+    sum(dominant_values)
+
+    /
+
+    len(dominant_values)
+
+)
+
+
+
+alternative_mean = (
+
+    sum(alternative_values)
+
+    /
+
+    len(alternative_values)
+
+)
+
+
+
+
+
+nearest = rows[0]
+
+
+
+
+
+if (
+
+    alternative_mean
+
+    <
+
+    dominant_mean
+
+):
+
+
+
+    closest_family = (
+
+        "Original alternative cluster"
+
+    )
+
+
+
+else:
+
+
+
+    closest_family = (
+
+        "Original dominant cluster"
+
+    )
+
+
+
+
+
+# ============================================================
+
+# PRINT
+
+# ============================================================
+
+
+
+print()
+
+print("=" * 80)
+
+print("ZN601 PILOT POSE vs ORIGINAL 10 Zn-FREE POSES")
+
+print("=" * 80)
+
+
+
+print()
+
+
+
+print(
+
+    f"{'Seed':<10}"
+
+    f"{'Cluster':<15}"
+
+    f"{'RMSD (A)':<12}"
+
+)
+
+
+
+print("-" * 50)
+
+
+
+for row in rows:
+
+
+
+    print(
+
+        f"{row['Seed']:<10}"
+
+        f"{row['Original cluster']:<15}"
+
+        f"{row['RMSD to ZN601 pose (A)']:<12.3f}"
+
+    )
+
+
+
+
+
+print()
+
+print(
+
+    "Mean RMSD to dominant cluster:",
+
+    f"{dominant_mean:.3f} A"
+
+)
+
+
+
+print(
+
+    "Mean RMSD to alternative cluster:",
+
+    f"{alternative_mean:.3f} A"
+
+)
+
+
+
+print()
+
+
+
+print(
+
+    "Nearest original pose:",
+
+    f"seed {nearest['Seed']} "
+
+    f"({nearest['Original cluster']}) "
+
+    f"RMSD = "
+
+    f"{nearest['RMSD to ZN601 pose (A)']:.3f} A"
+
+)
+
+
+
+print()
+
+
+
+print(
+
+    "Closest original pose family:",
+
+    closest_family
+
+)
+
+
+
+
+
+# ============================================================
+
+# EXCEL
+
+# ============================================================
+
+
+
+XLSX = (
+
+    OUTPUT_DIR
+
+    / "AK1_ZN601_pilot_pose_classification.xlsx"
+
+)
+
+
+
+workbook = xlsxwriter.Workbook(
+
+    XLSX
+
+)
+
+
+
+title_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_size": 15,
+
+    "font_color": "white",
+
+    "bg_color": "#1F4E78"
+
+})
+
+
+
+header_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_color": "white",
+
+    "bg_color": "#4472C4",
+
+    "border": 1,
+
+    "align": "center"
+
+})
+
+
+
+normal_fmt = workbook.add_format({
+
+    "border": 1
+
+})
+
+
+
+number_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "num_format": "0.000"
+
+})
+
+
+
+dominant_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "bg_color": "#FFF2CC"
+
+})
+
+
+
+alternative_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "bg_color": "#DDEBF7"
+
+})
+
+
+
+
+
+ws = workbook.add_worksheet(
+
+    "Pose_Comparison"
+
+)
+
+
+
+ws.merge_range(
+
+    "A1:C1",
+
+    "AK1 ZN601 Pilot Pose vs Original Zn-Free Pose Ensemble",
+
+    title_fmt
+
+)
+
+
+
+headers = [
+
+    "Seed",
+
+    "Original cluster",
+
+    "RMSD to ZN601 pose (A)"
+
+]
+
+
+
+for col, h in enumerate(headers):
+
+
+
+    ws.write(
+
+        2,
+
+        col,
+
+        h,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for row_i, row in enumerate(
+
+    rows,
+
+    start=3
+
+):
+
+
+
+    fmt = (
+
+        dominant_fmt
+
+        if row["Original cluster"]
+
+        == "Dominant"
+
+        else alternative_fmt
+
+    )
+
+
+
+    ws.write_number(
+
+        row_i,
+
+        0,
+
+        row["Seed"],
+
+        fmt
+
+    )
+
+
+
+    ws.write(
+
+        row_i,
+
+        1,
+
+        row["Original cluster"],
+
+        fmt
+
+    )
+
+
+
+    ws.write_number(
+
+        row_i,
+
+        2,
+
+        row["RMSD to ZN601 pose (A)"],
+
+        number_fmt
+
+    )
+
+
+
+
+
+ws.set_column(
+
+    "A:A",
+
+    12
+
+)
+
+
+
+ws.set_column(
+
+    "B:B",
+
+    20
+
+)
+
+
+
+ws.set_column(
+
+    "C:C",
+
+    24
+
+)
+
+
+
+
+
+# ============================================================
+
+# SUMMARY SHEET
+
+# ============================================================
+
+
+
+ws2 = workbook.add_worksheet(
+
+    "Summary"
+
+)
+
+
+
+summary_rows = [
+
+    [
+
+        "Mean RMSD to original dominant cluster",
+
+        dominant_mean
+
+    ],
+
+
+
+    [
+
+        "Mean RMSD to original alternative cluster",
+
+        alternative_mean
+
+    ],
+
+
+
+    [
+
+        "Nearest original seed",
+
+        nearest["Seed"]
+
+    ],
+
+
+
+    [
+
+        "Nearest original cluster",
+
+        nearest["Original cluster"]
+
+    ],
+
+
+
+    [
+
+        "Nearest-pose RMSD (A)",
+
+        nearest[
+
+            "RMSD to ZN601 pose (A)"
+
+        ]
+
+    ],
+
+
+
+    [
+
+        "Closest original pose family",
+
+        closest_family
+
+    ]
+
+]
+
+
+
+
+
+for row_i, values in enumerate(
+
+    summary_rows
+
+):
+
+
+
+    ws2.write(
+
+        row_i,
+
+        0,
+
+        values[0],
+
+        header_fmt
+
+    )
+
+
+
+    if isinstance(
+
+        values[1],
+
+        float
+
+    ):
+
+
+
+        ws2.write_number(
+
+            row_i,
+
+            1,
+
+            values[1],
+
+            number_fmt
+
+        )
+
+
+
+    else:
+
+
+
+        ws2.write(
+
+            row_i,
+
+            1,
+
+            values[1],
+
+            normal_fmt
+
+        )
+
+
+
+
+
+ws2.set_column(
+
+    "A:A",
+
+    45
+
+)
+
+
+
+ws2.set_column(
+
+    "B:B",
+
+    40
+
+)
+
+
+
+
+
+workbook.close()
+
+
+
+
+
+print()
+
+print("=" * 80)
+
+print("EXCEL SAVED")
+
+print("=" * 80)
+
+
+
+print(XLSX)
+
+END FILE: AK1_ZN601_classify_pose.py
+
+================================================================================
+FILE: AK1_ZN601_pilot_compare.py
+Executable source: code/AK1_ZN601_pilot_compare.py
+================================================================================
+from pathlib import Path
+
+import subprocess
+
+import sys
+
+import math
+
+
+
+from rdkit import Chem
+
+import xlsxwriter
+
+
+
+
+
+# ============================================================
+
+# PATHS
+
+# ============================================================
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+
+
+DOCKING = PROJECT / "docking"
+
+RECEPTORS = PROJECT / "receptors"
+
+
+
+OUTPUT_DIR = (
+
+    PROJECT
+
+    / "results"
+
+    / "AK1_ZN_sensitivity"
+
+)
+
+
+
+OUTPUT_DIR.mkdir(
+
+    parents=True,
+
+    exist_ok=True
+
+)
+
+
+
+
+
+ZNFREE_PDBQT = (
+
+    DOCKING
+
+    / "AK1_ISO_seed9009.pdbqt"
+
+)
+
+
+
+ZN601_PDBQT = (
+
+    DOCKING
+
+    / "AK1_ZN601_ISO_seed9009.pdbqt"
+
+)
+
+
+
+ZN_RECEPTOR_PDB = (
+
+    RECEPTORS
+
+    / "AK1_chainA_FIXED_ZN601.pdb"
+
+)
+
+
+
+
+
+# ============================================================
+
+# OUTPUT FILES
+
+# ============================================================
+
+
+
+ZNFREE_ALL_SDF = (
+
+    OUTPUT_DIR
+
+    / "AK1_ISO_seed9009_ZNfree_allposes.sdf"
+
+)
+
+
+
+ZN601_ALL_SDF = (
+
+    OUTPUT_DIR
+
+    / "AK1_ISO_seed9009_ZN601_allposes.sdf"
+
+)
+
+
+
+ZNFREE_BEST_SDF = (
+
+    OUTPUT_DIR
+
+    / "AK1_ISO_seed9009_ZNfree_best.sdf"
+
+)
+
+
+
+ZN601_BEST_SDF = (
+
+    OUTPUT_DIR
+
+    / "AK1_ISO_seed9009_ZN601_best.sdf"
+
+)
+
+
+
+XLSX_OUTPUT = (
+
+    OUTPUT_DIR
+
+    / "AK1_ZN601_seed9009_pilot_comparison.xlsx"
+
+)
+
+
+
+
+
+# ============================================================
+
+# MEEKO EXPORT SCRIPT
+
+# ============================================================
+
+
+
+MEEKO_EXPORT = (
+
+    Path(sys.prefix)
+
+    / "Lib"
+
+    / "site-packages"
+
+    / "meeko"
+
+    / "cli"
+
+    / "mk_export.py"
+
+)
+
+
+
+
+
+# ============================================================
+
+# READ BEST VINA SCORE
+
+# ============================================================
+
+
+
+def get_best_score(path):
+
+
+
+    with open(
+
+        path,
+
+        "r",
+
+        encoding="utf-8"
+
+    ) as f:
+
+
+
+        for line in f:
+
+
+
+            if line.startswith(
+
+                "REMARK VINA RESULT:"
+
+            ):
+
+
+
+                return float(
+
+                    line.split()[3]
+
+                )
+
+
+
+    raise RuntimeError(
+
+        f"No Vina score found in {path}"
+
+    )
+
+
+
+
+
+# ============================================================
+
+# EXPORT PDBQT TO SDF
+
+# ============================================================
+
+
+
+def export_to_sdf(
+
+    pdbqt,
+
+    output_sdf
+
+):
+
+
+
+    subprocess.run(
+
+        [
+
+            sys.executable,
+
+            str(MEEKO_EXPORT),
+
+            str(pdbqt),
+
+            "-s",
+
+            str(output_sdf)
+
+        ],
+
+        check=True
+
+    )
+
+
+
+
+
+# ============================================================
+
+# READ FIRST / BEST POSE
+
+# ============================================================
+
+
+
+def read_best_pose(
+
+    all_sdf,
+
+    best_sdf
+
+):
+
+
+
+    supplier = Chem.SDMolSupplier(
+
+        str(all_sdf),
+
+        removeHs=False
+
+    )
+
+
+
+    mol = None
+
+
+
+    for candidate in supplier:
+
+
+
+        if candidate is not None:
+
+            mol = candidate
+
+            break
+
+
+
+    if mol is None:
+
+
+
+        raise RuntimeError(
+
+            f"No valid molecule in {all_sdf}"
+
+        )
+
+
+
+
+
+    writer = Chem.SDWriter(
+
+        str(best_sdf)
+
+    )
+
+
+
+    writer.write(mol)
+
+    writer.close()
+
+
+
+    return mol
+
+
+
+
+
+# ============================================================
+
+# EXPORT BOTH POSES
+
+# ============================================================
+
+
+
+print()
+
+print("Exporting Zn-free pose...")
+
+
+
+export_to_sdf(
+
+    ZNFREE_PDBQT,
+
+    ZNFREE_ALL_SDF
+
+)
+
+
+
+print("Exporting ZN601-retained pose...")
+
+
+
+export_to_sdf(
+
+    ZN601_PDBQT,
+
+    ZN601_ALL_SDF
+
+)
+
+
+
+
+
+znfree = read_best_pose(
+
+    ZNFREE_ALL_SDF,
+
+    ZNFREE_BEST_SDF
+
+)
+
+
+
+zn601 = read_best_pose(
+
+    ZN601_ALL_SDF,
+
+    ZN601_BEST_SDF
+
+)
+
+
+
+
+
+# ============================================================
+
+# VERIFY ATOM ORDER
+
+# ============================================================
+
+
+
+if znfree.GetNumAtoms() != zn601.GetNumAtoms():
+
+
+
+    raise RuntimeError(
+
+        "The two poses have different atom counts."
+
+    )
+
+
+
+
+
+for i in range(
+
+    znfree.GetNumAtoms()
+
+):
+
+
+
+    a = znfree.GetAtomWithIdx(i)
+
+    b = zn601.GetAtomWithIdx(i)
+
+
+
+    if (
+
+        a.GetAtomicNum()
+
+        !=
+
+        b.GetAtomicNum()
+
+    ):
+
+
+
+        raise RuntimeError(
+
+            f"Atom mismatch at index {i}"
+
+        )
+
+
+
+
+
+# ============================================================
+
+# POSITIONAL RMSD
+
+#
+
+# IMPORTANT:
+
+# No ligand superposition is performed.
+
+# Both poses are already in the same AK1 coordinate frame.
+
+# ============================================================
+
+
+
+conf1 = znfree.GetConformer()
+
+conf2 = zn601.GetConformer()
+
+
+
+squared = []
+
+heavy_atom_count = 0
+
+
+
+
+
+for i in range(
+
+    znfree.GetNumAtoms()
+
+):
+
+
+
+    atom = znfree.GetAtomWithIdx(i)
+
+
+
+    if atom.GetAtomicNum() == 1:
+
+        continue
+
+
+
+    p1 = conf1.GetAtomPosition(i)
+
+    p2 = conf2.GetAtomPosition(i)
+
+
+
+    d2 = (
+
+        (p1.x - p2.x) ** 2
+
+        +
+
+        (p1.y - p2.y) ** 2
+
+        +
+
+        (p1.z - p2.z) ** 2
+
+    )
+
+
+
+    squared.append(d2)
+
+
+
+    heavy_atom_count += 1
+
+
+
+
+
+pose_rmsd = math.sqrt(
+
+    sum(squared)
+
+    /
+
+    len(squared)
+
+)
+
+
+
+
+
+# ============================================================
+
+# READ ZN601 COORDINATE
+
+# ============================================================
+
+
+
+zn_coord = None
+
+
+
+with open(
+
+    ZN_RECEPTOR_PDB,
+
+    "r"
+
+) as f:
+
+
+
+    for line in f:
+
+
+
+        if (
+
+            line.startswith("HETATM")
+
+            and
+
+            line[17:20].strip() == "ZN"
+
+            and
+
+            line[22:26].strip() == "601"
+
+        ):
+
+
+
+            zn_coord = (
+
+                float(line[30:38]),
+
+                float(line[38:46]),
+
+                float(line[46:54])
+
+            )
+
+
+
+            break
+
+
+
+
+
+if zn_coord is None:
+
+
+
+    raise RuntimeError(
+
+        "Could not locate ZN601."
+
+    )
+
+
+
+
+
+# ============================================================
+
+# ZN601 -> ISO MINIMUM DISTANCES
+
+# ============================================================
+
+
+
+conf = zn601.GetConformer()
+
+
+
+min_all = None
+
+min_all_atom = None
+
+
+
+min_polar = None
+
+min_polar_atom = None
+
+
+
+
+
+for atom in zn601.GetAtoms():
+
+
+
+    if atom.GetAtomicNum() == 1:
+
+        continue
+
+
+
+    i = atom.GetIdx()
+
+
+
+    pos = conf.GetAtomPosition(i)
+
+
+
+    d = math.sqrt(
+
+        (pos.x - zn_coord[0]) ** 2
+
+        +
+
+        (pos.y - zn_coord[1]) ** 2
+
+        +
+
+        (pos.z - zn_coord[2]) ** 2
+
+    )
+
+
+
+
+
+    if (
+
+        min_all is None
+
+        or d < min_all
+
+    ):
+
+
+
+        min_all = d
+
+        min_all_atom = (
+
+            f"{atom.GetSymbol()}{i+1}"
+
+        )
+
+
+
+
+
+    if (
+
+        atom.GetSymbol().upper()
+
+        in {"O", "N", "S"}
+
+    ):
+
+
+
+        if (
+
+            min_polar is None
+
+            or d < min_polar
+
+        ):
+
+
+
+            min_polar = d
+
+            min_polar_atom = (
+
+                f"{atom.GetSymbol()}{i+1}"
+
+            )
+
+
+
+
+
+# ============================================================
+
+# SCORES
+
+# ============================================================
+
+
+
+score_znfree = get_best_score(
+
+    ZNFREE_PDBQT
+
+)
+
+
+
+score_zn601 = get_best_score(
+
+    ZN601_PDBQT
+
+)
+
+
+
+score_difference = (
+
+    score_zn601
+
+    -
+
+    score_znfree
+
+)
+
+
+
+
+
+# ============================================================
+
+# PRINT RESULTS
+
+# ============================================================
+
+
+
+print()
+
+print("=" * 75)
+
+print(
+
+    "AK1 ZN601 SENSITIVITY — SEED 9009 PILOT"
+
+)
+
+print("=" * 75)
+
+
+
+print()
+
+print(
+
+    f"Zn-free score:        "
+
+    f"{score_znfree:.3f} kcal/mol"
+
+)
+
+
+
+print(
+
+    f"ZN601-retained score: "
+
+    f"{score_zn601:.3f} kcal/mol"
+
+)
+
+
+
+print(
+
+    f"Score difference:      "
+
+    f"{score_difference:+.3f} kcal/mol"
+
+)
+
+
+
+print()
+
+
+
+print(
+
+    f"Heavy-atom positional RMSD: "
+
+    f"{pose_rmsd:.3f} A"
+
+)
+
+
+
+print()
+
+
+
+print(
+
+    f"Closest ISO atom to ZN601: "
+
+    f"{min_all_atom} at {min_all:.3f} A"
+
+)
+
+
+
+print(
+
+    f"Closest ISO polar atom to ZN601: "
+
+    f"{min_polar_atom} at {min_polar:.3f} A"
+
+)
+
+
+
+
+
+# ============================================================
+
+# INTERPRETATION
+
+# ============================================================
+
+
+
+if pose_rmsd < 1.0:
+
+
+
+    pose_interpretation = (
+
+        "Very similar pose"
+
+    )
+
+
+
+elif pose_rmsd < 2.0:
+
+
+
+    pose_interpretation = (
+
+        "Similar pose"
+
+    )
+
+
+
+elif pose_rmsd < 3.0:
+
+
+
+    pose_interpretation = (
+
+        "Moderately changed pose"
+
+    )
+
+
+
+else:
+
+
+
+    pose_interpretation = (
+
+        "Substantially different pose"
+
+    )
+
+
+
+
+
+# ============================================================
+
+# EXCEL
+
+# ============================================================
+
+
+
+workbook = xlsxwriter.Workbook(
+
+    XLSX_OUTPUT
+
+)
+
+
+
+
+
+title_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_size": 15,
+
+    "font_color": "white",
+
+    "bg_color": "#1F4E78"
+
+})
+
+
+
+header_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_color": "white",
+
+    "bg_color": "#4472C4",
+
+    "border": 1
+
+})
+
+
+
+normal_fmt = workbook.add_format({
+
+    "border": 1
+
+})
+
+
+
+number_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "num_format": "0.000"
+
+})
+
+
+
+
+
+ws = workbook.add_worksheet(
+
+    "Pilot_Comparison"
+
+)
+
+
+
+
+
+ws.merge_range(
+
+    "A1:C1",
+
+    "AK1 ZN601 Sensitivity Pilot — Seed 9009",
+
+    title_fmt
+
+)
+
+
+
+
+
+headers = [
+
+    "Metric",
+
+    "Value",
+
+    "Interpretation"
+
+]
+
+
+
+
+
+for col, h in enumerate(headers):
+
+
+
+    ws.write(
+
+        2,
+
+        col,
+
+        h,
+
+        header_fmt
+
+    )
+
+
+
+
+
+rows = [
+
+
+
+    [
+
+        "Zn-free best Vina score",
+
+        score_znfree,
+
+        "Original AK1 receptor"
+
+    ],
+
+
+
+    [
+
+        "ZN601-retained best Vina score",
+
+        score_zn601,
+
+        "AK1 receptor with crystallographic ZN601"
+
+    ],
+
+
+
+    [
+
+        "Score difference",
+
+        score_difference,
+
+        "ZN601 minus Zn-free"
+
+    ],
+
+
+
+    [
+
+        "Pose heavy-atom positional RMSD",
+
+        pose_rmsd,
+
+        pose_interpretation
+
+    ],
+
+
+
+    [
+
+        "Closest ISO heavy atom to ZN601",
+
+        min_all,
+
+        min_all_atom
+
+    ],
+
+
+
+    [
+
+        "Closest ISO polar atom to ZN601",
+
+        min_polar,
+
+        min_polar_atom
+
+    ],
+
+
+
+    [
+
+        "Heavy atoms used for RMSD",
+
+        heavy_atom_count,
+
+        ""
+
+    ]
+
+]
+
+
+
+
+
+for r, values in enumerate(
+
+    rows,
+
+    start=3
+
+):
+
+
+
+    ws.write(
+
+        r,
+
+        0,
+
+        values[0],
+
+        normal_fmt
+
+    )
+
+
+
+    if isinstance(
+
+        values[1],
+
+        float
+
+    ):
+
+
+
+        ws.write_number(
+
+            r,
+
+            1,
+
+            values[1],
+
+            number_fmt
+
+        )
+
+
+
+    else:
+
+
+
+        ws.write(
+
+            r,
+
+            1,
+
+            values[1],
+
+            normal_fmt
+
+        )
+
+
+
+    ws.write(
+
+        r,
+
+        2,
+
+        values[2],
+
+        normal_fmt
+
+    )
+
+
+
+
+
+ws.set_column(
+
+    "A:A",
+
+    38
+
+)
+
+
+
+ws.set_column(
+
+    "B:B",
+
+    20
+
+)
+
+
+
+ws.set_column(
+
+    "C:C",
+
+    55
+
+)
+
+
+
+
+
+# ============================================================
+
+# METHOD NOTES
+
+# ============================================================
+
+
+
+ws2 = workbook.add_worksheet(
+
+    "Method_Notes"
+
+)
+
+
+
+notes = [
+
+
+
+    [
+
+        "Comparison",
+
+        "Zn-free AK1 versus AK1 with crystallographic ZN601 retained."
+
+    ],
+
+
+
+    [
+
+        "Seed",
+
+        "9009"
+
+    ],
+
+
+
+    [
+
+        "Docking box",
+
+        "Identical to the original AK1 docking experiment."
+
+    ],
+
+
+
+    [
+
+        "Exhaustiveness",
+
+        "16"
+
+    ],
+
+
+
+    [
+
+        "Number of modes",
+
+        "10"
+
+    ],
+
+
+
+    [
+
+        "RMSD definition",
+
+        "Direct positional RMSD of ligand heavy atoms in the common AK1 coordinate frame; no ligand superposition was performed."
+
+    ],
+
+
+
+    [
+
+        "Interpretation caution",
+
+        "The retained-Zn run is a receptor-state sensitivity analysis using standard Vina scoring, not a dedicated metallodocking free-energy calculation."
+
+    ]
+
+]
+
+
+
+
+
+for r, values in enumerate(
+
+    notes
+
+):
+
+
+
+    ws2.write(
+
+        r,
+
+        0,
+
+        values[0],
+
+        header_fmt
+
+    )
+
+
+
+    ws2.write(
+
+        r,
+
+        1,
+
+        values[1],
+
+        normal_fmt
+
+    )
+
+
+
+
+
+ws2.set_column(
+
+    "A:A",
+
+    30
+
+)
+
+
+
+ws2.set_column(
+
+    "B:B",
+
+    110
+
+)
+
+
+
+
+
+workbook.close()
+
+
+
+
+
+print()
+
+print("=" * 75)
+
+print("FILES SAVED")
+
+print("=" * 75)
+
+
+
+print()
+
+print(XLSX_OUTPUT)
+
+
+
+print()
+
+print(ZNFREE_BEST_SDF)
+
+print(ZN601_BEST_SDF)
+
+END FILE: AK1_ZN601_pilot_compare.py
+
+================================================================================
+FILE: AK1_Zn_environment_to_excel.py
+Executable source: code/AK1_Zn_environment_to_excel.py
+================================================================================
+from pathlib import Path
+
+import math
+
+import csv
+
+import xlsxwriter
+
+
+
+
+
+# ============================================================
+
+# PATHS
+
+# ============================================================
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+
+
+PDB = (
+
+    PROJECT
+
+    / "structures"
+
+    / "AK1_1Z83.pdb"
+
+)
+
+
+
+OUTPUT_DIR = (
+
+    PROJECT
+
+    / "results"
+
+    / "AK1_Zn_sensitivity"
+
+)
+
+
+
+OUTPUT_DIR.mkdir(
+
+    parents=True,
+
+    exist_ok=True
+
+)
+
+
+
+XLSX_OUTPUT = (
+
+    OUTPUT_DIR
+
+    / "AK1_1Z83_Zn_environment_analysis.xlsx"
+
+)
+
+
+
+CSV_OUTPUT = (
+
+    OUTPUT_DIR
+
+    / "AK1_1Z83_Zn_neighbors_within5A.csv"
+
+)
+
+
+
+
+
+# ============================================================
+
+# DISTANCE
+
+# ============================================================
+
+
+
+def dist(a, b):
+
+
+
+    return math.sqrt(
+
+        (a[0] - b[0]) ** 2
+
+        + (a[1] - b[1]) ** 2
+
+        + (a[2] - b[2]) ** 2
+
+    )
+
+
+
+
+
+# ============================================================
+
+# READ PDB
+
+# ============================================================
+
+
+
+atoms = []
+
+
+
+with open(PDB, "r") as f:
+
+
+
+    for line in f:
+
+
+
+        if not (
+
+            line.startswith("ATOM")
+
+            or line.startswith("HETATM")
+
+        ):
+
+            continue
+
+
+
+        record = line[0:6].strip()
+
+        atom = line[12:16].strip()
+
+        resn = line[17:20].strip()
+
+        chain = line[21].strip()
+
+        resi = line[22:26].strip()
+
+
+
+        x = float(line[30:38])
+
+        y = float(line[38:46])
+
+        z = float(line[46:54])
+
+
+
+        element = line[76:78].strip()
+
+
+
+        if not element:
+
+            element = atom[0]
+
+
+
+        atoms.append({
+
+            "record": record,
+
+            "atom": atom,
+
+            "resn": resn,
+
+            "chain": chain,
+
+            "resi": resi,
+
+            "element": element.upper(),
+
+            "coord": (x, y, z)
+
+        })
+
+
+
+
+
+# ============================================================
+
+# FIND CHAIN-A Zn
+
+# ============================================================
+
+
+
+zn_atoms = [
+
+    a for a in atoms
+
+    if a["resn"] == "ZN"
+
+    and a["chain"] == "A"
+
+]
+
+
+
+if not zn_atoms:
+
+    raise RuntimeError(
+
+        "No chain-A Zn atoms found."
+
+    )
+
+
+
+
+
+# ============================================================
+
+# BUILD 5-A NEIGHBOR TABLE
+
+# ============================================================
+
+
+
+neighbors = []
+
+
+
+for zn in zn_atoms:
+
+
+
+    zn_id = f"ZN{zn['resi']}"
+
+
+
+    for a in atoms:
+
+
+
+        if a is zn:
+
+            continue
+
+
+
+        d = dist(
+
+            zn["coord"],
+
+            a["coord"]
+
+        )
+
+
+
+        if d > 5.0:
+
+            continue
+
+
+
+        if a["record"] == "ATOM":
+
+
+
+            category = "PROTEIN"
+
+
+
+        elif a["resn"] == "AP5":
+
+
+
+            category = "AP5"
+
+
+
+        elif a["resn"] in {
+
+            "HOH",
+
+            "WAT"
+
+        }:
+
+
+
+            category = "WATER"
+
+
+
+        else:
+
+
+
+            category = "OTHER"
+
+
+
+
+
+        neighbors.append({
+
+            "Zn": zn_id,
+
+            "Zn residue": zn["resi"],
+
+            "Zn X": zn["coord"][0],
+
+            "Zn Y": zn["coord"][1],
+
+            "Zn Z": zn["coord"][2],
+
+            "Distance (A)": d,
+
+            "Category": category,
+
+            "Residue": f"{a['resn']}{a['resi']}",
+
+            "Residue name": a["resn"],
+
+            "Residue number": a["resi"],
+
+            "Chain": a["chain"],
+
+            "Atom": a["atom"],
+
+            "Element": a["element"]
+
+        })
+
+
+
+
+
+neighbors.sort(
+
+    key=lambda x: (
+
+        int(x["Zn residue"]),
+
+        x["Distance (A)"]
+
+    )
+
+)
+
+
+
+
+
+# ============================================================
+
+# SUMMARIES FOR EACH Zn
+
+# ============================================================
+
+
+
+summary = []
+
+
+
+for zn in zn_atoms:
+
+
+
+    zn_id = f"ZN{zn['resi']}"
+
+
+
+    rows = [
+
+        r for r in neighbors
+
+        if r["Zn"] == zn_id
+
+    ]
+
+
+
+    ap5_rows = [
+
+        r for r in rows
+
+        if r["Category"] == "AP5"
+
+    ]
+
+
+
+    protein_rows = [
+
+        r for r in rows
+
+        if r["Category"] == "PROTEIN"
+
+    ]
+
+
+
+    water_rows = [
+
+        r for r in rows
+
+        if r["Category"] == "WATER"
+
+    ]
+
+
+
+
+
+    nearest_ap5 = (
+
+        min(
+
+            ap5_rows,
+
+            key=lambda r:
+
+                r["Distance (A)"]
+
+        )
+
+        if ap5_rows
+
+        else None
+
+    )
+
+
+
+    nearest_protein = (
+
+        min(
+
+            protein_rows,
+
+            key=lambda r:
+
+                r["Distance (A)"]
+
+        )
+
+        if protein_rows
+
+        else None
+
+    )
+
+
+
+    nearest_water = (
+
+        min(
+
+            water_rows,
+
+            key=lambda r:
+
+                r["Distance (A)"]
+
+        )
+
+        if water_rows
+
+        else None
+
+    )
+
+
+
+
+
+    if zn["resi"] == "601":
+
+
+
+        interpretation = (
+
+            "Directly associated with the AP5 phosphate region: "
+
+            "Zn is within ~2.05–2.07 A of AP5 phosphate oxygens "
+
+            "and is additionally coordinated by crystallographic waters."
+
+        )
+
+
+
+        relevance = (
+
+            "High relevance for AP5-site docking sensitivity."
+
+        )
+
+
+
+    elif zn["resi"] == "641":
+
+
+
+        interpretation = (
+
+            "Primarily coordinated by AK1 GLU26/HIS36 and waters; "
+
+            "not directly associated with AP5 within the immediate "
+
+            "coordination shell."
+
+        )
+
+
+
+        relevance = (
+
+            "Likely lower direct relevance to AP5-site ligand docking."
+
+        )
+
+
+
+    else:
+
+
+
+        interpretation = ""
+
+        relevance = ""
+
+
+
+
+
+    summary.append({
+
+        "Zn": zn_id,
+
+        "X": zn["coord"][0],
+
+        "Y": zn["coord"][1],
+
+        "Z": zn["coord"][2],
+
+
+
+        "Nearest AP5 atom": (
+
+            nearest_ap5["Atom"]
+
+            if nearest_ap5 else ""
+
+        ),
+
+
+
+        "Nearest AP5 distance (A)": (
+
+            nearest_ap5["Distance (A)"]
+
+            if nearest_ap5 else None
+
+        ),
+
+
+
+        "Nearest protein residue": (
+
+            nearest_protein["Residue"]
+
+            if nearest_protein else ""
+
+        ),
+
+
+
+        "Nearest protein atom": (
+
+            nearest_protein["Atom"]
+
+            if nearest_protein else ""
+
+        ),
+
+
+
+        "Nearest protein distance (A)": (
+
+            nearest_protein["Distance (A)"]
+
+            if nearest_protein else None
+
+        ),
+
+
+
+        "Nearest water": (
+
+            nearest_water["Residue"]
+
+            if nearest_water else ""
+
+        ),
+
+
+
+        "Nearest water distance (A)": (
+
+            nearest_water["Distance (A)"]
+
+            if nearest_water else None
+
+        ),
+
+
+
+        "AP5 atoms within 5 A": len(
+
+            ap5_rows
+
+        ),
+
+
+
+        "Protein atoms within 5 A": len(
+
+            protein_rows
+
+        ),
+
+
+
+        "Waters within 5 A": len(
+
+            water_rows
+
+        ),
+
+
+
+        "Interpretation": interpretation,
+
+
+
+        "Docking relevance": relevance
+
+    })
+
+
+
+
+
+# ============================================================
+
+# SAVE CSV — ALL NEIGHBORS
+
+# ============================================================
+
+
+
+neighbor_headers = list(
+
+    neighbors[0].keys()
+
+)
+
+
+
+with open(
+
+    CSV_OUTPUT,
+
+    "w",
+
+    newline="",
+
+    encoding="utf-8"
+
+) as f:
+
+
+
+    writer = csv.DictWriter(
+
+        f,
+
+        fieldnames=neighbor_headers
+
+    )
+
+
+
+    writer.writeheader()
+
+    writer.writerows(neighbors)
+
+
+
+
+
+# ============================================================
+
+# EXCEL FORMATTING
+
+# ============================================================
+
+
+
+workbook = xlsxwriter.Workbook(
+
+    XLSX_OUTPUT
+
+)
+
+
+
+title_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_size": 15,
+
+    "font_color": "white",
+
+    "bg_color": "#1F4E78"
+
+})
+
+
+
+header_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_color": "white",
+
+    "bg_color": "#4472C4",
+
+    "border": 1,
+
+    "align": "center",
+
+    "text_wrap": True
+
+})
+
+
+
+normal_fmt = workbook.add_format({
+
+    "border": 1
+
+})
+
+
+
+dist_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "num_format": "0.000"
+
+})
+
+
+
+important_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "bg_color": "#FFF2CC"
+
+})
+
+
+
+ap5_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "bg_color": "#DDEBF7"
+
+})
+
+
+
+water_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "bg_color": "#E2F0D9"
+
+})
+
+
+
+
+
+# ============================================================
+
+# SHEET 1 — Zn SUMMARY
+
+# ============================================================
+
+
+
+ws = workbook.add_worksheet(
+
+    "Zn_Summary"
+
+)
+
+
+
+summary_headers = list(
+
+    summary[0].keys()
+
+)
+
+
+
+ws.merge_range(
+
+    0,
+
+    0,
+
+    0,
+
+    len(summary_headers) - 1,
+
+    "AK1 PDB 1Z83 Chain-A Zinc Environment Analysis",
+
+    title_fmt
+
+)
+
+
+
+for col, header in enumerate(
+
+    summary_headers
+
+):
+
+
+
+    ws.write(
+
+        2,
+
+        col,
+
+        header,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for row_i, row in enumerate(
+
+    summary,
+
+    start=3
+
+):
+
+
+
+    for col, header in enumerate(
+
+        summary_headers
+
+    ):
+
+
+
+        value = row[header]
+
+
+
+        fmt = (
+
+            important_fmt
+
+            if row["Zn"] == "ZN601"
+
+            else normal_fmt
+
+        )
+
+
+
+        if value is None:
+
+
+
+            ws.write(
+
+                row_i,
+
+                col,
+
+                "",
+
+                fmt
+
+            )
+
+
+
+        elif isinstance(
+
+            value,
+
+            float
+
+        ):
+
+
+
+            ws.write_number(
+
+                row_i,
+
+                col,
+
+                value,
+
+                dist_fmt
+
+            )
+
+
+
+        else:
+
+
+
+            ws.write(
+
+                row_i,
+
+                col,
+
+                value,
+
+                fmt
+
+            )
+
+
+
+
+
+ws.set_column(
+
+    0,
+
+    3,
+
+    14
+
+)
+
+
+
+ws.set_column(
+
+    4,
+
+    13,
+
+    24
+
+)
+
+
+
+ws.set_column(
+
+    14,
+
+    15,
+
+    65
+
+)
+
+
+
+
+
+# ============================================================
+
+# SHEET 2 — ALL NEIGHBORS WITHIN 5 A
+
+# ============================================================
+
+
+
+ws2 = workbook.add_worksheet(
+
+    "Neighbors_within_5A"
+
+)
+
+
+
+ws2.merge_range(
+
+    0,
+
+    0,
+
+    0,
+
+    len(neighbor_headers) - 1,
+
+    "Atoms Within 5.0 A of Chain-A Zn Ions",
+
+    title_fmt
+
+)
+
+
+
+
+
+for col, header in enumerate(
+
+    neighbor_headers
+
+):
+
+
+
+    ws2.write(
+
+        2,
+
+        col,
+
+        header,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for row_i, row in enumerate(
+
+    neighbors,
+
+    start=3
+
+):
+
+
+
+    category = row["Category"]
+
+
+
+    if category == "AP5":
+
+
+
+        row_fmt = ap5_fmt
+
+
+
+    elif category == "WATER":
+
+
+
+        row_fmt = water_fmt
+
+
+
+    elif row["Zn"] == "ZN601":
+
+
+
+        row_fmt = important_fmt
+
+
+
+    else:
+
+
+
+        row_fmt = normal_fmt
+
+
+
+
+
+    for col, header in enumerate(
+
+        neighbor_headers
+
+    ):
+
+
+
+        value = row[header]
+
+
+
+        if isinstance(
+
+            value,
+
+            float
+
+        ):
+
+
+
+            ws2.write_number(
+
+                row_i,
+
+                col,
+
+                value,
+
+                dist_fmt
+
+            )
+
+
+
+        else:
+
+
+
+            ws2.write(
+
+                row_i,
+
+                col,
+
+                value,
+
+                row_fmt
+
+            )
+
+
+
+
+
+ws2.set_column(
+
+    0,
+
+    len(neighbor_headers) - 1,
+
+    16
+
+)
+
+
+
+ws2.freeze_panes(
+
+    3,
+
+    0
+
+)
+
+
+
+
+
+# ============================================================
+
+# SHEET 3 — ZN601 AP5-SITE DETAILS
+
+# ============================================================
+
+
+
+ws3 = workbook.add_worksheet(
+
+    "ZN601_AP5_Site"
+
+)
+
+
+
+zn601_rows = [
+
+    r for r in neighbors
+
+    if r["Zn"] == "ZN601"
+
+]
+
+
+
+ws3.merge_range(
+
+    0,
+
+    0,
+
+    0,
+
+    len(neighbor_headers) - 1,
+
+    "ZN601: AP5-Site Zinc Environment",
+
+    title_fmt
+
+)
+
+
+
+for col, header in enumerate(
+
+    neighbor_headers
+
+):
+
+
+
+    ws3.write(
+
+        2,
+
+        col,
+
+        header,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for row_i, row in enumerate(
+
+    zn601_rows,
+
+    start=3
+
+):
+
+
+
+    if row["Category"] == "AP5":
+
+
+
+        row_fmt = ap5_fmt
+
+
+
+    elif row["Category"] == "WATER":
+
+
+
+        row_fmt = water_fmt
+
+
+
+    else:
+
+
+
+        row_fmt = normal_fmt
+
+
+
+
+
+    for col, header in enumerate(
+
+        neighbor_headers
+
+    ):
+
+
+
+        value = row[header]
+
+
+
+        if isinstance(
+
+            value,
+
+            float
+
+        ):
+
+
+
+            ws3.write_number(
+
+                row_i,
+
+                col,
+
+                value,
+
+                dist_fmt
+
+            )
+
+
+
+        else:
+
+
+
+            ws3.write(
+
+                row_i,
+
+                col,
+
+                value,
+
+                row_fmt
+
+            )
+
+
+
+
+
+ws3.set_column(
+
+    0,
+
+    len(neighbor_headers) - 1,
+
+    16
+
+)
+
+
+
+
+
+# ============================================================
+
+# SHEET 4 — METHOD / INTERPRETATION
+
+# ============================================================
+
+
+
+ws4 = workbook.add_worksheet(
+
+    "Method_Notes"
+
+)
+
+
+
+notes = [
+
+    [
+
+        "Structure",
+
+        "Human AK1 PDB 1Z83, chain A."
+
+    ],
+
+
+
+    [
+
+        "Neighbor cutoff",
+
+        "All protein, ligand and water atoms within 5.0 A of chain-A Zn ions were recorded."
+
+    ],
+
+
+
+    [
+
+        "ZN601",
+
+        "Located directly adjacent to AP5 phosphate oxygens O2D and O1G at approximately 2.05–2.07 A, with several coordinating crystallographic waters."
+
+    ],
+
+
+
+    [
+
+        "ZN641",
+
+        "Nearest direct coordination involves GLU26 OE2 (~1.97 A), HIS36 ND1 (~2.32 A), and waters; AP5 is not in its immediate coordination shell."
+
+    ],
+
+
+
+    [
+
+        "Sensitivity interpretation",
+
+        "ZN601 is the priority zinc ion for testing whether inclusion of the crystallographic metal changes the predicted AK1-isorhamnetin docking pose or score."
+
+    ],
+
+
+
+    [
+
+        "Important caution",
+
+        "Retention of a crystallographic metal in docking requires careful receptor preparation and appropriate treatment of metal charge/coordination. A metal-containing Vina run should therefore be interpreted as a sensitivity analysis rather than an experimentally measured metal-dependent affinity."
+
+    ]
+
+]
+
+
+
+
+
+ws4.write(
+
+    0,
+
+    0,
+
+    "Item",
+
+    header_fmt
+
+)
+
+
+
+ws4.write(
+
+    0,
+
+    1,
+
+    "Description",
+
+    header_fmt
+
+)
+
+
+
+
+
+for row_i, values in enumerate(
+
+    notes,
+
+    start=1
+
+):
+
+
+
+    ws4.write(
+
+        row_i,
+
+        0,
+
+        values[0],
+
+        normal_fmt
+
+    )
+
+
+
+    ws4.write(
+
+        row_i,
+
+        1,
+
+        values[1],
+
+        normal_fmt
+
+    )
+
+
+
+
+
+ws4.set_column(
+
+    0,
+
+    0,
+
+    28
+
+)
+
+
+
+ws4.set_column(
+
+    1,
+
+    1,
+
+    110
+
+)
+
+
+
+
+
+workbook.close()
+
+
+
+
+
+# ============================================================
+
+# DONE
+
+# ============================================================
+
+
+
+print()
+
+print("=" * 90)
+
+print("Zn ANALYSIS FILES SAVED")
+
+print("=" * 90)
+
+
+
+print()
+
+print(CSV_OUTPUT)
+
+print(XLSX_OUTPUT)
+
+END FILE: AK1_Zn_environment_to_excel.py
+
+================================================================================
+FILE: AK1_combine_panelH.py
+Executable source: code/AK1_combine_panelH.py
+================================================================================
+from PIL import Image, ImageDraw, ImageFont
+
+from pathlib import Path
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+
+
+folder = PROJECT / "results" / "AK1_panelH_Zn"
+
+
+
+h1_file = folder / "AK1_panelH1_ZN601_clean.png"
+
+h2_file = folder / "AK1_panelH2_ZN641_clean.png"
+
+
+
+out_file = folder / "AK1_panelH_Zn_environment_FINAL.png"
+
+
+
+# ------------------------------------------------------------
+
+# Load images
+
+# ------------------------------------------------------------
+
+
+
+h1 = Image.open(h1_file).convert("RGB")
+
+h2 = Image.open(h2_file).convert("RGB")
+
+
+
+# Make both exactly the same size
+
+target_w = max(h1.width, h2.width)
+
+target_h = max(h1.height, h2.height)
+
+
+
+def fit_white(img, w, h):
+
+    canvas = Image.new("RGB", (w, h), "white")
+
+    x = (w - img.width) // 2
+
+    y = (h - img.height) // 2
+
+    canvas.paste(img, (x, y))
+
+    return canvas
+
+
+
+h1 = fit_white(h1, target_w, target_h)
+
+h2 = fit_white(h2, target_w, target_h)
+
+
+
+# ------------------------------------------------------------
+
+# Layout
+
+# ------------------------------------------------------------
+
+
+
+top_space = 260
+
+bottom_space = 100
+
+gap = 60
+
+side_margin = 60
+
+
+
+canvas_w = side_margin * 2 + target_w * 2 + gap
+
+canvas_h = top_space + target_h + bottom_space
+
+
+
+canvas = Image.new(
+
+    "RGB",
+
+    (canvas_w, canvas_h),
+
+    "white"
+
+)
+
+
+
+canvas.paste(
+
+    h1,
+
+    (side_margin, top_space)
+
+)
+
+
+
+canvas.paste(
+
+    h2,
+
+    (side_margin + target_w + gap, top_space)
+
+)
+
+
+
+draw = ImageDraw.Draw(canvas)
+
+
+
+# ------------------------------------------------------------
+
+# Fonts
+
+# ------------------------------------------------------------
+
+
+
+arial_bold = r"C:\Windows\Fonts\arialbd.ttf"
+
+arial = r"C:\Windows\Fonts\arial.ttf"
+
+
+
+panel_font = ImageFont.truetype(
+
+    arial_bold,
+
+    72
+
+)
+
+
+
+title_font = ImageFont.truetype(
+
+    arial_bold,
+
+    56
+
+)
+
+
+
+subtitle_font = ImageFont.truetype(
+
+    arial,
+
+    42
+
+)
+
+
+
+# ------------------------------------------------------------
+
+# Left panel H1
+
+# ------------------------------------------------------------
+
+
+
+left_x = side_margin
+
+
+
+draw.text(
+
+    (left_x, 35),
+
+    "H1",
+
+    font=panel_font,
+
+    fill="black"
+
+)
+
+
+
+draw.text(
+
+    (left_x + 110, 48),
+
+    "AP5-associated ZN601 site",
+
+    font=title_font,
+
+    fill="black"
+
+)
+
+
+
+draw.text(
+
+    (left_x + 110, 125),
+
+    "ZN601 coordinates AP5 phosphate oxygens at ~2.05–2.07 Å",
+
+    font=subtitle_font,
+
+    fill="black"
+
+)
+
+
+
+# ------------------------------------------------------------
+
+# Right panel H2
+
+# ------------------------------------------------------------
+
+
+
+right_x = side_margin + target_w + gap
+
+
+
+draw.text(
+
+    (right_x, 35),
+
+    "H2",
+
+    font=panel_font,
+
+    fill="black"
+
+)
+
+
+
+draw.text(
+
+    (right_x + 110, 48),
+
+    "Protein-associated ZN641 site",
+
+    font=title_font,
+
+    fill="black"
+
+)
+
+
+
+draw.text(
+
+    (right_x + 110, 125),
+
+    "ZN641 coordinates GLU26 and HIS36 at ~1.97 and ~2.32 Å",
+
+    font=subtitle_font,
+
+    fill="black"
+
+)
+
+
+
+# ------------------------------------------------------------
+
+# Save
+
+# ------------------------------------------------------------
+
+
+
+canvas.save(
+
+    out_file,
+
+    dpi=(600, 600)
+
+)
+
+
+
+print("Saved:")
+
+print(out_file)
+
+END FILE: AK1_combine_panelH.py
+
+================================================================================
+FILE: AK1_inspect_Zn_environment.py
+Executable source: code/AK1_inspect_Zn_environment.py
+================================================================================
+from pathlib import Path
+
+import math
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+PDB = PROJECT / "structures" / "AK1_1Z83.pdb"
+
+
+
+
+
+def dist(a, b):
+
+    return math.sqrt(
+
+        (a[0]-b[0])**2 +
+
+        (a[1]-b[1])**2 +
+
+        (a[2]-b[2])**2
+
+    )
+
+
+
+
+
+atoms = []
+
+
+
+with open(PDB, "r") as f:
+
+    for line in f:
+
+
+
+        if not (
+
+            line.startswith("ATOM")
+
+            or line.startswith("HETATM")
+
+        ):
+
+            continue
+
+
+
+        record = line[0:6].strip()
+
+        atom = line[12:16].strip()
+
+        resn = line[17:20].strip()
+
+        chain = line[21].strip()
+
+        resi = line[22:26].strip()
+
+
+
+        x = float(line[30:38])
+
+        y = float(line[38:46])
+
+        z = float(line[46:54])
+
+
+
+        element = line[76:78].strip()
+
+
+
+        if not element:
+
+            element = atom[0]
+
+
+
+        atoms.append({
+
+            "record": record,
+
+            "atom": atom,
+
+            "resn": resn,
+
+            "chain": chain,
+
+            "resi": resi,
+
+            "element": element.upper(),
+
+            "coord": (x, y, z)
+
+        })
+
+
+
+
+
+# Find chain-A zinc
+
+zn_atoms = [
+
+    a for a in atoms
+
+    if a["resn"] == "ZN"
+
+    and a["chain"] == "A"
+
+]
+
+
+
+if not zn_atoms:
+
+    raise RuntimeError("No chain-A Zn found.")
+
+
+
+print()
+
+print("=" * 80)
+
+print("CHAIN-A Zn ENVIRONMENT IN PDB 1Z83")
+
+print("=" * 80)
+
+
+
+for zn in zn_atoms:
+
+
+
+    print()
+
+    print(
+
+        f"Zn: chain {zn['chain']} residue {zn['resi']} "
+
+        f"at {zn['coord']}"
+
+    )
+
+
+
+    neighbours = []
+
+
+
+    for a in atoms:
+
+
+
+        if a is zn:
+
+            continue
+
+
+
+        d = dist(
+
+            zn["coord"],
+
+            a["coord"]
+
+        )
+
+
+
+        if d <= 5.0:
+
+            neighbours.append((d, a))
+
+
+
+    neighbours.sort(
+
+        key=lambda x: x[0]
+
+    )
+
+
+
+    print()
+
+    print("Atoms within 5.0 A:")
+
+    print("-" * 80)
+
+
+
+    for d, a in neighbours:
+
+
+
+        category = "OTHER"
+
+
+
+        if a["record"] == "ATOM":
+
+            category = "PROTEIN"
+
+
+
+        elif a["resn"] == "AP5":
+
+            category = "AP5"
+
+
+
+        elif a["resn"] in {"HOH", "WAT"}:
+
+            category = "WATER"
+
+
+
+        print(
+
+            f"{d:6.3f} A   "
+
+            f"{category:<8} "
+
+            f"{a['resn']:>4} "
+
+            f"{a['chain']} "
+
+            f"{a['resi']:>4} "
+
+            f"{a['atom']:<5}"
+
+        )
+
+
+
+
+
+# Specifically summarize nearest AP5 / protein / water distances
+
+def nearest(category_filter):
+
+
+
+    hits = []
+
+
+
+    for zn in zn_atoms:
+
+        for a in atoms:
+
+
+
+            if a is zn:
+
+                continue
+
+
+
+            if not category_filter(a):
+
+                continue
+
+
+
+            d = dist(
+
+                zn["coord"],
+
+                a["coord"]
+
+            )
+
+
+
+            hits.append(
+
+                (d, a)
+
+            )
+
+
+
+    hits.sort(
+
+        key=lambda x: x[0]
+
+    )
+
+
+
+    return hits[:10]
+
+
+
+
+
+print()
+
+print("=" * 80)
+
+print("NEAREST AP5 ATOMS")
+
+print("=" * 80)
+
+
+
+for d, a in nearest(
+
+    lambda x:
+
+        x["resn"] == "AP5"
+
+        and x["chain"] == "A"
+
+):
+
+    print(
+
+        f"{d:6.3f} A   "
+
+        f"AP5 {a['atom']}"
+
+    )
+
+
+
+
+
+print()
+
+print("=" * 80)
+
+print("NEAREST AK1 PROTEIN ATOMS")
+
+print("=" * 80)
+
+
+
+for d, a in nearest(
+
+    lambda x:
+
+        x["record"] == "ATOM"
+
+        and x["chain"] == "A"
+
+):
+
+    print(
+
+        f"{d:6.3f} A   "
+
+        f"{a['resn']}{a['resi']} "
+
+        f"{a['atom']}"
+
+    )
+
+
+
+
+
+print()
+
+print("=" * 80)
+
+print("NEAREST WATERS")
+
+print("=" * 80)
+
+
+
+for d, a in nearest(
+
+    lambda x:
+
+        x["resn"] in {"HOH", "WAT"}
+
+        and x["chain"] == "A"
+
+):
+
+    print(
+
+        f"{d:6.3f} A   "
+
+        f"{a['resn']}{a['resi']} "
+
+        f"{a['atom']}"
+
+    )
+
+END FILE: AK1_inspect_Zn_environment.py
+
+================================================================================
+FILE: AK1_panelH1_ZN601_clean.pml
+Executable source: code/AK1_panelH1_ZN601_clean.pml
+================================================================================
+reinitialize
+
+
+
+# ============================================================
+
+# LOAD ORIGINAL 1Z83 — SAME FILE THAT WORKED BEFORE
+
+# ============================================================
+
+
+
+load AK1_1Z83.pdb, complex
+
+
+
+hide everything
+
+
+
+# ============================================================
+
+# SELECTIONS
+
+# ============================================================
+
+
+
+select AK1A, complex and chain A and polymer.protein
+
+select AP5A, complex and chain A and resn AP5 and resi 631
+
+select ZN601, complex and chain A and resn ZN and resi 601
+
+
+
+# ============================================================
+
+# PROTEIN
+
+# ============================================================
+
+
+
+show cartoon, AK1A
+
+color gray80, AK1A
+
+set cartoon_transparency, 0.68, AK1A
+
+
+
+# ============================================================
+
+# AP5
+
+# ============================================================
+
+
+
+show sticks, AP5A
+
+
+
+color cyan, AP5A and elem C
+
+color red, AP5A and elem O
+
+color blue, AP5A and elem N
+
+color orange, AP5A and elem P
+
+
+
+set stick_radius, 0.18, AP5A
+
+
+
+# ============================================================
+
+# ZN601
+
+# ============================================================
+
+
+
+show spheres, ZN601
+
+color purple, ZN601
+
+set sphere_scale, 0.52, ZN601
+
+
+
+label ZN601, "ZN601"
+
+
+
+# ============================================================
+
+# FOUR COORDINATING WATERS
+
+# Show them, but DO NOT draw water-distance labels
+
+# ============================================================
+
+
+
+select ZN601_waters, complex and chain A and resn HOH and resi 845+838+703+704
+
+
+
+show spheres, ZN601_waters
+
+color marine, ZN601_waters
+
+set sphere_scale, 0.22, ZN601_waters
+
+
+
+# ============================================================
+
+# NEARBY PROTEIN RESIDUES
+
+# ============================================================
+
+
+
+select ZN601_nearby_res, AK1A and resi 22+38+93+138
+
+
+
+show sticks, ZN601_nearby_res
+
+
+
+color palegreen, ZN601_nearby_res and elem C
+
+color red, ZN601_nearby_res and elem O
+
+color blue, ZN601_nearby_res and elem N
+
+
+
+set stick_radius, 0.13, ZN601_nearby_res
+
+
+
+# ============================================================
+
+# ONLY THE TWO IMPORTANT AP5–ZN601 DISTANCES
+
+# ============================================================
+
+
+
+distance ZN601_AP5_O2D, ZN601, AP5A and name O2D
+
+distance ZN601_AP5_O1G, ZN601, AP5A and name O1G
+
+
+
+set dash_color, black, ZN601_AP5_O2D
+
+set dash_color, black, ZN601_AP5_O1G
+
+
+
+set dash_width, 2.5
+
+set dash_gap, 0.25
+
+
+
+# ============================================================
+
+# LABEL STYLE
+
+# ============================================================
+
+
+
+set label_color, black
+
+set label_font_id, 7
+
+set label_size, 18
+
+set label_outline_color, white
+
+
+
+# ============================================================
+
+# APPEARANCE
+
+# ============================================================
+
+
+
+bg_color white
+
+
+
+set opaque_background, on
+
+set ray_opaque_background, on
+
+
+
+set antialias, 2
+
+set orthoscopic, on
+
+set depth_cue, 0
+
+set ambient, 0.45
+
+set specular, 0.20
+
+
+
+# ============================================================
+
+# CAMERA
+
+# ============================================================
+
+
+
+orient ZN601 or AP5A
+
+
+
+center ZN601
+
+
+
+zoom (ZN601 or AP5A or ZN601_waters or ZN601_nearby_res), 6
+
+
+
+turn y, 8
+
+turn x, -6
+
+
+
+viewport 2200,1800
+
+
+
+# ============================================================
+
+# OUTPUT — CORRECT EXISTING FOLDER
+
+# ============================================================
+
+
+
+ray 3000,2400
+
+
+
+png ..\results\AK1_panelH_Zn\AK1_panelH1_ZN601_clean.png, dpi=600
+
+END FILE: AK1_panelH1_ZN601_clean.pml
+
+================================================================================
+FILE: AK1_panelH2_ZN641_clean.pml
+Executable source: code/AK1_panelH2_ZN641_clean.pml
+================================================================================
+reinitialize
+
+
+
+# ============================================================
+
+# LOAD ORIGINAL 1Z83
+
+# ============================================================
+
+
+
+load AK1_1Z83.pdb, complex
+
+
+
+hide everything
+
+
+
+# ============================================================
+
+# SELECTIONS
+
+# ============================================================
+
+
+
+select AK1A, complex and chain A and polymer.protein
+
+select AP5A, complex and chain A and resn AP5 and resi 631
+
+select ZN641, complex and chain A and resn ZN and resi 641
+
+
+
+# ============================================================
+
+# PROTEIN
+
+# ============================================================
+
+
+
+show cartoon, AK1A
+
+color gray80, AK1A
+
+set cartoon_transparency, 0.68, AK1A
+
+
+
+# ============================================================
+
+# ZN641
+
+# ============================================================
+
+
+
+show spheres, ZN641
+
+color purple, ZN641
+
+set sphere_scale, 0.52, ZN641
+
+
+
+label ZN641, "ZN641"
+
+
+
+# ============================================================
+
+# GLU26 / HIS36
+
+# ============================================================
+
+
+
+select ZN641_res, AK1A and resi 26+36
+
+
+
+show sticks, ZN641_res
+
+
+
+color palegreen, ZN641_res and elem C
+
+color red, ZN641_res and elem O
+
+color blue, ZN641_res and elem N
+
+
+
+set stick_radius, 0.16, ZN641_res
+
+
+
+label AK1A and resi 26 and name CA, "GLU26"
+
+label AK1A and resi 36 and name CA, "HIS36"
+
+
+
+# ============================================================
+
+# COORDINATING WATERS
+
+# Show, but no water-distance labels
+
+# ============================================================
+
+
+
+select ZN641_waters, complex and chain A and resn HOH and resi 840+846
+
+
+
+show spheres, ZN641_waters
+
+color marine, ZN641_waters
+
+set sphere_scale, 0.22, ZN641_waters
+
+
+
+# ============================================================
+
+# ONLY TWO IMPORTANT PROTEIN–ZN641 DISTANCES
+
+# ============================================================
+
+
+
+distance ZN641_GLU26, ZN641, AK1A and resi 26 and name OE2
+
+distance ZN641_HIS36, ZN641, AK1A and resi 36 and name ND1
+
+
+
+set dash_color, black, ZN641_GLU26
+
+set dash_color, black, ZN641_HIS36
+
+
+
+set dash_width, 2.5
+
+set dash_gap, 0.25
+
+
+
+# ============================================================
+
+# AP5 ONLY AS FAINT CONTEXT
+
+# ============================================================
+
+
+
+show sticks, AP5A
+
+
+
+color cyan, AP5A and elem C
+
+color red, AP5A and elem O
+
+color blue, AP5A and elem N
+
+color orange, AP5A and elem P
+
+
+
+set stick_radius, 0.13, AP5A
+
+set stick_transparency, 0.72, AP5A
+
+
+
+# ============================================================
+
+# LABEL STYLE
+
+# ============================================================
+
+
+
+set label_color, black
+
+set label_font_id, 7
+
+set label_size, 18
+
+set label_outline_color, white
+
+
+
+# ============================================================
+
+# APPEARANCE
+
+# ============================================================
+
+
+
+bg_color white
+
+
+
+set opaque_background, on
+
+set ray_opaque_background, on
+
+
+
+set antialias, 2
+
+set orthoscopic, on
+
+set depth_cue, 0
+
+set ambient, 0.45
+
+set specular, 0.20
+
+
+
+# ============================================================
+
+# CAMERA
+
+# ============================================================
+
+
+
+orient ZN641
+
+
+
+center ZN641
+
+
+
+zoom (ZN641 or ZN641_res or ZN641_waters), 6
+
+
+
+turn y, -10
+
+turn x, 5
+
+
+
+viewport 2200,1800
+
+
+
+# ============================================================
+
+# OUTPUT
+
+# ============================================================
+
+
+
+ray 3000,2400
+
+
+
+png ..\results\AK1_panelH_Zn\AK1_panelH2_ZN641_clean.png, dpi=600
+
+END FILE: AK1_panelH2_ZN641_clean.pml
+
+================================================================================
+FILE: AK1_panelH_Zn_environment.pml
+Executable source: code/AK1_panelH_Zn_environment.pml
+================================================================================
+reinitialize
+
+
+
+# ============================================================
+
+# LOAD ORIGINAL 1Z83
+
+# Includes AP5, Zn ions and crystallographic waters
+
+# ============================================================
+
+
+
+load AK1_1Z83.pdb, complex
+
+
+
+hide everything
+
+
+
+
+
+# ============================================================
+
+# BASIC SELECTIONS
+
+# ============================================================
+
+
+
+select AK1A, complex and chain A and polymer.protein
+
+
+
+select AP5A, complex and chain A and resn AP5 and resi 631
+
+
+
+select ZN601, complex and chain A and resn ZN and resi 601
+
+select ZN641, complex and chain A and resn ZN and resi 641
+
+
+
+
+
+# ============================================================
+
+# GENERAL STYLE
+
+# ============================================================
+
+
+
+show cartoon, AK1A
+
+color gray80, AK1A
+
+set cartoon_transparency, 0.68, AK1A
+
+
+
+show sticks, AP5A
+
+color cyan, AP5A and elem C
+
+color red, AP5A and elem O
+
+color blue, AP5A and elem N
+
+color orange, AP5A and elem P
+
+set stick_radius, 0.18, AP5A
+
+
+
+bg_color white
+
+set opaque_background, on
+
+set ray_opaque_background, on
+
+set orthoscopic, on
+
+set antialias, 2
+
+set depth_cue, 0
+
+set ambient, 0.45
+
+set specular, 0.20
+
+
+
+
+
+# ============================================================
+
+# H1 — ZN601 / AP5 COORDINATION ENVIRONMENT
+
+# ============================================================
+
+
+
+show spheres, ZN601
+
+color purple, ZN601
+
+set sphere_scale, 0.52, ZN601
+
+
+
+# Key crystallographic waters coordinating ZN601
+
+select ZN601_waters, complex and chain A and resn HOH and resi 845+838+703+704
+
+
+
+show spheres, ZN601_waters
+
+color marine, ZN601_waters
+
+set sphere_scale, 0.22, ZN601_waters
+
+
+
+
+
+# Nearby protein residues for context
+
+select ZN601_nearby_res, AK1A and resi 22+38+93+138
+
+
+
+show sticks, ZN601_nearby_res
+
+color palegreen, ZN601_nearby_res and elem C
+
+color red, ZN601_nearby_res and elem O
+
+color blue, ZN601_nearby_res and elem N
+
+set stick_radius, 0.13, ZN601_nearby_res
+
+
+
+
+
+# Direct Zn601 -> AP5 coordination
+
+distance ZN601_AP5_O2D, ZN601, AP5A and name O2D
+
+distance ZN601_AP5_O1G, ZN601, AP5A and name O1G
+
+
+
+set dash_color, black, ZN601_AP5_O2D
+
+set dash_color, black, ZN601_AP5_O1G
+
+set dash_width, 2.5
+
+set dash_gap, 0.25
+
+
+
+
+
+# Zn601 -> coordinating waters
+
+distance ZN601_W845, ZN601, complex and chain A and resn HOH and resi 845 and name O
+
+distance ZN601_W838, ZN601, complex and chain A and resn HOH and resi 838 and name O
+
+distance ZN601_W703, ZN601, complex and chain A and resn HOH and resi 703 and name O
+
+distance ZN601_W704, ZN601, complex and chain A and resn HOH and resi 704 and name O
+
+
+
+set dash_color, gray40, ZN601_W845
+
+set dash_color, gray40, ZN601_W838
+
+set dash_color, gray40, ZN601_W703
+
+set dash_color, gray40, ZN601_W704
+
+
+
+
+
+# Distance labels
+
+set label_color, black
+
+set label_font_id, 7
+
+set label_size, 16
+
+set label_outline_color, white
+
+
+
+
+
+# Zn label
+
+label ZN601, "ZN601"
+
+
+
+# AP5 label
+
+pseudoatom AP5_label, AP5A
+
+hide everything, AP5_label
+
+label AP5_label, "Native AP5"
+
+set label_color, black, AP5_label
+
+set label_size, 18, AP5_label
+
+
+
+
+
+# Camera for H1
+
+orient ZN601 or AP5A
+
+center ZN601
+
+zoom (ZN601 or AP5A or ZN601_waters or ZN601_nearby_res), 6
+
+
+
+turn y, 8
+
+turn x, -6
+
+
+
+viewport 2200,1800
+
+
+
+ray 3000,2400
+
+
+
+png ..\results\AK1_panelH_Zn\AK1_panelH1_ZN601_AP5_environment.png, dpi=600
+
+
+
+
+
+# ============================================================
+
+# PREPARE H2
+
+# Hide H1-specific objects
+
+# ============================================================
+
+
+
+hide spheres, ZN601
+
+hide spheres, ZN601_waters
+
+hide sticks, ZN601_nearby_res
+
+hide labels, ZN601
+
+
+
+disable ZN601_AP5_O2D
+
+disable ZN601_AP5_O1G
+
+disable ZN601_W845
+
+disable ZN601_W838
+
+disable ZN601_W703
+
+disable ZN601_W704
+
+disable AP5_label
+
+
+
+
+
+# ============================================================
+
+# H2 — ZN641 / PROTEIN COORDINATION ENVIRONMENT
+
+# ============================================================
+
+
+
+show spheres, ZN641
+
+color purple, ZN641
+
+set sphere_scale, 0.52, ZN641
+
+
+
+select ZN641_res, AK1A and resi 26+36
+
+
+
+show sticks, ZN641_res
+
+color palegreen, ZN641_res and elem C
+
+color red, ZN641_res and elem O
+
+color blue, ZN641_res and elem N
+
+set stick_radius, 0.16, ZN641_res
+
+
+
+
+
+# Waters around ZN641
+
+select ZN641_waters, complex and chain A and resn HOH and resi 840+846
+
+
+
+show spheres, ZN641_waters
+
+color marine, ZN641_waters
+
+set sphere_scale, 0.22, ZN641_waters
+
+
+
+
+
+# Direct coordination
+
+distance ZN641_GLU26, ZN641, AK1A and resi 26 and name OE2
+
+distance ZN641_HIS36, ZN641, AK1A and resi 36 and name ND1
+
+
+
+distance ZN641_W840, ZN641, complex and chain A and resn HOH and resi 840 and name O
+
+distance ZN641_W846, ZN641, complex and chain A and resn HOH and resi 846 and name O
+
+
+
+set dash_color, black, ZN641_GLU26
+
+set dash_color, black, ZN641_HIS36
+
+
+
+set dash_color, gray40, ZN641_W840
+
+set dash_color, gray40, ZN641_W846
+
+
+
+
+
+label ZN641, "ZN641"
+
+label AK1A and resi 26 and name CA, "GLU26"
+
+label AK1A and resi 36 and name CA, "HIS36"
+
+
+
+set label_color, black
+
+set label_size, 18
+
+set label_outline_color, white
+
+
+
+
+
+# Fade AP5 further because it is contextual here
+
+set stick_transparency, 0.70, AP5A
+
+
+
+
+
+# Camera for H2
+
+orient ZN641
+
+center ZN641
+
+
+
+zoom (ZN641 or ZN641_res or ZN641_waters), 6
+
+
+
+turn y, -10
+
+turn x, 5
+
+
+
+ray 3000,2400
+
+
+
+png ..\results\AK1_panelH_Zn\AK1_panelH2_ZN641_protein_environment.png, dpi=600
+
+END FILE: AK1_panelH_Zn_environment.pml
+
+================================================================================
+FILE: AK1_panelI_ZN601_sensitivity.R
+Executable source: code/AK1_panelI_ZN601_sensitivity.R
+================================================================================
+# ============================================================
+
+# FIGURE 8 — PANEL I
+
+# AK1 receptor-state sensitivity to crystallographic ZN601
+
+# ============================================================
+
+
+
+packages <- c(
+
+  "ggplot2",
+
+  "dplyr",
+
+  "tidyr",
+
+  "patchwork"
+
+)
+
+
+
+for (p in packages) {
+
+  if (!requireNamespace(p, quietly = TRUE)) {
+
+    install.packages(
+
+      p,
+
+      repos = "https://cloud.r-project.org"
+
+    )
+
+  }
+
+}
+
+
+
+library(ggplot2)
+
+library(dplyr)
+
+library(tidyr)
+
+library(patchwork)
+
+
+
+
+
+# ============================================================
+
+# PATHS
+
+# ============================================================
+
+
+
+project <- "C:/Users/akidi/Desktop/ISO_AK_Docking"
+
+
+
+base_dir <- file.path(
+
+  project,
+
+  "results",
+
+  "AK1_ZN_sensitivity",
+
+  "ZN601_10seed"
+
+)
+
+
+
+score_file <- file.path(
+
+  base_dir,
+
+  "AK1_ZN601_scores.csv"
+
+)
+
+
+
+rmsd_file <- file.path(
+
+  base_dir,
+
+  "AK1_ZN601_pose_RMSD_matrix.csv"
+
+)
+
+
+
+family_file <- file.path(
+
+  base_dir,
+
+  "AK1_ZN601_vs_Znfree_families.csv"
+
+)
+
+
+
+zn_file <- file.path(
+
+  base_dir,
+
+  "AK1_ZN601_Zn_distances.csv"
+
+)
+
+
+
+output_dir <- file.path(
+
+  project,
+
+  "results",
+
+  "AK1_panelI"
+
+)
+
+
+
+dir.create(
+
+  output_dir,
+
+  showWarnings = FALSE,
+
+  recursive = TRUE
+
+)
+
+
+
+
+
+# ============================================================
+
+# READ DATA
+
+# ============================================================
+
+
+
+scores <- read.csv(
+
+  score_file,
+
+  check.names = FALSE
+
+)
+
+
+
+families <- read.csv(
+
+  family_file,
+
+  check.names = FALSE
+
+)
+
+
+
+zn <- read.csv(
+
+  zn_file,
+
+  check.names = FALSE
+
+)
+
+
+
+rmsd <- read.csv(
+
+  rmsd_file,
+
+  check.names = FALSE,
+
+  row.names = 1
+
+)
+
+
+
+rmsd <- as.matrix(rmsd)
+
+
+
+mode(rmsd) <- "numeric"
+
+
+
+
+
+# ============================================================
+
+# SUMMARY VALUES
+
+# ============================================================
+
+
+
+znfree_mean <- mean(
+
+  scores$`Zn-free score`
+
+)
+
+
+
+zn_mean <- mean(
+
+  scores$`ZN601-retained score`
+
+)
+
+
+
+paired_shift <- mean(
+
+  scores$`Score difference ZN601-minus-Znfree`
+
+)
+
+
+
+zn_dist_mean <- mean(
+
+  zn$`Closest polar distance to ZN601 (A)`
+
+)
+
+
+
+zn_dist_min <- min(
+
+  zn$`Closest polar distance to ZN601 (A)`
+
+)
+
+
+
+zn_dist_max <- max(
+
+  zn$`Closest polar distance to ZN601 (A)`
+
+)
+
+
+
+
+
+# ============================================================
+
+# I1 — PAIRED SCORE COMPARISON
+
+# ============================================================
+
+
+
+score_long <- scores %>%
+
+  select(
+
+    Seed,
+
+    `Zn-free score`,
+
+    `ZN601-retained score`
+
+  ) %>%
+
+  pivot_longer(
+
+    cols = -Seed,
+
+    names_to = "State",
+
+    values_to = "Score"
+
+  ) %>%
+
+  mutate(
+
+    State = recode(
+
+      State,
+
+      `Zn-free score` = "Zn-free",
+
+      `ZN601-retained score` = "ZN601 retained"
+
+    )
+
+  )
+
+
+
+
+
+p1 <- ggplot(
+
+  score_long,
+
+  aes(
+
+    x = State,
+
+    y = Score,
+
+    group = Seed
+
+  )
+
+) +
+
+
+
+  geom_line(
+
+    color = "grey65",
+
+    linewidth = 0.7
+
+  ) +
+
+
+
+  geom_point(
+
+    aes(fill = State),
+
+    shape = 21,
+
+    size = 3.8,
+
+    color = "black",
+
+    stroke = 0.7
+
+  ) +
+
+
+
+  scale_fill_manual(
+
+    values = c(
+
+      "Zn-free" = "#E69F00",
+
+      "ZN601 retained" = "#56B4E9"
+
+    ),
+
+    guide = "none"
+
+  ) +
+
+
+
+  coord_cartesian(
+
+    ylim = c(
+
+      -8.86,
+
+      -8.72
+
+    )
+
+  ) +
+
+
+
+  labs(
+
+    x = NULL,
+
+    y = "Best Vina score (kcal/mol)"
+
+  ) +
+
+
+
+  annotate(
+
+    "label",
+
+    x = 1.5,
+
+    y = -8.735,
+
+    label = paste0(
+
+      "Mean shift = ",
+
+      sprintf("%.3f", paired_shift),
+
+      " kcal/mol"
+
+    ),
+
+    size = 3.8,
+
+    fill = "white"
+
+  ) +
+
+
+
+  theme_classic(
+
+    base_size = 13
+
+  ) +
+
+
+
+  theme(
+
+    axis.text = element_text(
+
+      color = "black"
+
+    ),
+
+
+
+    axis.title = element_text(
+
+      face = "bold"
+
+    )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# I2 — ZN601 10×10 RMSD HEATMAP
+
+# ============================================================
+
+
+
+rmsd_df <- as.data.frame(rmsd)
+
+
+
+rmsd_df$Seed_y <- rownames(rmsd_df)
+
+
+
+rmsd_long <- rmsd_df %>%
+
+  pivot_longer(
+
+    cols = -Seed_y,
+
+    names_to = "Seed_x",
+
+    values_to = "RMSD"
+
+  )
+
+
+
+
+
+seed_order <- colnames(rmsd)
+
+
+
+rmsd_long$Seed_x <- factor(
+
+  rmsd_long$Seed_x,
+
+  levels = seed_order
+
+)
+
+
+
+rmsd_long$Seed_y <- factor(
+
+  rmsd_long$Seed_y,
+
+  levels = rev(seed_order)
+
+)
+
+
+
+
+
+p2 <- ggplot(
+
+  rmsd_long,
+
+  aes(
+
+    x = Seed_x,
+
+    y = Seed_y,
+
+    fill = RMSD
+
+  )
+
+) +
+
+
+
+  geom_tile(
+
+    color = "white",
+
+    linewidth = 0.4
+
+  ) +
+
+
+
+  geom_text(
+
+    aes(
+
+      label = sprintf("%.2f", RMSD)
+
+    ),
+
+    size = 2.5
+
+  ) +
+
+
+
+  scale_fill_gradient(
+
+    low = "#2166AC",
+
+    high = "#F7F7F7",
+
+    name = "RMSD\n(Å)"
+
+  ) +
+
+
+
+  labs(
+
+    x = "ZN601 Vina seed",
+
+    y = "ZN601 Vina seed"
+
+  ) +
+
+
+
+  coord_fixed() +
+
+
+
+  theme_minimal(
+
+    base_size = 11
+
+  ) +
+
+
+
+  theme(
+
+    panel.grid = element_blank(),
+
+
+
+    axis.text.x = element_text(
+
+      angle = 45,
+
+      hjust = 1,
+
+      color = "black"
+
+    ),
+
+
+
+    axis.text.y = element_text(
+
+      color = "black"
+
+    ),
+
+
+
+    axis.title = element_text(
+
+      face = "bold"
+
+    )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# I3 — DISTANCE TO ORIGINAL Zn-FREE POSE FAMILIES
+
+# ============================================================
+
+
+
+family_long <- families %>%
+
+  select(
+
+    `ZN601 seed`,
+
+    `Mean RMSD to original dominant (A)`,
+
+    `Mean RMSD to original alternative (A)`
+
+  ) %>%
+
+  pivot_longer(
+
+    cols = -`ZN601 seed`,
+
+    names_to = "Original_family",
+
+    values_to = "RMSD"
+
+  ) %>%
+
+  mutate(
+
+    Original_family = recode(
+
+      Original_family,
+
+      `Mean RMSD to original dominant (A)` =
+
+        "Original dominant\nZn-free family",
+
+      `Mean RMSD to original alternative (A)` =
+
+        "Original alternative\nZn-free family"
+
+    )
+
+  )
+
+
+
+
+
+p3 <- ggplot(
+
+  family_long,
+
+  aes(
+
+    x = Original_family,
+
+    y = RMSD
+
+  )
+
+) +
+
+
+
+  geom_jitter(
+
+    width = 0.08,
+
+    size = 3,
+
+    alpha = 0.65,
+
+    color = "grey30"
+
+  ) +
+
+
+
+  stat_summary(
+
+    fun = mean,
+
+    geom = "point",
+
+    shape = 23,
+
+    size = 5,
+
+    fill = "#56B4E9",
+
+    color = "black"
+
+  ) +
+
+
+
+  labs(
+
+    x = NULL,
+
+    y = "RMSD to Zn-free pose family (Å)"
+
+  ) +
+
+
+
+  annotate(
+
+    "label",
+
+    x = 1.5,
+
+    y = max(family_long$RMSD) + 0.15,
+
+    label = paste0(
+
+      "ZN601–ISO polar distance:\n",
+
+      sprintf("%.3f", zn_dist_mean),
+
+      " Å mean (",
+
+      sprintf("%.3f", zn_dist_min),
+
+      "–",
+
+      sprintf("%.3f", zn_dist_max),
+
+      " Å)"
+
+    ),
+
+    size = 3.5,
+
+    fill = "white"
+
+  ) +
+
+
+
+  coord_cartesian(
+
+    ylim = c(
+
+      5.5,
+
+      8.25
+
+    )
+
+  ) +
+
+
+
+  theme_classic(
+
+    base_size = 13
+
+  ) +
+
+
+
+  theme(
+
+    axis.text = element_text(
+
+      color = "black"
+
+    ),
+
+
+
+    axis.title = element_text(
+
+      face = "bold"
+
+    )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# COMBINE
+
+# ============================================================
+
+
+
+combined <- (
+
+  p1 |
+
+  p2 |
+
+  p3
+
+) +
+
+
+
+  plot_annotation(
+
+    tag_levels = "a"
+
+  ) &
+
+
+
+  theme(
+
+    plot.tag = element_text(
+
+      face = "bold",
+
+      size = 16
+
+    )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# SAVE
+
+# ============================================================
+
+
+
+png_file <- file.path(
+
+  output_dir,
+
+  "AK1_panelI_ZN601_receptor_state_sensitivity.png"
+
+)
+
+
+
+pdf_file <- file.path(
+
+  output_dir,
+
+  "AK1_panelI_ZN601_receptor_state_sensitivity.pdf"
+
+)
+
+
+
+
+
+ggsave(
+
+  filename = png_file,
+
+  plot = combined,
+
+  width = 15,
+
+  height = 5.5,
+
+  units = "in",
+
+  dpi = 600,
+
+  bg = "white"
+
+)
+
+
+
+ggsave(
+
+  filename = pdf_file,
+
+  plot = combined,
+
+  width = 15,
+
+  height = 5.5,
+
+  units = "in"
+
+)
+
+
+
+
+
+cat("\nSaved:\n")
+
+cat(png_file, "\n")
+
+cat(pdf_file, "\n")
+
+END FILE: AK1_panelI_ZN601_sensitivity.R
+
+================================================================================
+FILE: AK1_panelJ_Znfree_vs_ZN601_overlay.pml
+Executable source: code/AK1_panelJ_Znfree_vs_ZN601_overlay.pml
+================================================================================
+reinitialize
+
+
+
+# ============================================================
+
+# BACKGROUND / RENDER SETTINGS
+
+# ============================================================
+
+
+
+bg_color white
+
+set ray_opaque_background, on
+
+set antialias, 2
+
+set orthoscopic, on
+
+set depth_cue, 0
+
+
+
+# ============================================================
+
+# LOAD AK1 + ZN601 RECEPTOR
+
+# ============================================================
+
+
+
+load ..\receptors\AK1_chainA_FIXED_ZN601.pdb, AK1_ZN
+
+
+
+hide everything
+
+
+
+select AK1, AK1_ZN and polymer.protein
+
+select ZN601, AK1_ZN and resn ZN and resi 601
+
+
+
+show cartoon, AK1
+
+color gray80, AK1
+
+set cartoon_transparency, 0.72, AK1
+
+
+
+show spheres, ZN601
+
+color purple, ZN601
+
+set sphere_scale, 0.52, ZN601
+
+
+
+# ============================================================
+
+# LOAD ORIGINAL Zn-FREE DOMINANT REPRESENTATIVE
+
+# seed 9009
+
+# ============================================================
+
+
+
+load ..\results\AK1_repr9009\AK1_ISO_seed9009_best.sdf, ISO_Znfree
+
+
+
+show sticks, ISO_Znfree
+
+
+
+color tv_orange, ISO_Znfree and elem C
+
+color red, ISO_Znfree and elem O
+
+color blue, ISO_Znfree and elem N
+
+
+
+set stick_radius, 0.22, ISO_Znfree
+
+
+
+# ============================================================
+
+# LOAD ZN601-RETAINED REPRESENTATIVE
+
+# seed 5005
+
+# ============================================================
+
+
+
+load ..\results\AK1_ZN_sensitivity\ZN601_10seed\poses\AK1_ZN601_ISO_seed5005_best.sdf, ISO_ZN601
+
+
+
+show sticks, ISO_ZN601
+
+
+
+color marine, ISO_ZN601 and elem C
+
+color red, ISO_ZN601 and elem O
+
+color blue, ISO_ZN601 and elem N
+
+
+
+set stick_radius, 0.22, ISO_ZN601
+
+
+
+# ============================================================
+
+# NATIVE AP5 AS FAINT REFERENCE
+
+# ============================================================
+
+
+
+load ..\ligand\AK1_native_AP5_chainA.pdb, AP5_native
+
+
+
+show sticks, AP5_native
+
+
+
+color cyan, AP5_native and elem C
+
+color red, AP5_native and elem O
+
+color blue, AP5_native and elem N
+
+color orange, AP5_native and elem P
+
+
+
+set stick_radius, 0.12, AP5_native
+
+set stick_transparency, 0.72, AP5_native
+
+
+
+# ============================================================
+
+# LOCAL BINDING-SITE RESIDUES
+
+# ============================================================
+
+
+
+select pocket, byres ((ISO_Znfree around 4.0) or (ISO_ZN601 around 4.0))
+
+
+
+select pocket_protein, pocket and polymer.protein
+
+
+
+show sticks, pocket_protein
+
+
+
+color palegreen, pocket_protein and elem C
+
+color red, pocket_protein and elem O
+
+color blue, pocket_protein and elem N
+
+
+
+set stick_radius, 0.11, pocket_protein
+
+set stick_transparency, 0.25, pocket_protein
+
+
+
+# ============================================================
+
+# ZN601 -> ISO CONTACT
+
+# Find oxygen atoms of Zn-retained ISO within 2.8 A
+
+# ============================================================
+
+
+
+select ISO_ZN_O, ISO_ZN601 and elem O within 2.8 of ZN601
+
+
+
+distance ZN601_ISO_contact, ZN601, ISO_ZN_O
+
+
+
+set dash_color, black, ZN601_ISO_contact
+
+set dash_width, 3
+
+set dash_gap, 0.25
+
+
+
+set label_color, black
+
+set label_size, 18
+
+set label_outline_color, white
+
+set label_font_id, 7
+
+
+
+# ============================================================
+
+# LABEL ZINC ONLY
+
+# ============================================================
+
+
+
+label ZN601, "ZN601"
+
+
+
+# ============================================================
+
+# CAMERA
+
+# ============================================================
+
+
+
+orient ISO_Znfree or ISO_ZN601 or ZN601
+
+center ISO_Znfree or ISO_ZN601 or ZN601
+
+zoom ISO_Znfree or ISO_ZN601 or ZN601 or pocket_protein, 7
+
+
+
+turn y, 8
+
+turn x, -5
+
+
+
+viewport 2200,1800
+
+
+
+# ============================================================
+
+# FINAL RENDER
+
+# ============================================================
+
+
+
+ray 3000,2400
+
+
+
+png ..\results\AK1_panelJ\AK1_panelJ_Znfree_vs_ZN601_overlay.png, dpi=600
+
+END FILE: AK1_panelJ_Znfree_vs_ZN601_overlay.pml
+
+================================================================================
+FILE: build_AK1_FIXED_ZN601.py
+Executable source: code/build_AK1_FIXED_ZN601.py
+================================================================================
+from pathlib import Path
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+
+
+FIXED_PROTEIN = PROJECT / "receptors" / "AK1_chainA_FIXED.pdb"
+
+ORIGINAL_PDB  = PROJECT / "structures" / "AK1_1Z83.pdb"
+
+
+
+OUTPUT = PROJECT / "receptors" / "AK1_chainA_FIXED_ZN601.pdb"
+
+
+
+if not FIXED_PROTEIN.exists():
+
+    raise FileNotFoundError(FIXED_PROTEIN)
+
+
+
+if not ORIGINAL_PDB.exists():
+
+    raise FileNotFoundError(ORIGINAL_PDB)
+
+
+
+# ------------------------------------------------------------
+
+# Read repaired AK1 protein
+
+# ------------------------------------------------------------
+
+
+
+protein_lines = []
+
+
+
+with open(FIXED_PROTEIN, "r") as f:
+
+    for line in f:
+
+
+
+        if line.startswith("ATOM"):
+
+            protein_lines.append(line)
+
+
+
+
+
+# ------------------------------------------------------------
+
+# Extract only chain-A ZN601 from original 1Z83
+
+# ------------------------------------------------------------
+
+
+
+zn_lines = []
+
+
+
+with open(ORIGINAL_PDB, "r") as f:
+
+    for line in f:
+
+
+
+        if not line.startswith("HETATM"):
+
+            continue
+
+
+
+        resn = line[17:20].strip()
+
+        chain = line[21].strip()
+
+        resi = line[22:26].strip()
+
+
+
+        if (
+
+            resn == "ZN"
+
+            and chain == "A"
+
+            and resi == "601"
+
+        ):
+
+            zn_lines.append(line)
+
+
+
+
+
+if len(zn_lines) != 1:
+
+    raise RuntimeError(
+
+        f"Expected exactly 1 ZN601 atom, found {len(zn_lines)}"
+
+    )
+
+
+
+
+
+# ------------------------------------------------------------
+
+# Write combined receptor
+
+# ------------------------------------------------------------
+
+
+
+with open(OUTPUT, "w") as f:
+
+
+
+    for line in protein_lines:
+
+        f.write(line)
+
+
+
+    f.write(zn_lines[0])
+
+
+
+    f.write("TER\n")
+
+    f.write("END\n")
+
+
+
+
+
+print("=" * 70)
+
+print("AK1 FIXED + ZN601 RECEPTOR CREATED")
+
+print("=" * 70)
+
+
+
+print("Protein ATOM records:", len(protein_lines))
+
+print("ZN601 records:", len(zn_lines))
+
+print("Output:")
+
+print(OUTPUT)
+
+END FILE: build_AK1_FIXED_ZN601.py
+
+================================================================================
+FILE: run_AK1_ZN601_10seeds.bat
+Executable source: code/run_AK1_ZN601_10seeds.bat
+================================================================================
+@echo off
+
+
+
+echo ============================================================
+
+echo AK1 + ZN601 / Isorhamnetin
+
+echo 10 independent AutoDock Vina seeds
+
+echo ============================================================
+
+
+
+for %%S in (1001 2002 3003 4004 5005 6006 7007 8008 9009 10101) do (
+
+
+
+    echo.
+
+    echo ============================================================
+
+    echo Running seed %%S
+
+    echo ============================================================
+
+
+
+    "C:\Users\akidi\Desktop\Docking tools\vina_win.exe" ^
+
+    --receptor "..\receptors\AK1_ZN601.pdbqt" ^
+
+    --ligand "..\ligand\isorhamnetin.pdbqt" ^
+
+    --center_x 25.044 ^
+
+    --center_y 44.571 ^
+
+    --center_z -3.708 ^
+
+    --size_x 23.687 ^
+
+    --size_y 23.364 ^
+
+    --size_z 30.062 ^
+
+    --exhaustiveness 16 ^
+
+    --num_modes 10 ^
+
+    --seed %%S ^
+
+    --out "..\docking\AK1_ZN601_ISO_seed%%S.pdbqt"
+
+)
+
+
+
+echo.
+
+echo ============================================================
+
+echo ALL 10 ZN601 RUNS FINISHED
+
+echo ============================================================
+
+END FILE: run_AK1_ZN601_10seeds.bat
+
+
+SCRIPTS SELECTED FOR EXECUTION
+The preparation helper selects the following scripts for the working project.
+
+================================================================================
+FILE: code/portable/run_AK1_ZN601_10seeds.bat
+Purpose: Run the specified Vina searches, skip completed outputs and stop if a search fails.
+================================================================================
+@echo off
+
+echo ============================================================
+echo AK1 + ZN601 / Isorhamnetin
+echo 10 independent AutoDock Vina seeds
+echo ============================================================
+
+for %%S in (1001 2002 3003 4004 5005 6006 7007 8008 9009 10101) do (
+
+    echo.
+    echo ============================================================
+    echo Running seed %%S
+    echo ============================================================
+
+    if exist "..\docking\AK1_ZN601_ISO_seed%%S.pdbqt" (
+      echo Keeping existing output "..\docking\AK1_ZN601_ISO_seed%%S.pdbqt"
+    ) else (
+      "C:\Users\akidi\Desktop\Docking tools\vina_win.exe" ^
+      --receptor "..\receptors\AK1_ZN601.pdbqt" ^
+      --ligand "..\ligand\isorhamnetin.pdbqt" ^
+      --center_x 25.044 ^
+      --center_y 44.571 ^
+      --center_z -3.708 ^
+      --size_x 23.687 ^
+      --size_y 23.364 ^
+      --size_z 30.062 ^
+      --exhaustiveness 16 ^
+      --num_modes 10 ^
+      --seed %%S ^
+      --out "..\docking\AK1_ZN601_ISO_seed%%S.pdbqt"
+      if errorlevel 1 (
+        echo Docking failed. Stopping this batch.
+        exit /b 1
+      )
+    )
+)
+
+echo.
+echo ============================================================
+echo ALL 10 ZN601 RUNS FINISHED
+echo ============================================================
+
+END FILE: run_AK1_ZN601_10seeds.bat

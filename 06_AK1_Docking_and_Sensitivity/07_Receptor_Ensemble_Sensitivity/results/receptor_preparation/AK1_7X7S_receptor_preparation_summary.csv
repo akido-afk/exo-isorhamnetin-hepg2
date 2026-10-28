@@ -1,0 +1,4 @@
+Receptor,Input_PDB,Output_PDB,Chains_before,Residues_before,Atoms_before,Missing_residue_positions_detected,Nonstandard_residues_detected,Missing_heavy_atoms_detected,Missing_terminal_atoms_detected,Chains_after,Residues_after,Atoms_after_H_addition
+7X7S_model20_least_open,C:\Users\akidi\Desktop\ISO_AK_Docking\structures\AK1_7X7S_model20_least_open_ALIGNED_1Z83.pdb,C:\Users\akidi\Desktop\ISO_AK_Docking\receptors\AK1_7X7S_model20_least_open_FIXED.pdb,1,194,3078,0,0,0,0,1,194,3080
+7X7S_model8_ensemble_medoid,C:\Users\akidi\Desktop\ISO_AK_Docking\structures\AK1_7X7S_model8_ensemble_medoid_ALIGNED_1Z83.pdb,C:\Users\akidi\Desktop\ISO_AK_Docking\receptors\AK1_7X7S_model8_ensemble_medoid_FIXED.pdb,1,194,3078,0,0,0,0,1,194,3080
+7X7S_model1_most_open,C:\Users\akidi\Desktop\ISO_AK_Docking\structures\AK1_7X7S_model1_most_open_ALIGNED_1Z83.pdb,C:\Users\akidi\Desktop\ISO_AK_Docking\receptors\AK1_7X7S_model1_most_open_FIXED.pdb,1,194,3078,0,0,0,0,1,194,3080

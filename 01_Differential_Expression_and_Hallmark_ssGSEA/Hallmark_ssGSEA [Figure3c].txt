@@ -1,0 +1,612 @@
+# ==============================================================================
+# HALLMARK ssGSEA AND GROUP HEATMAP
+# ==============================================================================
+# This script reproduces the Hallmark pathway analysis and the grouped heatmap
+# in Figure 3c of the EXO-ISO study. The analysis uses normalized Clariom S
+# Human microarray expression measurements from the same 4 HepG2 experimental groups:
+# NC, FFA-treated Ctrl, Free ISO and EXO-ISO (3 biological samples each).
+#
+# The calculation begins with normalized gene expression, evaluates the 50
+# human MSigDB Hallmark gene sets by single-sample GSEA and then averages the
+# pathway scores across the 3 samples in each treatment group. To compare
+# expression patterns on a common color scale, each Hallmark is standardized
+# across the 4 group means. The plotted values are row Z-scores.
+#
+# HOW TO RUN IT?
+# In R or RStudio run:
+#     source(file.choose(), encoding = "UTF-8")
+# Choose this TXT file. If no suitable input is found near the script or in
+# the current working directory, R opens another file-selection window.
+# Choose the following original input file:
+#   All Expressions.txt               
+# To apply the same analysis to another experiment, edit the sample names and
+# group memberships in section 3. If beginning with a TAC expression export,
+# also update raw_columns in section 4 to match its sample column headings.
+# Different feature counts are accepted. The original study contained 21448
+# transcript clusters and 19525 unique gene symbols after preparation.
+# This script is configured for 4 groups and 50 Hallmark pathways. See
+# section 3 for instructions on adapting the group labels or group number.
+#
+# For the full analysis, GSVA, msigdbr, ComplexHeatmap and circlize are needed.
+# You can install missing packages from CRAN/Bioconductor when needed. The
+# first run require internet access. 
+#
+# The script saves outputs beside the selected input folder, under
+# Hallmark_ssGSEA_Group_Heatmap_Outputs. 
+# Key generated files will be:
+#   expression_matrix_for_GSVA.tsv                  (when TAC data are supplied)
+#   ssGSEA_Hallmark_scores.csv                      (50 Hallmarks x 12 samples)
+#   GSVA_Hallmark_scores.csv                        (same sample-level scores)
+#   Hallmark_ssGSEA_grouped_group_means_Ctrl_descending.csv
+#   Hallmark_ssGSEA_grouped_row_Zscores_Ctrl_descending.csv
+#   Hallmark_ssGSEA_boxed_biological_groups_FINAL_Ctrl_descending.png
+#   Hallmark_ssGSEA_boxed_biological_groups_FINAL_Ctrl_descending.pdf
+#   sessionInfo_Hallmark_ssGSEA.txt
+#
+# The 50 Hallmark gene sets are organized into 8 biological-process
+# categories following the original MSigDB Hallmark classification
+# published by Liberzon et al. (2015).
+# Reference:
+# Liberzon A. et al. The Molecular Signatures Database (MSigDB)
+# Hallmark Gene Set Collection. Cell Systems 1, 417-425 (2015).
+# DOI: 10.1016/j.cels.2015.12.004
+# I used these categories to solely organize the heatmap for a better reading
+# and as you see from the code they do not represent any additional enrichment analyses.
+# Within each category, Hallmarks are ordered by descending Ctrl
+# Z-score for visualization. This ordering does not alter the calculated ssGSEA scores or their Z-scores.
+# ============================================================================== 
+
+options(stringsAsFactors = FALSE)
+
+# 1. Locate one of the supported data files. You can select a file in
+# any local directory without editing the script or changing setwd().
+accepted_inputs <- c(
+  "All Expressions.txt",
+  "expression_matrix_for_GSVA.tsv",
+  "GSVA_Hallmark_scores.csv",
+  "ssGSEA_Hallmark_scores.csv"
+)
+
+find_input_file <- function() {
+  roots <- c(getwd(), file.path(getwd(), "Input_Source_Files"),
+             file.path(getwd(), "data"))
+  called_scripts <- vapply(sys.frames(), function(f) {
+    if (is.null(f$ofile)) NA_character_ else as.character(f$ofile)[1L]
+  }, character(1))
+  called_scripts <- called_scripts[!is.na(called_scripts) & nzchar(called_scripts)]
+  if (length(called_scripts)) {
+    dirs <- unique(dirname(normalizePath(called_scripts, mustWork = FALSE)))
+    roots <- c(roots, dirs, file.path(dirs, "Input_Source_Files"),
+               file.path(dirs, "data"))
+  }
+  for (base in unique(roots)) {
+    for (name in accepted_inputs) {
+      candidate <- file.path(base, name)
+      if (file.exists(candidate)) return(normalizePath(candidate, mustWork = TRUE))
+    }
+  }
+  if (!interactive()) {
+    stop("Input not found. Place a supported input file beside the code, ",
+         "in Input_Source_Files/, or in data/.", call. = FALSE)
+  }
+  message("Select All Expressions.txt, expression_matrix_for_GSVA.tsv, ",
+          "or the saved Hallmark-score CSV from your computer.")
+  chosen <- file.choose()
+  if (!(basename(chosen) %in% accepted_inputs)) {
+    stop("Unexpected input filename: ", basename(chosen),
+         ". Please select one of the documented inputs.", call. = FALSE)
+  }
+  normalizePath(chosen, mustWork = TRUE)
+}
+
+input_file <- find_input_file()
+input_dir <- dirname(input_file)
+output_base <- if (basename(input_dir) %in% c("Input_Source_Files", "data")) {
+  dirname(input_dir)
+} else {
+  input_dir
+}
+output_dir <- file.path(output_base, "Hallmark_ssGSEA_Group_Heatmap_Outputs")
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+message("Input file: ", input_file)
+message("Results folder: ", normalizePath(output_dir, mustWork = TRUE))
+
+# 2. Install/load the packages needed for the selected analysis route.
+# GSVA and msigdbr are needed to compute scores from gene expression. The
+# heatmap packages are needed whether scores are computed or supplied.
+score_file_selected <- basename(input_file) %in% c(
+  "GSVA_Hallmark_scores.csv", "ssGSEA_Hallmark_scores.csv")
+need_cran <- c("circlize", if (!score_file_selected) "msigdbr")
+need_bioc <- c("ComplexHeatmap", if (!score_file_selected) "GSVA")
+missing_cran <- need_cran[!vapply(need_cran, requireNamespace,
+                                  logical(1), quietly = TRUE)]
+if (length(missing_cran)) {
+  message("Installing CRAN packages: ", paste(missing_cran, collapse = ", "))
+  install.packages(missing_cran, repos = "https://cloud.r-project.org")
+}
+missing_bioc <- need_bioc[!vapply(need_bioc, requireNamespace,
+                                  logical(1), quietly = TRUE)]
+if (length(missing_bioc)) {
+  if (!requireNamespace("BiocManager", quietly = TRUE)) {
+    install.packages("BiocManager", repos = "https://cloud.r-project.org")
+  }
+  if (!requireNamespace("BiocManager", quietly = TRUE)) {
+    stop("BiocManager could not be installed. Please install it and rerun.")
+  }
+  message("Installing Bioconductor packages: ", paste(missing_bioc, collapse = ", "))
+  BiocManager::install(missing_bioc, ask = FALSE, update = FALSE)
+}
+for (pkg in c(need_cran, need_bioc)) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    stop("Missing package: ", pkg,
+         ". Install the package and rerun this script.", call. = FALSE)
+  }
+}
+
+# 3. Define sample names and experimental groups.
+# The names on the left must match the expression matrix sample columns or
+# the sample-level ssGSEA score columns. The values on the right are the group
+# identifiers. These are the 12 samples and 3 replicates per group used in
+# the present study and of course they are not required numbers for ssGSEA itself.
+#
+# Researchers with other data may add or remove sample entries or rename the samples.
+# For example, if a group has 4 biological replicates, you can add the fourth sample
+# name and assign it to that group. Each group mean is calculated from all its
+# listed biological samples. If using a TAC export, edit raw_columns below so
+# it includes exactly one corresponding column for each sample, in the same
+# order as the names listed here.
+#
+# To change group names, update the identifiers below (the values on the right),
+# group_codes and group_order to agree. Keep group_codes and group_order in the
+# same order. For a different number of experimental groups, also adjust these
+# 2 lists and the sorting reference. The figure will then have that number
+# of columns. The defaults reproduce the 4 groups in the manuscript.
+sample_groups <- c(
+  Ctr_1 = "Ctrl", Ctr_2 = "Ctrl", Ctr_3 = "Ctrl",
+  EXOISO_1 = "EXOISO", EXOISO_2 = "EXOISO", EXOISO_3 = "EXOISO",
+  FreeISO_1 = "FreeISO", FreeISO_2 = "FreeISO", FreeISO_3 = "FreeISO",
+  NC_1 = "NC", NC_2 = "NC", NC_3 = "NC"
+)
+sample_order <- names(sample_groups)
+group_order <- c("NC", "Ctrl", "Free ISO", "EXO-ISO")  # Displayed labels
+group_codes <- c("NC", "Ctrl", "FreeISO", "EXOISO")  # Identifiers in sample_groups
+sorting_reference_group <- "Ctrl"  # Group used to order Hallmarks within each category
+
+# I added these checks to catch inconsistent names or empty groups without imposing a
+# fixed number of samples or a fixed number of replicates per group.
+stopifnot(!anyDuplicated(sample_order), length(sample_order) >= 2L,
+          !anyNA(sample_order), all(nzchar(sample_order)),
+          length(group_codes) >= 2L,
+          length(group_codes) == length(group_order),
+          !anyDuplicated(group_codes), !anyDuplicated(group_order),
+          all(group_codes %in% unname(sample_groups)),
+          all(unname(sample_groups) %in% group_codes),
+          sorting_reference_group %in% group_order)
+metadata_file <- file.path(input_dir, "sample_metadata_for_GSVA.tsv")
+if (file.exists(metadata_file)) {
+  metadata <- read.delim(metadata_file, check.names = FALSE)
+  stopifnot(all(c("Sample", "Group") %in% names(metadata)),
+            !anyDuplicated(metadata$Sample),
+            setequal(metadata$Sample, sample_order))
+  metadata <- metadata[match(sample_order, metadata$Sample), , drop = FALSE]
+  if (!identical(as.character(metadata$Group), unname(sample_groups))) {
+    stop("The sample metadata do not match the experimental group labels.")
+  }
+}
+write.table(data.frame(Sample = sample_order, Group = unname(sample_groups)),
+            file = file.path(output_dir, "sample_metadata_for_GSVA.tsv"),
+            sep = "\t", row.names = FALSE, quote = FALSE)
+
+# 4. When starting from the TAC export, prepare the expression matrix that
+# was used for Hallmark scoring. TAC contains transcript-cluster measurements.
+# ssGSEA is applied to a gene-symbol expression matrix. Where an annotation
+# contains multiple symbols, take its first symbol. If multiple clusters
+# represent that same gene, use the one with the highest average expression
+# across the supplied samples, retaining input order in the event of a tie.
+# For the present study, this one-feature-per-symbol procedure yielded 19525
+# gene symbols from the 21448 Clariom S transcript clusters. Other datasets may
+# have different feature counts: these figures are not minimum requirements as I said before.
+#
+# If using your own TAC export, change raw_columns to the sample expression
+# headers printed in your file. Their number and order must match sample_groups
+# above. The first listed TAC expression column maps to the first sample name.
+# If using a prepared TSV, use GeneSymbol as the first column, then the sample
+# names given in sample_groups; raw_columns is not used for that route.
+raw_columns <- c(
+  "Ctr 1 Avg (log2)", "Ctr 2 Avg (log2)", "Ctr 3 Avg (log2)",
+  "EXO ISO 1 Avg (log2)", "EXO ISO 2 Avg (log2)", "EXO ISO 3 Avg (log2)",
+  "Free ISO 1 Avg (log2)", "Free ISO 2 Avg (log2)",
+  "Free ISO 3 Avg (log2)",
+  "NC 1 Avg (log2)", "NC 2 Avg (log2)", "NC 3 Avg (log2)"
+)
+# The raw TAC headers are needed only when reading the original TAC export.
+# Any user starting with prepared expression or saved scores do not need to
+# edit this list, even if their experiment contains another number of samples.
+if (basename(input_file) == "All Expressions.txt" &&
+    length(raw_columns) != length(sample_order)) {
+  stop("raw_columns and sample_groups must specify the same number of samples ",
+       "when reading a TAC export.", call. = FALSE)
+}
+
+read_original_tac <- function(file) {
+  lines <- readLines(file, n = 15L, warn = FALSE, encoding = "UTF-8")
+  header_line <- grep("^ID\\t", lines)[1L]
+  if (is.na(header_line)) stop("Could not locate the ID column in: ", file)
+  tab <- read.delim(file, skip = header_line - 1L,
+                    header = TRUE, check.names = FALSE,
+                    quote = "", comment.char = "", fileEncoding = "UTF-8-BOM")
+  if (!all(c("ID", "Gene Symbol", raw_columns) %in% names(tab))) {
+    stop("The TAC export is missing expected annotations or sample columns.")
+  }
+  if (anyNA(tab$ID) || anyDuplicated(tab$ID)) {
+    stop("TAC transcript-cluster identifiers are missing or duplicated.")
+  }
+  tab
+}
+
+make_gene_expression_matrix <- function(tac) {
+  # Feature counts vary across platforms and studies, so this keep valid identifiers,
+  # rather than requiring the 21448 clusters of our manuscript dataset.
+  message("TAC transcript clusters read: ", nrow(tac))
+  if (nrow(tac) < 1L) stop("No transcript clusters found in the TAC input.")
+  symbol <- toupper(trimws(sub(";.*$", "", as.character(tac[["Gene Symbol"]]))))
+  value_frame <- tac[, raw_columns, drop = FALSE]
+  expr <- as.matrix(value_frame)
+  storage.mode(expr) <- "double"
+  if (any(!is.finite(expr))) stop("TAC sample expression contains non-finite values.")
+  selected <- which(!is.na(symbol) & nzchar(symbol))
+  mean_expr <- rowMeans(expr)
+  ranked <- selected[order(symbol[selected], -mean_expr[selected], selected)]
+  keep <- ranked[!duplicated(symbol[ranked])]
+  keep <- keep[order(symbol[keep])]
+  mat <- expr[keep, , drop = FALSE]
+  rownames(mat) <- symbol[keep]
+  colnames(mat) <- sample_order
+  if (nrow(mat) < 1L || anyDuplicated(rownames(mat))) {
+    stop("Could not prepare a nonempty matrix of unique gene symbols.")
+  }
+  message("Unique gene symbols retained for ssGSEA: ", nrow(mat))
+  mat
+}
+
+# 5. Read either the TAC file, the previously prepared expression matrix, or
+# the saved sample-level Hallmark scores. Supplying saved scores reproduces
+# the plotted figure without claiming that enrichment was recalculated.
+if (!score_file_selected) {
+  if (basename(input_file) == "All Expressions.txt") {
+    tac <- read_original_tac(input_file)
+    expression_matrix <- make_gene_expression_matrix(tac)
+  } else {
+    prepared <- read.delim(input_file, header = TRUE, check.names = FALSE)
+    if (!"GeneSymbol" %in% names(prepared)) {
+      stop("Prepared expression file must include a GeneSymbol column.")
+    }
+    if (!setequal(setdiff(names(prepared), "GeneSymbol"), sample_order)) {
+      stop("Prepared expression sample columns do not match sample_groups. ",
+           "Edit the sample names in section 3 to match this dataset.")
+    }
+    if (anyNA(prepared$GeneSymbol) || anyDuplicated(prepared$GeneSymbol)) {
+      stop("Prepared expression file contains invalid gene symbols.")
+    }
+    prepared <- prepared[order(prepared$GeneSymbol), , drop = FALSE]
+    expression_matrix <- as.matrix(prepared[, sample_order, drop = FALSE])
+    storage.mode(expression_matrix) <- "double"
+    rownames(expression_matrix) <- prepared$GeneSymbol
+    if (nrow(expression_matrix) < 1L) {
+      stop("The prepared gene expression matrix is empty.")
+    }
+    message("Unique gene symbols loaded: ", nrow(expression_matrix))
+  }
+  expression_matrix <- expression_matrix[, sample_order, drop = FALSE]
+  if (any(!is.finite(expression_matrix))) {
+    stop("Prepared expression matrix contains non-finite values.")
+  }
+  write.table(data.frame(GeneSymbol = rownames(expression_matrix),
+                         expression_matrix, check.names = FALSE),
+              file = file.path(output_dir, "expression_matrix_for_GSVA.tsv"),
+              sep = "\t", row.names = FALSE, quote = FALSE)
+
+  # The human Hallmark collection is obtained using the same msigdbr settings
+  # as the analysis. Every score is calculated on each sample independently.
+  # Package and MSigDB releases can affect the result, so the exact software
+  # versions used by this R session are recorded with the outputs.
+  hallmark_df <- msigdbr::msigdbr(species = "Homo sapiens", collection = "H")
+  hallmark_sets <- split(hallmark_df$gene_symbol, hallmark_df$gs_name)
+  if (length(hallmark_sets) != 50L) {
+    stop("Expected 50 human Hallmark gene sets; received ",
+         length(hallmark_sets), ". Review the MSigDB release.")
+  }
+
+  # The minSize/maxSize and normalization parameters are part of the original
+  # ssGSEA procedure. 
+  param <- GSVA::ssgseaParam(
+    exprData = expression_matrix,
+    geneSets = hallmark_sets,
+    minSize = 10,
+    maxSize = 500,
+    normalize = TRUE
+  )
+  scores_mat <- as.matrix(GSVA::gsva(param))
+  if (!setequal(colnames(scores_mat), sample_order)) {
+    stop("The GSVA output does not retain the expected biological samples.")
+  }
+  scores_mat <- scores_mat[, sample_order, drop = FALSE]
+  if (nrow(scores_mat) != 50L) {
+    stop("The scoring step did not return exactly 50 Hallmark pathways.")
+  }
+  write.csv(scores_mat, file.path(output_dir, "ssGSEA_Hallmark_scores.csv"))
+  write.csv(scores_mat, file.path(output_dir, "GSVA_Hallmark_scores.csv"))
+
+  # When the reference score table is present, these lines report any differences
+  # that could arise from the local GSVA or MSigDB package release.
+  reference_score_file <- file.path(input_dir, "GSVA_Hallmark_scores.csv")
+  if (file.exists(reference_score_file)) {
+    reference <- as.matrix(read.csv(reference_score_file,
+                                    row.names = 1, check.names = FALSE))
+    storage.mode(reference) <- "double"
+    if (setequal(rownames(reference), rownames(scores_mat)) &&
+        setequal(colnames(reference), colnames(scores_mat))) {
+      delta <- max(abs(reference[rownames(scores_mat), colnames(scores_mat)] -
+                       scores_mat))
+      message("Maximum difference against the supplied Hallmark scores: ",
+              format(delta, digits = 6))
+      if (delta > 1e-8) {
+        warning("The recalculated ssGSEA scores differ from the supplied ",
+                "reference. Check GSVA and MSigDB versions before ",
+                "comparing figures.")
+      }
+    }
+  }
+} else {
+  # This route is useful if you wishes to recreate the published
+  # heatmap using the stored sample-level ssGSEA scores.
+  scores_mat <- as.matrix(read.csv(input_file, row.names = 1,
+                                   check.names = FALSE))
+  storage.mode(scores_mat) <- "double"
+}
+
+stopifnot(nrow(scores_mat) == 50L,
+          ncol(scores_mat) == length(sample_order),
+          !anyDuplicated(rownames(scores_mat)),
+          setequal(colnames(scores_mat), sample_order),
+          all(is.finite(scores_mat)))
+scores_mat <- scores_mat[, sample_order, drop = FALSE]
+if (score_file_selected) {
+  write.csv(scores_mat, file.path(output_dir, "GSVA_Hallmark_scores.csv"))
+  write.csv(scores_mat, file.path(output_dir, "ssGSEA_Hallmark_scores.csv"))
+}
+
+# 6. This calculate one mean score per Hallmark and experimental group. Group means
+# are calculated across the biological-array scores assigned to each group,
+# not by averaging technical wells or standardizing the individual arrays first.
+# The original dataset had 3 biological samples per group, and other replicate
+# counts are handled using the supplied sample_groups map.
+means <- sapply(group_codes, function(group) {
+  group_samples <- names(sample_groups)[sample_groups == group]
+  rowMeans(scores_mat[, group_samples, drop = FALSE])
+})
+rownames(means) <- rownames(scores_mat)
+colnames(means) <- group_order
+stopifnot(identical(dim(means), c(50L, length(group_order))))
+
+# 7. This standardize each Hallmark across the group means, and makes
+# direction and relative group differences visible on a shared color scale.
+# Standardization uses R's sample standard deviation (n - 1 in the divisor).
+# Values shown in the figure are relative within each Hallmark and absolute
+# colors are not directly comparable as enrichment magnitudes across sets.
+z_mat <- t(scale(t(means)))
+stopifnot(all(is.finite(z_mat)),
+          identical(dim(z_mat), c(50L, length(group_order))))
+
+# 8. This to assign each Hallmark to the same descriptive biological-process group
+# used to organize the final figure. Each of the 50 Hallmarks appears once.
+# These 8 categories organize the display only and they do not alter gene sets in anyway.
+hallmark_category <- c(
+  "HALLMARK_BILE_ACID_METABOLISM" = "Metabolic",
+  "HALLMARK_CHOLESTEROL_HOMEOSTASIS" = "Metabolic",
+  "HALLMARK_FATTY_ACID_METABOLISM" = "Metabolic",
+  "HALLMARK_GLYCOLYSIS" = "Metabolic",
+  "HALLMARK_HEME_METABOLISM" = "Metabolic",
+  "HALLMARK_OXIDATIVE_PHOSPHORYLATION" = "Metabolic",
+  "HALLMARK_XENOBIOTIC_METABOLISM" = "Metabolic",
+  "HALLMARK_E2F_TARGETS" = "Proliferation",
+  "HALLMARK_G2M_CHECKPOINT" = "Proliferation",
+  "HALLMARK_MITOTIC_SPINDLE" = "Proliferation",
+  "HALLMARK_MYC_TARGETS_V1" = "Proliferation",
+  "HALLMARK_MYC_TARGETS_V2" = "Proliferation",
+  "HALLMARK_P53_PATHWAY" = "Proliferation",
+  "HALLMARK_ALLOGRAFT_REJECTION" = "Immune",
+  "HALLMARK_COAGULATION" = "Immune",
+  "HALLMARK_COMPLEMENT" = "Immune",
+  "HALLMARK_IL6_JAK_STAT3_SIGNALING" = "Immune",
+  "HALLMARK_INFLAMMATORY_RESPONSE" = "Immune",
+  "HALLMARK_INTERFERON_ALPHA_RESPONSE" = "Immune",
+  "HALLMARK_INTERFERON_GAMMA_RESPONSE" = "Immune",
+  "HALLMARK_APOPTOSIS" = "Pathway",
+  "HALLMARK_HYPOXIA" = "Pathway",
+  "HALLMARK_PROTEIN_SECRETION" = "Pathway",
+  "HALLMARK_REACTIVE_OXYGEN_SPECIES_PATHWAY" = "Pathway",
+  "HALLMARK_UNFOLDED_PROTEIN_RESPONSE" = "Pathway",
+  "HALLMARK_ANDROGEN_RESPONSE" = "Signaling",
+  "HALLMARK_ESTROGEN_RESPONSE_EARLY" = "Signaling",
+  "HALLMARK_ESTROGEN_RESPONSE_LATE" = "Signaling",
+  "HALLMARK_HEDGEHOG_SIGNALING" = "Signaling",
+  "HALLMARK_IL2_STAT5_SIGNALING" = "Signaling",
+  "HALLMARK_KRAS_SIGNALING_DN" = "Signaling",
+  "HALLMARK_KRAS_SIGNALING_UP" = "Signaling",
+  "HALLMARK_MTORC1_SIGNALING" = "Signaling",
+  "HALLMARK_NOTCH_SIGNALING" = "Signaling",
+  "HALLMARK_PI3K_AKT_MTOR_SIGNALING" = "Signaling",
+  "HALLMARK_TGF_BETA_SIGNALING" = "Signaling",
+  "HALLMARK_TNFA_SIGNALING_VIA_NFKB" = "Signaling",
+  "HALLMARK_WNT_BETA_CATENIN_SIGNALING" = "Signaling",
+  "HALLMARK_DNA_REPAIR" = "DNA damage",
+  "HALLMARK_UV_RESPONSE_DN" = "DNA damage",
+  "HALLMARK_UV_RESPONSE_UP" = "DNA damage",
+  "HALLMARK_ADIPOGENESIS" = "Development",
+  "HALLMARK_ANGIOGENESIS" = "Development",
+  "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION" = "Development",
+  "HALLMARK_MYOGENESIS" = "Development",
+  "HALLMARK_PANCREAS_BETA_CELLS" = "Development",
+  "HALLMARK_SPERMATOGENESIS" = "Development",
+  "HALLMARK_APICAL_JUNCTION" = "Cellular component",
+  "HALLMARK_APICAL_SURFACE" = "Cellular component",
+  "HALLMARK_PEROXISOME" = "Cellular component"
+)
+
+category_order <- c(
+  "Metabolic", "Proliferation", "Immune", "Pathway", "Signaling",
+  "DNA damage", "Development", "Cellular component"
+)
+expected_category_sizes <- c(7L, 6L, 7L, 5L, 13L, 3L, 6L, 3L)
+stopifnot(length(hallmark_category) == 50L,
+          !anyDuplicated(names(hallmark_category)),
+          setequal(names(hallmark_category), rownames(z_mat)),
+          identical(unname(tabulate(match(hallmark_category, category_order),
+                                   nbins = 8L)), expected_category_sizes))
+
+# 9. This was used to retain the 8 biological groups and sort Hallmarks within each one
+# by descending Z-score in the designated reference group (Ctrl by default).
+# All sample-group columns move together, preserving the numerical scores.
+# Neither the underlying pathway scores nor the row Z-scores are recalculated.
+ordered_rows <- character()
+for (group in category_order) {
+  in_group <- rownames(z_mat)[hallmark_category[rownames(z_mat)] == group]
+  sorted <- in_group[order(-z_mat[in_group, sorting_reference_group], in_group)]
+  ordered_rows <- c(ordered_rows, sorted)
+}
+stopifnot(length(ordered_rows) == 50L,
+          !anyDuplicated(ordered_rows),
+          setequal(ordered_rows, rownames(z_mat)))
+z_plot <- z_mat[ordered_rows, , drop = FALSE]
+row_group <- factor(unname(hallmark_category[rownames(z_plot)]),
+                    levels = category_order)
+
+for (group in category_order) {
+  values <- z_plot[row_group == group, sorting_reference_group]
+  if (any(diff(values) > 1e-12)) {
+    stop("Reference-group Z-score row ordering failed for: ", group)
+  }
+}
+# Numerically verify that reordering affects positions only.
+max_reorder_difference <- max(abs(unname(z_mat) -
+  unname(z_plot[rownames(z_mat), , drop = FALSE])))
+stopifnot(max_reorder_difference == 0)
+
+# 10. Export the exact values used for each heatmap tile. The file names below
+# follow the manuscript's Ctrl-descending convention. If another experimental
+# group is used as the sorting reference, the output names can also be renamed.
+write.csv(means[ordered_rows, , drop = FALSE],
+          file.path(output_dir,
+                    "Hallmark_ssGSEA_grouped_group_means_Ctrl_descending.csv"))
+write.csv(z_plot,
+          file.path(output_dir,
+                    "Hallmark_ssGSEA_grouped_row_Zscores_Ctrl_descending.csv"))
+
+# If published plotting tables are available locally, you can use to compare their values
+# rather than assuming that different software versions give identical scores.
+for (ref_name in c("Hallmark_ssGSEA_grouped_row_Zscores_Ctrl_descending.csv",
+                   "Hallmark_ssGSEA_grouped_group_means_Ctrl_descending.csv")) {
+  reference_path <- file.path(input_dir, ref_name)
+  if (file.exists(reference_path)) {
+    actual_file <- file.path(output_dir, ref_name)
+    reference <- as.matrix(read.csv(reference_path, row.names = 1,
+                                    check.names = FALSE))
+    current <- as.matrix(read.csv(actual_file, row.names = 1,
+                                  check.names = FALSE))
+    storage.mode(reference) <- "double"
+    storage.mode(current) <- "double"
+    if (identical(rownames(reference), rownames(current)) &&
+        identical(colnames(reference), colnames(current))) {
+      difference <- max(abs(reference - current))
+      message(ref_name, ": maximum difference = ",
+              format(difference, digits = 6))
+      if (difference > 1e-8) {
+        warning("Generated values do not match the supplied reference: ",
+                ref_name)
+      }
+    } else {
+      warning("Reference file differs in row/column labels: ", ref_name)
+    }
+  }
+}
+
+# 11. Draw the 4-column group heatmap. Negative row Z-scores are blue,
+# values near zero are pale yellow, and positive values are red. The original
+# fixed color scale is used throughout (no automatic per-panel rescaling).
+# The 8 biological groups are displayed as separate black-outlined boxes.
+label_rows <- gsub("_", " ", sub("^HALLMARK_", "", rownames(z_plot)))
+col_fun <- circlize::colorRamp2(
+  c(-1.5, 0, 1.5),
+  c("#4575B4", "#FFF2B2", "#D73027")
+)
+
+heatmap <- ComplexHeatmap::Heatmap(
+  z_plot,
+  name = "Row Z-score",
+  col = col_fun,
+  row_split = row_group,
+  cluster_rows = FALSE,
+  cluster_row_slices = FALSE,
+  cluster_columns = FALSE,
+  row_gap = grid::unit(3.5, "mm"),
+  row_title_gp = grid::gpar(fontsize = 10, fontface = "bold"),
+  row_title_rot = 0,
+  row_title_side = "left",
+  row_labels = label_rows,
+  row_names_side = "right",
+  row_names_gp = grid::gpar(fontsize = 8),
+  column_labels = group_order,
+  column_names_gp = grid::gpar(fontsize = 11),
+  rect_gp = grid::gpar(col = "grey70", lwd = 0.6),
+  column_title = "Group-level Hallmark ssGSEA scores by biological process",
+  column_title_gp = grid::gpar(fontsize = 15, fontface = "bold"),
+  heatmap_legend_param = list(
+    title = "Row Z-score",
+    at = c(-1.5, -1, -0.5, 0, 0.5, 1, 1.5),
+    labels = c("-1.5", "-1.0", "-0.5", "0", "0.5", "1.0", "1.5"),
+    legend_height = grid::unit(45, "mm"),
+    title_gp = grid::gpar(fontsize = 10, fontface = "bold"),
+    labels_gp = grid::gpar(fontsize = 9)
+  )
+)
+
+# The plot consists of 8 horizontal slices. This used to draw a black border around
+# each slice, leaving visible gaps between the biological groups. It uses the
+# published image dimensions for PNG and the published page size for PDF.
+draw_grouped_heatmap <- function() {
+  ComplexHeatmap::draw(heatmap, heatmap_legend_side = "right")
+  for (i in seq_along(category_order)) {
+    ComplexHeatmap::decorate_heatmap_body("Row Z-score", slice = i, {
+      grid::grid.rect(gp = grid::gpar(fill = NA, col = "black", lwd = 1.2))
+    })
+  }
+}
+
+stem <- "Hallmark_ssGSEA_boxed_biological_groups_FINAL_Ctrl_descending"
+pdf_file <- file.path(output_dir, paste0(stem, ".pdf"))
+png_file <- file.path(output_dir, paste0(stem, ".png"))
+
+pdf(pdf_file, width = 10, height = 14, useDingbats = FALSE)
+tryCatch(draw_grouped_heatmap(), finally = dev.off())
+
+png(png_file, width = 2300, height = 3000, res = 250, bg = "white")
+tryCatch(draw_grouped_heatmap(), finally = dev.off())
+
+stopifnot(file.exists(pdf_file), file.exists(png_file),
+          file.info(pdf_file)$size > 1000,
+          file.info(png_file)$size > 1000)
+
+# 12. Finally, this is used to record the exact package versions used for this run. 
+# GSVA and MSigDB releases can change score calculations, reporting the software environment
+# permits the readers to interpret any differences between independent reruns.
+capture.output(sessionInfo(),
+               file = file.path(output_dir, "sessionInfo_Hallmark_ssGSEA.txt"))
+
+message("Hallmark ssGSEA analysis and group heatmap completed.")
+message("Heatmap PDF: ", pdf_file)
+message("Heatmap PNG: ", png_file)
+message("Saved score tables and software details in: ", output_dir)
+if (interactive() && .Platform$OS.type == "windows") {
+  shell.exec(normalizePath(output_dir, mustWork = TRUE))
+}

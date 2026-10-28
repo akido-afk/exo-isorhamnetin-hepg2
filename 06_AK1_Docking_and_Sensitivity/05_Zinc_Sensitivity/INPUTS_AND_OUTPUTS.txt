@@ -1,0 +1,242 @@
+05 Zinc Sensitivity
+INPUTS AND OUTPUTS
+
+Paths below use the original project layout. The preparation helper reconstructs these locations from the chapter folders.
+
+AK1_ZN601_10seed_comprehensive.py
+Inputs:
+  docking/AK1_ISO_seed*.pdbqt
+  docking/AK1_ISO_seed1001.pdbqt
+  docking/AK1_ISO_seed10101.pdbqt
+  docking/AK1_ISO_seed2002.pdbqt
+  docking/AK1_ISO_seed3003.pdbqt
+  docking/AK1_ISO_seed4004.pdbqt
+  docking/AK1_ISO_seed5005.pdbqt
+  docking/AK1_ISO_seed6006.pdbqt
+  docking/AK1_ISO_seed7007.pdbqt
+  docking/AK1_ISO_seed8008.pdbqt
+  docking/AK1_ISO_seed9009.pdbqt
+  docking/AK1_ZN601_ISO_seed*.pdbqt
+  docking/AK1_ZN601_ISO_seed1001.pdbqt
+  docking/AK1_ZN601_ISO_seed10101.pdbqt
+  docking/AK1_ZN601_ISO_seed2002.pdbqt
+  docking/AK1_ZN601_ISO_seed3003.pdbqt
+  docking/AK1_ZN601_ISO_seed4004.pdbqt
+  docking/AK1_ZN601_ISO_seed5005.pdbqt
+  docking/AK1_ZN601_ISO_seed6006.pdbqt
+  docking/AK1_ZN601_ISO_seed7007.pdbqt
+  docking/AK1_ZN601_ISO_seed8008.pdbqt
+  docking/AK1_ZN601_ISO_seed9009.pdbqt
+  receptors/AK1_chainA_FIXED_ZN601.pdb
+Outputs:
+  results/AK1_Zn_sensitivity/ZN601_10seed/AK1_ZN601_10seed_comprehensive.xlsx
+  results/AK1_Zn_sensitivity/ZN601_10seed/AK1_ZN601_Zn_distances.csv
+  results/AK1_Zn_sensitivity/ZN601_10seed/AK1_ZN601_pose_RMSD_matrix.csv
+  results/AK1_Zn_sensitivity/ZN601_10seed/AK1_ZN601_scores.csv
+  results/AK1_Zn_sensitivity/ZN601_10seed/AK1_ZN601_vs_Znfree_families.csv
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed1001_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed1001_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed10101_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed10101_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed2002_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed2002_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed3003_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed3003_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed4004_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed4004_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed5005_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed5005_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed6006_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed6006_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed7007_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed7007_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed8008_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed8008_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed9009_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed1001_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed1001_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed10101_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed10101_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed2002_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed2002_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed3003_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed3003_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed4004_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed4004_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed5005_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed5005_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed6006_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed6006_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed7007_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed7007_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed8008_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed8008_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed9009_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed9009_best.sdf
+Other file references in the original source:
+  receptors/AK1_chainA_FIXED_ZN601.pdb
+  results/AK1_Zn_sensitivity/ZN601_10seed/AK1_ZN601_10seed_comprehensive.xlsx
+  results/AK1_Zn_sensitivity/ZN601_10seed/AK1_ZN601_Zn_distances.csv
+  results/AK1_Zn_sensitivity/ZN601_10seed/AK1_ZN601_pose_RMSD_matrix.csv
+  results/AK1_Zn_sensitivity/ZN601_10seed/AK1_ZN601_scores.csv
+  results/AK1_Zn_sensitivity/ZN601_10seed/AK1_ZN601_vs_Znfree_families.csv
+
+AK1_ZN601_classify_pose.py
+Inputs:
+  docking/AK1_ISO_seed*.pdbqt
+Outputs:
+  results/AK1_Zn_sensitivity/AK1_ZN601_pilot_pose_classification.xlsx
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed1001_all.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed1001_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed10101_all.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed10101_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed2002_all.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed2002_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed3003_all.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed3003_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed4004_all.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed4004_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed5005_all.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed5005_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed6006_all.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed6006_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed7007_all.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed7007_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed8008_all.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed8008_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed9009_all.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed9009_best.sdf
+Other file references in the original source:
+  results/AK1_Zn_sensitivity/AK1_ISO_seed9009_ZN601_best.sdf
+  results/AK1_Zn_sensitivity/AK1_ZN601_pilot_pose_classification.xlsx
+
+AK1_ZN601_pilot_compare.py
+Inputs:
+  docking/AK1_ISO_seed9009.pdbqt
+  docking/AK1_ZN601_ISO_seed9009.pdbqt
+  receptors/AK1_chainA_FIXED_ZN601.pdb
+Outputs:
+  results/AK1_Zn_sensitivity/AK1_ZN601_seed9009_pilot_comparison.xlsx
+Other file references in the original source:
+  docking/AK1_ISO_seed9009.pdbqt
+  docking/AK1_ZN601_ISO_seed9009.pdbqt
+  receptors/AK1_chainA_FIXED_ZN601.pdb
+  results/AK1_Zn_sensitivity/AK1_ISO_seed9009_ZN601_allposes.sdf
+  results/AK1_Zn_sensitivity/AK1_ISO_seed9009_ZN601_best.sdf
+  results/AK1_Zn_sensitivity/AK1_ISO_seed9009_ZNfree_allposes.sdf
+  results/AK1_Zn_sensitivity/AK1_ISO_seed9009_ZNfree_best.sdf
+  results/AK1_Zn_sensitivity/AK1_ZN601_seed9009_pilot_comparison.xlsx
+
+AK1_Zn_environment_to_excel.py
+Inputs:
+  structures/AK1_1Z83.pdb
+Outputs:
+  results/AK1_Zn_sensitivity/AK1_1Z83_Zn_environment_analysis.xlsx
+  results/AK1_Zn_sensitivity/AK1_1Z83_Zn_neighbors_within5A.csv
+Other file references in the original source:
+  results/AK1_Zn_sensitivity/AK1_1Z83_Zn_environment_analysis.xlsx
+  results/AK1_Zn_sensitivity/AK1_1Z83_Zn_neighbors_within5A.csv
+  structures/AK1_1Z83.pdb
+
+AK1_combine_panelH.py
+Inputs:
+Outputs:
+  results/AK1_panelH_Zn/AK1_panelH_Zn_environment_FINAL.png
+Other file references in the original source:
+  results/AK1_panelH_Zn/AK1_panelH1_ZN601_clean.png
+  results/AK1_panelH_Zn/AK1_panelH2_ZN641_clean.png
+  results/AK1_panelH_Zn/AK1_panelH_Zn_environment_FINAL.png
+
+AK1_inspect_Zn_environment.py
+Inputs:
+  structures/AK1_1Z83.pdb
+Outputs:
+  [console output]
+Other file references in the original source:
+  structures/AK1_1Z83.pdb
+
+AK1_panelH1_ZN601_clean.pml
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_panelH_Zn/AK1_panelH1_ZN601_clean.png
+
+AK1_panelH2_ZN641_clean.pml
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_panelH_Zn/AK1_panelH2_ZN641_clean.png
+
+AK1_panelH_Zn_environment.pml
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_panelH_Zn/AK1_panelH1_ZN601_AP5_environment.png
+  results/AK1_panelH_Zn/AK1_panelH2_ZN641_protein_environment.png
+
+AK1_panelI_ZN601_sensitivity.R
+Inputs:
+  results/AK1_Zn_sensitivity/ZN601_10seed/AK1_ZN601_Zn_distances.csv
+  results/AK1_Zn_sensitivity/ZN601_10seed/AK1_ZN601_pose_RMSD_matrix.csv
+  results/AK1_Zn_sensitivity/ZN601_10seed/AK1_ZN601_scores.csv
+  results/AK1_Zn_sensitivity/ZN601_10seed/AK1_ZN601_vs_Znfree_families.csv
+Outputs:
+  results/AK1_panelI/AK1_panelI_ZN601_receptor_state_sensitivity.png
+Other file references in the original source:
+  results/AK1_Zn_sensitivity/ZN601_10seed/AK1_ZN601_Zn_distances.csv
+  results/AK1_Zn_sensitivity/ZN601_10seed/AK1_ZN601_pose_RMSD_matrix.csv
+  results/AK1_Zn_sensitivity/ZN601_10seed/AK1_ZN601_scores.csv
+  results/AK1_Zn_sensitivity/ZN601_10seed/AK1_ZN601_vs_Znfree_families.csv
+  results/AK1_panelI/AK1_panelI_ZN601_receptor_state_sensitivity.pdf
+  results/AK1_panelI/AK1_panelI_ZN601_receptor_state_sensitivity.png
+
+AK1_panelJ_Znfree_vs_ZN601_overlay.pml
+Inputs:
+  ligand/AK1_native_AP5_chainA.pdb
+  receptors/AK1_chainA_FIXED_ZN601.pdb
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed5005_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_repr9009/AK1_ISO_seed9009_best.sdf
+Outputs:
+  results/AK1_panelJ/AK1_panelJ_Znfree_vs_ZN601_overlay.png
+Other file references in the original source:
+  ligand/AK1_native_AP5_chainA.pdb
+  receptors/AK1_chainA_FIXED_ZN601.pdb
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/poses/AK1_ZN601_ISO_seed5005_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_panelJ/AK1_panelJ_Znfree_vs_ZN601_overlay.png
+  results/AK1_repr9009/AK1_ISO_seed9009_best.sdf
+
+build_AK1_FIXED_ZN601.py
+Inputs:
+Outputs:
+Other file references in the original source:
+  receptors/AK1_chainA_FIXED.pdb
+  receptors/AK1_chainA_FIXED_ZN601.pdb
+  structures/AK1_1Z83.pdb
+
+run_AK1_ZN601_10seeds.bat
+Inputs:
+  ligand/isorhamnetin.pdbqt
+  receptors/AK1_ZN601.pdbqt
+Outputs:
+  docking/AK1_ZN601_ISO_seed1001.pdbqt
+  docking/AK1_ZN601_ISO_seed10101.pdbqt
+  docking/AK1_ZN601_ISO_seed2002.pdbqt
+  docking/AK1_ZN601_ISO_seed3003.pdbqt
+  docking/AK1_ZN601_ISO_seed4004.pdbqt
+  docking/AK1_ZN601_ISO_seed5005.pdbqt
+  docking/AK1_ZN601_ISO_seed6006.pdbqt
+  docking/AK1_ZN601_ISO_seed7007.pdbqt
+  docking/AK1_ZN601_ISO_seed8008.pdbqt
+  docking/AK1_ZN601_ISO_seed9009.pdbqt
+Other file references in the original source:
+  ligand/isorhamnetin.pdbqt
+  receptors/AK1_ZN601.pdbqt

@@ -1,0 +1,41 @@
+04 Interactions and Contact Recurrence
+RECOMMENDED REPRODUCTION STEPS
+
+Run these commands from the working project's structures/ directory after completing the setup in the docking README. The optional new-search sections run new docking calculations.
+
+CONTACT ANALYSIS FROM SAVED POSES
+python ..\run_analysis.py AK1_extract_ISO_contacts.py
+python ..\run_analysis.py AK1_dominant8_contact_frequency.py
+python ..\run_analysis.py AK1_export_recurrent_contact_distances.py
+python ..\run_analysis.py AK1_AP5_ISO_fingerprint_compare.py
+
+PLOTS
+python ..\run_analysis.py AK1_panelF_contact_stability_v2.R
+python ..\run_analysis.py AK1_panelK_contact_recurrence.R
+python ..\run_analysis.py AK1_panelL_native_ligand_fingerprint.R
+
+OTHER SUPPLIED SOURCES
+The following list includes alternative versions; it is not a required sequence.
+04 Interactions and Contact Recurrence
+REPRODUCTION COMMANDS
+
+First use the preparation helper described in the root README.txt to create a new working copy. Run commands from that copy's structures/ directory.
+Use the relevant steps below; alternative plotting scripts are separate versions, not a sequence that must all be run. Saved docking outputs are supplied for downstream analysis. New docking searches must write to a separate empty output folder.
+
+python ..\run_analysis.py AK1_AP5_ISO_fingerprint_compare.py
+python ..\run_analysis.py AK1_dominant8_contact_frequency.py
+python ..\run_analysis.py AK1_export_recurrent_contact_distances.py
+python ..\run_analysis.py AK1_extract_ISO_contacts.py
+python ..\run_analysis.py AK1_panelB_closeup.pml
+python ..\run_analysis.py AK1_panelB_refined_v2.pml
+python ..\run_analysis.py AK1_panelF_contact_stability.R
+python ..\run_analysis.py AK1_panelF_contact_stability_v2.R
+python ..\run_analysis.py AK1_panelG_AP5_ISO_fingerprint.R
+python ..\run_analysis.py AK1_panelG_contact_recurrence.R
+python ..\run_analysis.py AK1_panelK_contact_recurrence.R
+python ..\run_analysis.py AK1_panelL_native_ligand_fingerprint.R
+python ..\run_analysis.py make_AK1_panelB.pml
+python ..\run_analysis.py make_AK1_panelB_callouts.pml
+python ..\run_analysis.py make_AK1_panelB_callouts_v2.pml
+
+The preparation helper uses the portable execution sources listed in README.txt. Run the same script filenames from the independent structures/ directory. To repeat a docking search, prepare that working copy with --fresh-docking.

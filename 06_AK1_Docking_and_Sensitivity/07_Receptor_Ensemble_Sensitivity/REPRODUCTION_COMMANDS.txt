@@ -1,0 +1,45 @@
+07 Receptor Ensemble Sensitivity
+RECOMMENDED REPRODUCTION STEPS
+
+Run these commands from the working project's structures/ directory after completing the setup in the docking README. The optional new-search sections run new docking calculations.
+
+RECEPTOR-ENSEMBLE PREPARATION
+Prepared aligned receptor files are supplied. To repeat preparation:
+python ..\run_analysis.py AK1_inspect_7X7S_ensemble.py
+python ..\run_analysis.py AK1_prepare_7X7S_selected_models.py
+python ..\run_analysis.py AK1_fix_7X7S_selected_receptors.py
+python "%CONDA_PREFIX%\Lib\site-packages\meeko\cli\mk_prepare_receptor.py" --read_pdb "..\receptors\AK1_7X7S_model20_least_open_FIXED.pdb" -o "..\receptors\AK1_7X7S_model20_least_open" -p
+python "%CONDA_PREFIX%\Lib\site-packages\meeko\cli\mk_prepare_receptor.py" --read_pdb "..\receptors\AK1_7X7S_model8_ensemble_medoid_FIXED.pdb" -o "..\receptors\AK1_7X7S_model8_ensemble_medoid" -p
+python "%CONDA_PREFIX%\Lib\site-packages\meeko\cli\mk_prepare_receptor.py" --read_pdb "..\receptors\AK1_7X7S_model1_most_open_FIXED.pdb" -o "..\receptors\AK1_7X7S_model1_most_open" -p
+
+OPTIONAL NEW SEARCH (prepare with --fresh-docking)
+python ..\run_analysis.py --allow-docking AK1_run_7X7S_ensemble_docking.bat
+
+ANALYSIS
+python ..\run_analysis.py AK1_analyze_7X7S_ensemble_docking.py
+python ..\run_analysis.py AK1_extract_ensemble_mapped_contacts.py
+python ..\run_analysis.py AK1_plot_ensemble_contact_fingerprint.R
+python ..\run_analysis.py AK1_plot_ensemble_quantitative_ABC.R
+python ..\run_analysis.py AK1_plot_ensemble_Jaccard_similarity.R
+
+OTHER SUPPLIED SOURCES
+The following list includes alternative versions; it is not a required sequence.
+07 Receptor Ensemble Sensitivity
+REPRODUCTION COMMANDS
+
+First use the preparation helper described in the root README.txt to create a new working copy. Run commands from that copy's structures/ directory.
+Use the relevant steps below; alternative plotting scripts are separate versions, not a sequence that must all be run. Saved docking outputs are supplied for downstream analysis. New docking searches must write to a separate empty output folder.
+
+python ..\run_analysis.py AK1_7X7S_pairwise_overlays_v2.pml
+python ..\run_analysis.py AK1_7X7S_selected_overlay.pml
+python ..\run_analysis.py AK1_analyze_7X7S_ensemble_docking.py
+python ..\run_analysis.py AK1_extract_ensemble_mapped_contacts.py
+python ..\run_analysis.py AK1_fix_7X7S_selected_receptors.py
+python ..\run_analysis.py AK1_inspect_7X7S_ensemble.py
+python ..\run_analysis.py AK1_plot_ensemble_contact_fingerprint.R
+python ..\run_analysis.py AK1_plot_ensemble_Jaccard_similarity.R
+python ..\run_analysis.py AK1_plot_ensemble_quantitative_ABC.R
+python ..\run_analysis.py AK1_prepare_7X7S_selected_models.py
+python ..\run_analysis.py --allow-docking AK1_run_7X7S_ensemble_docking.bat
+
+The preparation helper uses the portable execution sources listed in README.txt. Run the same script filenames from the independent structures/ directory. To repeat a docking search, prepare that working copy with --fresh-docking.

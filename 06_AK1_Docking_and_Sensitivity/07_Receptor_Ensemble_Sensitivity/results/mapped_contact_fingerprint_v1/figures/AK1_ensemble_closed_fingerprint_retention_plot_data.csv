@@ -1,0 +1,7 @@
+"Comparison","Contact_type","Closed_reference_retained_percent","Receptor"
+"7X7S least-open vs 1Z83 closed dominant","Any contact",61.5384615384615,"Least-open"
+"7X7S least-open vs 1Z83 closed dominant","Polar proximity",66.6666666666667,"Least-open"
+"7X7S medoid vs 1Z83 closed dominant","Any contact",53.8461538461538,"Medoid"
+"7X7S medoid vs 1Z83 closed dominant","Polar proximity",16.6666666666667,"Medoid"
+"7X7S most-open vs 1Z83 closed dominant","Any contact",46.1538461538462,"Most-open"
+"7X7S most-open vs 1Z83 closed dominant","Polar proximity",50,"Most-open"

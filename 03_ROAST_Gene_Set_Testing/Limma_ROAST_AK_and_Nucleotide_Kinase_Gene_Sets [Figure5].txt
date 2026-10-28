@@ -1,0 +1,676 @@
+# ========================================================================
+# Limma ROAST AK and Nucleotide Kinase Gene Sets Figure 5
+# ========================================================================
+#
+# WHAT THE ANALYSIS DOES?
+# This script tests the AK and related nucleotide-kinase gene sets and generates the Figure 5 panels.
+#
+# HOW TO RUN THIS CODE?
+# Run in R or RStudio using source(file.choose(), encoding = "UTF-8").
+#
+# REQUIRED INPUTS AND ANALYTICAL DETAILS
+# ========================================================================
+#
+# Figure 5: adenylate-kinase activity and related nucleotide-kinase gene sets
+#
+# This script reproduces the microarray-based analyses shown in Figure 5,
+# starting with the original Clariom S Human TAC expression export. The 3
+# panels examine complementary aspects of the same expression dataset:
+#
+#   (a) A ROAST test of GO:0004017 across 4 treatment comparisons.
+#   (b) The 8 measured adenylate-kinase genes, displayed as group-average
+#       Z-scores after standardizing each gene across the 12 samples.
+#   (c) A sensitivity analysis of 5 related GO molecular-function sets,
+#       including GO:0004017, across the same 4 comparisons.
+#
+# The publication-style figure uses Ward.D2 clustering for panel (b) and
+# horizontal, 2-line comparison labels for panel (c). Those presentation
+# choices do not change the expression data, gene sets or statistical tests.
+#
+# 1 experimental input is required:
+#   All Expressions.txt
+#       Original normalized log2 measurements for the 12 biological samples.
+#
+# The 5 published GO:MF membership tables are reconstructed internally from
+# fixed gene lists. The script downloads MSigDB 2025.1.Hs
+# GO:MF collection. 
+# The script reports the outcome of the external MSigDB verification, including
+# cases where the public collection does not contain the original term.
+# To run in RStudio, enter source(file.choose(), encoding = "UTF-8"), choose
+# this script, and select All Expressions.txt if the input picker appears.
+# The tests use 9999 rotations and set.statistic = "mean". Primary results
+# use BH correction across 4 contrasts; the sensitivity panel uses BH
+# correction across all 20 set-by-contrast tests. Rotation-based p-values can
+# vary slightly if the original R/limma versions or random seeds differ.
+
+options(stringsAsFactors = FALSE)
+if (!requireNamespace("limma", quietly = TRUE)) {
+  if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager", repos = "https://cloud.r-project.org")
+  BiocManager::install("limma", update = FALSE, ask = FALSE)
+}
+for (pkg in c("ggplot2", "patchwork")) {
+  if (!requireNamespace(pkg, quietly = TRUE))
+    install.packages(pkg, repos = "https://cloud.r-project.org")
+}
+for (pkg in c("limma", "ggplot2", "patchwork"))
+  if (!requireNamespace(pkg, quietly = TRUE))
+    stop("Install missing package: ", pkg, call. = FALSE)
+
+N_ROTATIONS <- 9999L
+SET_STATISTIC <- "mean"
+SEED_PRIMARY <- 20261018L
+SEED_SENSITIVITY <- 20261019L
+PANEL_SIGNIFICANCE <- 0.05
+EXPECTED_GROUP_REPLICATES <- 3L
+CONTRASTS <- data.frame(
+  Contrast = c("Ctrl_vs_NC", "FreeISO_vs_Ctrl", "EXOISO_vs_Ctrl", "EXOISO_vs_FreeISO"),
+  Contrast_Label = c("Ctrl vs NC", "Free ISO vs Ctrl", "EXO-ISO vs Ctrl", "EXO-ISO vs Free ISO"),
+  Numerator = c("Ctrl", "FreeISO", "EXOISO", "EXOISO"),
+  Denominator = c("NC", "Ctrl", "Ctrl", "FreeISO"),
+  stringsAsFactors = FALSE
+)
+GENE_SETS <- data.frame(
+  Set_Key = c("AK_activity", "Deoxynucleoside_P_kinase", "dCMP_kinase", "NDP_kinase", "NMP_kinase"),
+  GO_ID = c("GO:0004017", "GO:0047507", "GO:0036431", "GO:0004550", "GO:0050145"),
+  Display_Name = c("AMP/adenylate kinase activity", "Deoxynucleoside-P kinase",
+                   "dCMP kinase activity", "Nucleoside diphosphate kinase",
+                   "Nucleoside monophosphate kinase"), stringsAsFactors = FALSE
+)
+
+# Look for the original inputs beside the script first. If they have been
+# placed elsewhere, R will ask you to select them 
+locate_input <- function(filename, preferred = NULL, dirs = character(), explanation = "") {
+  candidates <- unique(c(preferred, file.path(dirs, filename)))
+  hits <- candidates[!is.na(candidates) & file.exists(candidates)]
+  if (length(hits)) {
+    out <- normalizePath(hits[1L], winslash = "/", mustWork = TRUE)
+    message("Found ", filename, ": ", out)
+    return(out)
+  }
+  if (!interactive()) stop("Missing required input: ", filename, call. = FALSE)
+  message("Select ", filename, ". ", explanation)
+  out <- normalizePath(file.choose(), winslash = "/", mustWork = TRUE)
+  if (basename(out) != filename)
+    stop("Selected ", basename(out), "; expected ", filename, call. = FALSE)
+  out
+}
+if (!interactive()) stop("Run in interactive RStudio, then use source(file.choose()).")
+script_candidates <- character()
+source_ctx <- tryCatch(sys.frames(), error = function(e) list())
+for (fr in source_ctx) if (!is.null(fr$ofile)) script_candidates <- c(script_candidates, fr$ofile)
+script_dir <- if (length(script_candidates)) dirname(normalizePath(tail(script_candidates, 1))) else getwd()
+package_roots <- unique(c(script_dir, dirname(script_dir), getwd()))
+expression_file <- locate_input("All Expressions.txt", dirs = c(
+  file.path(package_roots, "input"), package_roots))
+in_dir <- dirname(expression_file)
+root <- if (basename(in_dir) == "input") dirname(in_dir) else in_dir
+# GO memberships are built internally and checked against the online release.
+# Keep output paths short, including on Windows, where deeply nested paths
+# can sometimes prevent figure export.
+out_dir <- file.path(root, "Figure5_ROAST_Results")
+tables_dir <- file.path(out_dir, "tables")
+plots_dir <- file.path(out_dir, "plots")
+for (d in c(out_dir, tables_dir, plots_dir)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
+if (!all(dir.exists(c(out_dir, tables_dir, plots_dir)))) stop("Could not create output folders.")
+read_tac <- function(path) {
+  lines <- readLines(path, n = 20L, warn = FALSE, encoding = "UTF-8")
+  hdr <- which(startsWith(sub("^\ufeff", "", lines), "ID\t"))[1L]
+  if (is.na(hdr)) stop("Could not find the TAC table header.")
+  dat <- read.delim(path, skip = hdr - 1L, header = TRUE, check.names = FALSE,
+                    quote = "", comment.char = "", stringsAsFactors = FALSE,
+                    fileEncoding = "UTF-8-BOM")
+  if (anyDuplicated(dat$ID) || anyNA(dat$ID)) stop("TAC transcript-cluster IDs are not unique.")
+  dat
+}
+GO_SET_MEMBERS <- list(
+  AK_activity = c("AK1", "AK2", "AK3", "AK4", "AK5", "AK6", "AK7", "AK8", "AK9"),
+  Deoxynucleoside_P_kinase = c("AK1", "AK4", "AK7", "AK8", "AK9", "CMPK1", "CMPK2", "DTYMK"),
+  dCMP_kinase = c("AK4", "AK7", "AK8", "AK9", "CMPK1", "CMPK2"),
+  NDP_kinase = c("AK1", "AK4", "AK5", "AK7", "AK8", "AK9", "CMPK1", "CMPK2", "DTYMK", "NME1", "NME2", "NME2P1", "NME3", "NME4", "NME5", "NME6", "NME7", "NME9"),
+  NMP_kinase = c("AK1", "AK2", "AK3", "AK4", "AK5", "AK6", "AK7", "AK8", "AK9", "CARD11", "CASK", "CMPK1", "CMPK2", "DLG1", "DLG2", "GUK1", "LRGUK", "MAGI3", "MPP1", "TJP2")
+)
+UNMEASURED_GENES <- list(
+  AK_activity = c("AK6"),
+  Deoxynucleoside_P_kinase = c(),
+  dCMP_kinase = c(),
+  NDP_kinase = c("NME2", "NME2P1"),
+  NMP_kinase = c("AK6")
+)
+MSIGDB_RELEASE <- "2025.1.Hs"
+MSIGDB_GMT_URL <- paste0(
+  "https://data.broadinstitute.org/gsea-msigdb/msigdb/release/",
+  MSIGDB_RELEASE, "/c5.go.mf.v", MSIGDB_RELEASE, ".symbols.gmt"
+)
+MSIGDB_MATCHED_SET_NAMES <- c(
+  AK_activity = "GOMF_ADENYLATE_KINASE_ACTIVITY",
+  Deoxynucleoside_P_kinase = NA_character_,
+  dCMP_kinase = NA_character_,
+  NDP_kinase = "GOMF_NUCLEOSIDE_DIPHOSPHATE_KINASE_ACTIVITY",
+  NMP_kinase = "GOMF_NUCLEOSIDE_MONOPHOSPHATE_KINASE_ACTIVITY"
+)
+RUN_ONLINE_MSigDB_CHECK <- TRUE
+
+build_original_membership <- function() {
+  if (!identical(names(GO_SET_MEMBERS), GENE_SETS$Set_Key) ||
+      !identical(names(UNMEASURED_GENES), GENE_SETS$Set_Key))
+    stop("The specified GO set names do not match the 5 prespecified tests.")
+  ans <- lapply(seq_len(nrow(GENE_SETS)), function(i) {
+    key <- GENE_SETS$Set_Key[i]
+    genes <- GO_SET_MEMBERS[[key]]
+    unmeasured <- UNMEASURED_GENES[[key]]
+    if (anyDuplicated(genes) || !all(unmeasured %in% genes))
+      stop("Invalid original gene membership in ", key)
+    data.frame(Set_Key = key, GO_ID = GENE_SETS$GO_ID[i],
+               Display_Name = GENE_SETS$Display_Name[i],
+               Gene = genes, Present_on_array = !(genes %in% unmeasured),
+               Source = "MSigDB exact GO ID (original Figure 5 reference)",
+               stringsAsFactors = FALSE)
+  })
+  ans <- do.call(rbind, ans)
+  rownames(ans) <- NULL
+  expected <- c(AK_activity = 8L, Deoxynucleoside_P_kinase = 8L,
+                dCMP_kinase = 6L, NDP_kinase = 16L, NMP_kinase = 19L)
+  observed <- tapply(ans$Present_on_array, ans$Set_Key, sum)
+  if (!identical(as.integer(observed[names(expected)]), unname(expected)))
+    stop("Original array-coverage counts are inconsistent with Figure 5.")
+  ans
+}
+check_msigdb_reference <- function(original, audit_dir) {
+  file <- file.path(audit_dir, paste0("MSigDB_GO_MF_", MSIGDB_RELEASE, ".gmt"))
+  if (!file.exists(file) || file.info(file)$size < 1000) {
+    if (file.exists(file)) unlink(file)
+    message("Checking official MSigDB ", MSIGDB_RELEASE, " online ...")
+    ok <- tryCatch({
+      old_timeout <- getOption("timeout")
+      options(timeout = max(180L, old_timeout))
+      on.exit(options(timeout = old_timeout), add = TRUE)
+      suppressWarnings(utils::download.file(MSIGDB_GMT_URL, file,
+                                            mode = "wb", quiet = TRUE))
+      file.exists(file) && file.info(file)$size > 1000
+    }, error = function(e) {
+      message("MSigDB download: ", conditionMessage(e))
+      FALSE
+    })
+  } else {
+    ok <- TRUE
+    message("Using previously downloaded MSigDB ", MSIGDB_RELEASE, " cache.")
+  }
+  if (!ok) {
+    if (file.exists(file)) unlink(file)
+    status <- data.frame(Set_Key = GENE_SETS$Set_Key,
+                         GO_ID = GENE_SETS$GO_ID,
+                         Public_Set_Name = unname(MSIGDB_MATCHED_SET_NAMES),
+                         Online_Status = "Not checked: reference unavailable",
+                         Membership_Changed = NA,
+                         stringsAsFactors = FALSE)
+    utils::write.csv(status, file.path(audit_dir,"MSigDB_Online_Membership_Audit.csv"),row.names=FALSE)
+    writeLines(c(paste0("Reference: ",MSIGDB_GMT_URL),
+                 "Online retrieval failed; the specified membership was used unchanged."),
+               file.path(audit_dir,"MSigDB_Online_Check_Provenance.txt"))
+    warning("Online MSigDB check unavailable. The Figure 5 memberships remain unchanged.")
+    return(invisible(status))
+  }
+  lines <- readLines(file, warn = FALSE, encoding = "UTF-8")
+  rows <- strsplit(lines, "\t", fixed = FALSE)
+  nm <- vapply(rows, function(z) if (length(z)) z[1L] else "", character(1))
+  if (length(lines) < 1000 || anyDuplicated(nm))
+    stop("The downloaded official GO:MF file is incomplete or contains duplicate set names.")
+  status <- lapply(seq_len(nrow(GENE_SETS)), function(i) {
+    key <- GENE_SETS$Set_Key[i]
+    target <- unname(MSIGDB_MATCHED_SET_NAMES[key])
+    if (is.na(target)) {
+      state <- "No verified matching set name for this specified GO ID"
+      changed <- NA
+    } else if (!(target %in% nm)) {
+      state <- "Expected official set name absent in pinned release"
+      changed <- NA
+    } else {
+      public <- unique(toupper(rows[[match(target, nm)]][-c(1L,2L)]))
+      saved <- unique(toupper(original$Gene[original$Set_Key == key]))
+      changed <- !setequal(public, saved)
+      state <- if (changed) "DIFFERENT MEMBERSHIP: published set preserved" else "Exact agreement"
+    }
+    data.frame(Set_Key=key, GO_ID=GENE_SETS$GO_ID[i],
+               Public_Set_Name=if (is.na(target)) "" else target,
+               Online_Status=state, Membership_Changed=changed,
+               stringsAsFactors=FALSE)
+  })
+  status <- do.call(rbind,status)
+  utils::write.csv(status, file.path(audit_dir,"MSigDB_Online_Membership_Audit.csv"),row.names=FALSE)
+  writeLines(c(paste0("MSigDB fixed release: ",MSIGDB_RELEASE),
+               paste0("Source: ",MSIGDB_GMT_URL),
+               paste0("MD5: ",unname(tools::md5sum(file))),
+               "Gene sets used by ROAST are defined in this script.",
+               "An online difference is flagged in the audit, never substituted silently."),
+             file.path(audit_dir,"MSigDB_Online_Check_Provenance.txt"))
+  if (any(status$Membership_Changed %in% TRUE,na.rm=TRUE))
+    warning("Public MSigDB gene memberships differ from the Figure 5 reference; see online audit.")
+  invisible(status)
+}
+
+tac <- read_tac(expression_file)
+sample_info <- expand.grid(Replicate = seq_len(EXPECTED_GROUP_REPLICATES),
+                           Group = c("Ctrl", "EXOISO", "FreeISO", "NC"),
+                           KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
+sample_info <- sample_info[order(match(sample_info$Group,
+                     c("Ctrl", "EXOISO", "FreeISO", "NC")), sample_info$Replicate), ]
+sample_info$TAC_Column <- with(sample_info, ifelse(Group == "Ctrl", paste0("Ctr ", Replicate, " Avg (log2)"),
+                        ifelse(Group == "EXOISO", paste0("EXO ISO ", Replicate, " Avg (log2)"),
+                        ifelse(Group == "FreeISO", paste0("Free ISO ", Replicate, " Avg (log2)"),
+                                                   paste0("NC ", Replicate, " Avg (log2)")))))
+sample_info$Sample_ID <- paste0(sample_info$Group, "_", sample_info$Replicate)
+needed <- c("ID", "Gene Symbol", sample_info$TAC_Column)
+if (!all(needed %in% names(tac)))
+  stop("TAC file missing: ", paste(setdiff(needed, names(tac)), collapse = ", "))
+x <- as.matrix(tac[, sample_info$TAC_Column, drop = FALSE])
+suppressWarnings(storage.mode(x) <- "double")
+if (any(!is.finite(x))) stop("Nonfinite normalized expression found in the 12 sample columns.")
+colnames(x) <- sample_info$Sample_ID
+rownames(x) <- tac$ID
+write.csv(sample_info, file.path(tables_dir, "01_Original_Sample_Metadata.csv"), row.names = FALSE)
+message("Read ", nrow(x), " original TAC clusters and ", ncol(x), " biological samples.")
+
+# Construct the 5 GO sets used in Figure 5 run.
+sets <- build_original_membership()
+write.csv(sets, file.path(tables_dir, "STEP5_ROAST_GO_gene_set_membership.csv"), row.names = FALSE)
+# Independently consult the fixed official MSigDB release and save the audit.
+if (RUN_ONLINE_MSigDB_CHECK)
+  check_msigdb_reference(sets, tables_dir)
+need_sets <- c("Set_Key", "GO_ID", "Display_Name", "Gene", "Present_on_array")
+if (!all(need_sets %in% names(sets)))
+  stop("GO membership file missing: ", paste(setdiff(need_sets, names(sets)), collapse = ", "))
+sets$Gene <- toupper(trimws(as.character(sets$Gene)))
+sets$GO_ID <- trimws(sets$GO_ID)
+if (anyDuplicated(sets[, c("GO_ID", "Gene")])) stop("Repeated GO-ID/gene rows in reference.")
+if (!setequal(unique(sets$GO_ID), GENE_SETS$GO_ID))
+  stop("Frozen GO file contains different GO IDs from the manuscript's five sets.")
+# Check that the array-coverage labels can be read as true/false values.
+# A mapping problem should stop the analysis rather than shrink a gene set.
+sets$Present_on_array <- as.logical(sets$Present_on_array)
+if (anyNA(sets$Present_on_array)) stop("Invalid array-coverage flag in GO membership.")
+
+# Connect the GO memberships to TAC transcript clusters. Prefer an exact
+# gene-symbol match. Some TAC labels contain more than one symbol, in that
+# situation a cluster is assigned only when the frozen reference identifies
+# a single eligible set member. In particular, the shared NME1/NME2 label
+# must not be counted as 2 independent expression measurements. Every
+# choice is recorded in the mapping-audit table.
+valid_genes <- unique(sets$Gene[sets$Present_on_array])
+raw_labels <- toupper(trimws(as.character(tac[["Gene Symbol"]])))
+resolve_symbol <- function(label) {
+  if (is.na(label) || !nzchar(label)) return(c("", "Missing symbol"))
+  if (!grepl(";", label, fixed = TRUE)) return(c(label, "Exact TAC symbol"))
+  aliases <- unique(trimws(strsplit(label, ";", fixed = TRUE)[[1L]]))
+  matches <- intersect(aliases, valid_genes)
+  if (length(matches) == 1L) return(c(matches, "Shared TAC annotation: unique represented set gene"))
+  c("", if (length(matches)) "Ambiguous multiple represented aliases" else "Ambiguous unmapped aliases")
+}
+resolved <- t(vapply(raw_labels, resolve_symbol, character(2)))
+map <- data.frame(ID = tac$ID, Original_Symbol = raw_labels,
+                  Gene = resolved[,1], Mapping_Rule = resolved[,2],
+                  Mean_Expression = rowMeans(x), stringsAsFactors = FALSE)
+map <- map[nzchar(map$Gene) & !is.na(map$Gene), , drop = FALSE]
+# Occasionally several TAC clusters share a gene symbol. We choose the
+# cluster with the highest average expression across all samples, before
+# examining any treatment contrast. The audit retains the alternatives.
+map <- map[order(map$Gene, -map$Mean_Expression, map$ID), , drop = FALSE]
+map$Number_Clusters_For_Gene <- as.integer(ave(rep(1L, nrow(map)), map$Gene, FUN = length))
+map$Selected <- !duplicated(map$Gene)
+write.csv(map, file.path(tables_dir, "02_Gene_To_TAC_Cluster_Audit.csv"), row.names = FALSE)
+selected_map <- map[map$Selected, , drop = FALSE]
+idx <- match(selected_map$ID, tac$ID)
+expr <- x[idx, , drop = FALSE]
+rownames(expr) <- selected_map$Gene
+if (anyDuplicated(rownames(expr)) || any(!is.finite(expr))) stop("Invalid collapsed expression matrix.")
+write.csv(data.frame(Gene = rownames(expr), expr, check.names = FALSE),
+          file.path(tables_dir, "03_Normalized_Gene_By_Sample_Expression.csv"), row.names = FALSE)
+
+# Compare the mapped genes with the frozen array coverage. If any set loses
+# an expected gene, stop here and inspect the audit.
+sets$Matched_Tac_ID <- selected_map$ID[match(sets$Gene, selected_map$Gene)]
+sets$Mapped <- !is.na(sets$Matched_Tac_ID)
+coverage <- aggregate(sets$Mapped, by = list(Set_Key=sets$Set_Key, GO_ID=sets$GO_ID), FUN=sum)
+names(coverage)[3] <- "Genes_In_Expression"
+coverage$Expected_Members <- vapply(coverage$Set_Key, function(z) sum(sets$Set_Key==z & sets$Present_on_array), integer(1))
+write.csv(sets, file.path(tables_dir, "04_Frozen_GO_Membership_And_Mapping.csv"), row.names = FALSE)
+write.csv(coverage, file.path(tables_dir, "05_Gene_Set_Coverage.csv"), row.names = FALSE)
+if (any(coverage$Genes_In_Expression != coverage$Expected_Members))
+  stop("Frozen gene-set coverage differs from the TAC mapping. See table 05. Do not silently drop genes.")
+if (coverage$Genes_In_Expression[coverage$GO_ID=="GO:0004017"] != 8L)
+  stop("The manuscript requires eight represented GO:0004017 genes.")
+if (anyDuplicated(sets[sets$Mapped, c("Set_Key", "Matched_Tac_ID")]))
+  stop("A TAC feature was counted twice in one gene set.")
+set_indices <- lapply(GENE_SETS$Set_Key, function(key)
+  match(sets$Gene[sets$Set_Key == key & sets$Mapped], rownames(expr)))
+names(set_indices) <- GENE_SETS$Set_Key
+if (any(vapply(set_indices, function(z) anyNA(z) || !length(z), logical(1))))
+  stop("Failed to construct complete GO set indices.")
+
+# Fit the 4 groups using the original biological samples as independent
+# observations. ROAST tests the predefined GO memberships directly and genes
+# are not removed because their individual fold changes or p-values are small.
+meta_group <- factor(sample_info$Group, levels = c("NC", "Ctrl", "FreeISO", "EXOISO"))
+design <- stats::model.matrix(~ 0 + meta_group)
+colnames(design) <- levels(meta_group)
+if (qr(design)$rank != ncol(design)) stop("Non-full-rank design.")
+contrast_vector <- function(i) {
+  v <- stats::setNames(rep(0, ncol(design)), colnames(design))
+  v[CONTRASTS$Numerator[i]] <- 1
+  v[CONTRASTS$Denominator[i]] <- -1
+  v
+}
+write.csv(design, file.path(tables_dir, "06_Limma_Design_Matrix.csv"), row.names = TRUE)
+write.csv(CONTRASTS, file.path(tables_dir, "07_Contrast_Definitions.csv"), row.names = FALSE)
+
+# Figure 5a asks whether the measured adenylate-kinase family shows a
+# coordinated response in each comparison. ROAST reports Up, Down, mixed,
+# and 2-sided probabilities. The plotted p-value comes from the 2-sided
+# UpOrDown test.
+primary <- vector("list", nrow(CONTRASTS))
+for (i in seq_len(nrow(CONTRASTS))) {
+  set.seed(SEED_PRIMARY + i)
+  rr <- limma::roast(expr, index = set_indices[["AK_activity"]],
+                     design = design, contrast = contrast_vector(i),
+                     nrot = N_ROTATIONS, set.statistic = SET_STATISTIC)
+  tab <- rr$p.value
+  if (is.null(tab) || !all(c("Down", "Up", "UpOrDown", "Mixed") %in% rownames(tab)) ||
+      !all(c("Active.Prop", "P.Value") %in% names(tab)))
+    stop("Unexpected ROAST output format; inspect package version.")
+  direction <- if (tab["Down", "P.Value"] < tab["Up", "P.Value"]) "Down" else "Up"
+  main_row <- if (direction == "Down") "Down" else "Up"
+  primary[[i]] <- data.frame(
+    Contrast = CONTRASTS$Contrast[i], Contrast_Label = CONTRASTS$Contrast_Label[i],
+    NGenes = length(set_indices[["AK_activity"]]), Direction = direction,
+    Active_Proportion = as.numeric(tab[main_row, "Active.Prop"]),
+    P_Down = as.numeric(tab["Down", "P.Value"]),
+    P_Up = as.numeric(tab["Up", "P.Value"]),
+    P_TwoSided = as.numeric(tab["UpOrDown", "P.Value"]),
+    P_Mixed = as.numeric(tab["Mixed", "P.Value"]), stringsAsFactors = FALSE)
+  message("Primary ROAST ", CONTRASTS$Contrast_Label[i], ": p = ",
+          signif(primary[[i]]$P_TwoSided, 5), " (", direction, ")")
+}
+primary <- do.call(rbind, primary)
+primary$FDR_4contrasts <- p.adjust(primary$P_TwoSided, method = "BH")
+primary$FDR_Mixed_4contrasts <- p.adjust(primary$P_Mixed, method = "BH")
+primary$Signed_LogP <- ifelse(primary$Direction == "Down", -1, 1) *
+  -log10(pmax(primary$P_TwoSided, .Machine$double.xmin))
+primary$Significance <- ifelse(primary$FDR_4contrasts < PANEL_SIGNIFICANCE, "*", "")
+write.csv(primary, file.path(tables_dir, "08_FIG5A_Primary_GO0004017_ROAST.csv"), row.names = FALSE)
+
+# Figure 5c repeats the test for 5 nucleotide-kinase GO functions in
+# each of the 4 comparisons. A separate seed makes each run reproducible.
+# The significance stars use BH adjustment across all 20 tests, not the
+# within-contrast adjusted values that mroast also reports.
+sensitivity <- vector("list", nrow(CONTRASTS))
+for (i in seq_len(nrow(CONTRASTS))) {
+  set.seed(SEED_SENSITIVITY + i)
+  rr <- limma::mroast(expr, index = set_indices, design = design,
+                      contrast = contrast_vector(i), nrot = N_ROTATIONS,
+                      set.statistic = SET_STATISTIC, adjust.method = "BH", midp = TRUE,
+                      sort = "none")
+  if (!all(GENE_SETS$Set_Key %in% rownames(rr))) stop("Missing sensitivity GO set in ROAST output.")
+  rr <- rr[GENE_SETS$Set_Key, , drop = FALSE]
+  req <- c("NGenes", "PropDown", "PropUp", "Direction", "PValue", "FDR", "PValue.Mixed", "FDR.Mixed")
+  if (!all(req %in% names(rr))) stop("Unexpected mroast columns: ", paste(setdiff(req, names(rr)), collapse=", "))
+  frame <- as.data.frame(rr[, req, drop = FALSE])
+  frame$Set_Key <- rownames(rr)
+  frame$Contrast <- CONTRASTS$Contrast[i]
+  frame$GO_ID <- GENE_SETS$GO_ID[match(frame$Set_Key, GENE_SETS$Set_Key)]
+  frame$Display_Name <- GENE_SETS$Display_Name[match(frame$Set_Key, GENE_SETS$Set_Key)]
+  frame$Contrast_Label <- CONTRASTS$Contrast_Label[i]
+  sensitivity[[i]] <- frame
+  message("Sensitivity ROAST ", CONTRASTS$Contrast_Label[i], ": ", nrow(frame), " sets")
+}
+sensitivity <- do.call(rbind, sensitivity)
+sensitivity$FDR_Global <- p.adjust(sensitivity$PValue, method = "BH")
+sensitivity$FDR_Mixed_Global <- p.adjust(sensitivity$PValue.Mixed, method = "BH")
+sensitivity$Signed_LogP <- ifelse(sensitivity$Direction == "Down", -1, 1) *
+  -log10(pmax(sensitivity$PValue, .Machine$double.xmin))
+sensitivity$Significance <- ifelse(sensitivity$FDR_Global < PANEL_SIGNIFICANCE, "*", "")
+write.csv(sensitivity, file.path(tables_dir, "09_FIG5C_Five_Set_Sensitivity_ROAST.csv"), row.names = FALSE)
+
+# Figure 5b also starts from the original 12 sample measurements.
+# Group expression is the arithmetic mean of the 3 normalized log2 samples.
+ak_genes <- c("AK1", "AK2", "AK3", "AK4", "AK5", "AK7", "AK8", "AK9")
+if (!setequal(rownames(expr)[set_indices[["AK_activity"]]], ak_genes))
+  stop("GO:0004017 represented genes do not match the manuscript's eight-gene family.")
+ak_mat <- expr[ak_genes, , drop = FALSE]
+groups_for_plot <- c("NC", "Ctrl", "FreeISO", "EXOISO")
+group_mean <- sapply(groups_for_plot, function(gr)
+  rowMeans(ak_mat[, sample_info$Group == gr, drop = FALSE]))
+rownames(group_mean) <- ak_genes
+# For the heatmap, standardize each gene across all 12 samples and
+# then average those sample-level Z-scores within groups. This reproduces
+# the group heatmap, unlike Z-scoring 4 group means afterward.
+ak_sample_z <- t(apply(ak_mat, 1, function(row)
+  if (stats::sd(row) == 0) rep(0, length(row)) else (row - mean(row)) / stats::sd(row)))
+dimnames(ak_sample_z) <- dimnames(ak_mat)
+z <- sapply(groups_for_plot, function(gr)
+  rowMeans(ak_sample_z[, sample_info$Group == gr, drop = FALSE]))
+dimnames(z) <- dimnames(group_mean)
+write.csv(data.frame(Gene = ak_genes, group_mean, check.names = FALSE),
+          file.path(tables_dir, "10_FIG5B_Gene_Group_Mean_Log2.csv"), row.names = FALSE)
+write.csv(data.frame(Gene = ak_genes, z, check.names = FALSE),
+          file.path(tables_dir, "11_FIG5B_Gene_Group_Row_Z.csv"), row.names = FALSE)
+
+# Check the expected sample numbers, array representation and number of
+# statistical tests before drawing the figure. 
+if (any(table(sample_info$Group) != EXPECTED_GROUP_REPLICATES))
+  stop("The study requires three biological samples in each of four groups.")
+stopifnot(nrow(primary) == 4L, nrow(sensitivity) == 20L,
+          all(dim(z) == c(8L, 4L)), all(coverage$Genes_In_Expression == c(8L, 8L, 6L, 16L, 19L)[match(coverage$Set_Key, GENE_SETS$Set_Key)]))
+write.csv(data.frame(Check = c("TAC_cluster_count", "Gene_matrix_rows", "Biological_samples",
+      "Primary_GO0004017_members", "Primary_ROAST_tests", "Sensitivity_ROAST_tests",
+      "Significant_primary_FDR", "Significant_sensitivity_global_BH"),
+    Value = c(nrow(tac), nrow(expr), ncol(expr), length(ak_genes), nrow(primary), nrow(sensitivity),
+              sum(primary$FDR_4contrasts < PANEL_SIGNIFICANCE),
+              sum(sensitivity$FDR_Global < PANEL_SIGNIFICANCE))),
+          file.path(tables_dir, "12_Run_QC_Summary.csv"), row.names = FALSE)
+
+# Plot Figure 5a from the newly calculated ROAST table. The x-axis shows
+# signed -log10(2-sided p), while symbol size indicates the fraction of
+# genes called active by ROAST. Dashed lines mark nominal p = 0.05,
+# asterisks indicate significance after correction over 4 contrasts.
+library(ggplot2)
+library(patchwork)
+colors_sign <- c(Down = "#2877B6", Up = "#B72236")
+pA_dat <- primary
+pA_dat$Contrast_Label <- factor(pA_dat$Contrast_Label, levels = rev(CONTRASTS$Contrast_Label))
+pA <- ggplot(pA_dat, aes(x = Signed_LogP, y = Contrast_Label)) +
+  geom_vline(xintercept = c(-log10(PANEL_SIGNIFICANCE), log10(PANEL_SIGNIFICANCE)),
+             linetype = "dashed", linewidth = 0.45, color = "grey50") +
+  geom_vline(xintercept = 0, linewidth = 0.6, color = "grey25") +
+  geom_segment(aes(x = 0, xend = Signed_LogP, yend = Contrast_Label),
+               linewidth = 0.65, color = "grey25") +
+  geom_point(aes(size = Active_Proportion, color = Direction), stroke = 0.55) +
+  geom_text(data = subset(pA_dat, Significance == "*"),
+            aes(label = "*"), nudge_y = 0.28, fontface = "bold", size = 5,
+            show.legend = FALSE) +
+  scale_color_manual(values = colors_sign) +
+  scale_size_area(max_size = 7, limits = c(0, 1),
+                  breaks = c(0, .25, .5, .75, 1)) +
+  labs(title = "(a) GO:0004017 AMP/adenylate kinase activity",
+       subtitle = "ROAST self-contained gene-set test",
+       x = "Signed -log10(nominal p)   Down < 0; Up > 0", y = NULL,
+       size = "Active proportion", color = "Direction") +
+  theme_classic(base_size = 11) +
+  theme(
+    plot.title = element_text(face = "bold", size = 12.5, color = "black"),
+    plot.subtitle = element_text(size = 10.5, color = "grey25"),
+    axis.title.x = element_text(face = "bold", size = 10.5, color = "black"),
+    axis.text.x = element_text(face = "bold", size = 10, color = "black"),
+    axis.text.y = element_text(face = "bold", size = 10.5, color = "black"),
+    legend.title = element_text(face = "bold", size = 10),
+    legend.text = element_text(size = 9.5, color = "black"),
+    legend.position = "right",
+    plot.margin = margin(5, 10, 5, 8)
+  )
+
+# Cluster the 8 gene profiles using Euclidean distance and Ward.D2 linkage. 
+hc <- hclust(dist(z, method = "euclidean"), method = "ward.D2")
+
+# Branches of a hierarchical tree can be rotated without changing its
+# underlying clusters. We used that freedom to display the same top-to-bottom
+# orientation as the manuscript. Before plotting, verify that this ordering
+# is genuinely compatible with the calculated tree, otherwise the code stop.
+published_gene_order <- c("AK2", "AK3", "AK8", "AK5", "AK4", "AK7", "AK1", "AK9")
+if (!setequal(published_gene_order, rownames(z)) ||
+    anyDuplicated(published_gene_order))
+  stop("The manuscript gene labels do not match the GO:0004017 matrix.")
+branch_members <- vector("list", nrow(hc$merge))
+for (i in seq_len(nrow(hc$merge))) {
+  descendants <- lapply(hc$merge[i, ], function(child) {
+    if (child < 0) rownames(z)[-child] else branch_members[[child]]
+  })
+  branch_members[[i]] <- unlist(descendants, use.names = FALSE)
+  positions <- match(branch_members[[i]], published_gene_order)
+  if (anyNA(positions) ||
+      (max(positions) - min(positions) + 1L) != length(positions)) {
+    stop("Published Figure 5b order is incompatible with the Ward.D2 tree. ",
+         "Review the input data; do not force a misleading dendrogram.")
+  }
+}
+gene_order <- published_gene_order
+write.csv(data.frame(Position = seq_along(gene_order), Gene = gene_order,
+                     Clustering = "Euclidean / Ward.D2",
+                     Display_Orientation = "Manuscript Figure 5b"),
+          file.path(tables_dir, "13_FIG5B_Clustered_Gene_Order.csv"), row.names = FALSE)
+n <- length(gene_order)
+# Draw the verified Ward.D2 dendrogram beside the 8 expression rows.
+node_x <- vector("list", nrow(hc$merge))
+node_h <- numeric(nrow(hc$merge))
+leaf_y <- setNames(n:1, gene_order)
+segments <- list()
+for (i in seq_len(nrow(hc$merge))) {
+  child <- hc$merge[i, ]
+  child_y <- numeric(2)
+  child_h <- numeric(2)
+  for (k in 1:2) {
+    if (child[k] < 0) {
+      child_y[k] <- leaf_y[rownames(z)[-child[k]]]
+      child_h[k] <- 0
+    } else {
+      child_y[k] <- node_x[[child[k]]]
+      child_h[k] <- node_h[child[k]]
+    }
+  }
+  yh <- mean(child_y)
+  hh <- hc$height[i]
+  segments[[length(segments)+1L]] <- data.frame(x = hh, xend = hh, y = min(child_y), yend = max(child_y))
+  for (k in 1:2) segments[[length(segments)+1L]] <-
+    data.frame(x = child_h[k], xend = hh, y = child_y[k], yend = child_y[k])
+  node_x[[i]] <- yh
+  node_h[i] <- hh
+}
+dendro_df <- do.call(rbind, segments)
+pD <- ggplot(dendro_df) + geom_segment(aes(x=x,y=y,xend=xend,yend=yend),linewidth=.45) +
+  scale_x_reverse(expand=expansion(mult=c(0.05,0))) +
+  scale_y_continuous(limits=c(.5,n+.5),expand=c(0,0)) +
+  theme_void() + theme(plot.margin = margin(25, 0, 7, 0))
+zlong <- data.frame(expand.grid(Gene=rownames(z), Group=colnames(z), stringsAsFactors=FALSE),
+                    Z=as.vector(z))
+zlong$Gene <- factor(zlong$Gene, levels=rev(gene_order))
+zlong$Group <- factor(zlong$Group, levels=groups_for_plot)
+pBheat <- ggplot(zlong, aes(x=Group,y=Gene,fill=Z)) +
+  geom_tile(color="white",linewidth=.45) +
+  scale_fill_gradient2(low="#2D66A4",mid="white",high="#BB2236",midpoint=0,
+                       limits=c(-2,2),oob=scales::squish) +
+  scale_y_discrete(position="right",expand=expansion(add=0)) +
+  scale_x_discrete(expand=expansion(add=0)) +
+  labs(x=NULL,y=NULL,fill="Group Z") +
+  theme_minimal(base_size = 11) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 0, hjust = 0.5, vjust = 1,
+                               size = 10.5, face = "bold", color = "black"),
+    axis.text.y = element_text(size = 10, face = "bold", color = "black"),
+    legend.title = element_text(size = 10.5, face = "bold"),
+    legend.text = element_text(size = 9.5, color = "black"),
+    legend.position = "right",
+    plot.margin = margin(25, 5, 7, 0)
+  )
+pB <- (pD | pBheat) + plot_layout(widths=c(.55,3.7)) +
+  plot_annotation(title="(b) GO:0004017 group-level expression",
+    theme=theme(plot.title=element_text(face="bold",size=12.5,color="black")))
+
+# Figure 5c includes every tested GO term and contrast, including the
+# nonsignificant results. Its asterisks come only from the global BH results.
+pCdat <- sensitivity
+pCdat$Contrast_Label <- factor(pCdat$Contrast_Label, levels=CONTRASTS$Contrast_Label)
+pCdat$Display_Name <- factor(pCdat$Display_Name, levels=rev(GENE_SETS$Display_Name))
+
+# Split long contrast names over 2 lines so they remain horizontal and
+# easy to read. 
+comparison_axis_labels <- c(
+  "Ctrl vs NC" = "Ctrl\nvs NC",
+  "Free ISO vs Ctrl" = "Free ISO\nvs Ctrl",
+  "EXO-ISO vs Ctrl" = "EXO-ISO\nvs Ctrl",
+  "EXO-ISO vs Free ISO" = "EXO-ISO\nvs Free ISO"
+)
+stopifnot(identical(names(comparison_axis_labels), CONTRASTS$Contrast_Label))
+pC <- ggplot(pCdat,aes(x=Contrast_Label,y=Display_Name,fill=Signed_LogP)) +
+  geom_tile(color="white",linewidth=.75) +
+  geom_text(aes(label=Significance),size=5,fontface="bold",color="black") +
+  scale_fill_gradient2(low="#2D66A4",mid="white",high="#CF424B",midpoint=0,
+     limits=c(-3,3), oob=scales::squish) +
+  labs(title="(c) Sensitivity across recurrence-linked nucleotide-kinase GO:MF sets",
+       subtitle="* BH-adjusted p < 0.05 across all 20 tests", x=NULL,y=NULL,
+       fill="Signed\n-log10(p)") +
+  scale_x_discrete(labels = comparison_axis_labels, expand = expansion(add = 0)) +
+  scale_y_discrete(expand = expansion(add = 0)) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title = element_text(face = "bold", size = 12.5, color = "black"),
+    plot.subtitle = element_text(size = 10.5, color = "grey25"),
+    panel.grid = element_blank(),
+    axis.title = element_blank(),
+    axis.text.x = element_text(
+      angle = 0, hjust = 0.5, vjust = 0.7,
+      size = 10.5, face = "bold", color = "black",
+      lineheight = 0.95, margin = margin(t = 8)
+    ),
+    axis.text.y = element_text(face = "bold", size = 10, color = "black"),
+    legend.title = element_text(face = "bold", size = 10.5),
+    legend.text = element_text(size = 9.5, color = "black"),
+    plot.margin = margin(12, 5, 8, 7)
+  )
+
+# Save each panel and the assembled figure as vector PDF and raster images.
+export_plot <- function(p, file, width, height) {
+  ggplot2::ggsave(file.path(plots_dir, paste0(file,".pdf")),plot=p,
+                  width=width,height=height,units="in",device="pdf",bg="white",limitsize=FALSE)
+  ggplot2::ggsave(file.path(plots_dir, paste0(file,".png")),plot=p,
+                  width=width,height=height,units="in",dpi=300,bg="white",limitsize=FALSE)
+  ggplot2::ggsave(file.path(plots_dir, paste0(file,".tiff")),plot=p,
+                  width=width,height=height,units="in",dpi=300,
+                  compression="lzw",bg="white",limitsize=FALSE)
+}
+export_plot(pA,"Figure5a_Primary_AK_ROAST",8.5,5)
+export_plot(pB,"Figure5b_AK_Eight_Genes_Group_Z_WARD",9.2,5)
+export_plot(pC,"Figure5c_Nucleotide_Kinase_Sensitivity",12,5.1)
+p_full <- (pA | pB) / pC + plot_layout(heights=c(1.05,.9))
+export_plot(p_full,"Figure5_Combined",17,10)
+
+write.csv(data.frame(
+    Input_Type=c("TAC normalized 12-sample expression", "Specified GO:MF gene sets"),
+    Source_File=c(normalizePath(expression_file,winslash="/"),
+                  file.path(tables_dir,"STEP5_ROAST_GO_gene_set_membership.csv"))),
+    file.path(out_dir,"SOURCE_Provenance.csv"),row.names=FALSE)
+writeLines(capture.output(sessionInfo()),file.path(out_dir,"R_sessionInfo.txt"))
+writeLines(c(
+  "Figure 5 analysis of original TAC normalized per-sample expression.",
+  "No precomputed ROAST statistics enter the calculations.",
+  "Four prespecified contrasts; GO:0004017 primary set; five related GO:MF sets.",
+  "limma ROAST/mROAST nrot=9999; set.statistic='mean'; random seeds recorded in script.",
+  "Primary p is two-sided (UpOrDown), BH across four primary contrasts.",
+  "Sensitivity p is two-sided directional PValue; BH across twenty tests.",
+  "Eight-gene heatmap: gene-wise Z across all 12 biological samples, then group means of Z.",
+  "Figure 5b: Euclidean Ward.D2 clustering; manuscript branch orientation verified against the tree.",
+  "A single multi-symbol NME1/NME2 TAC cluster is mapped only when the frozen reference marks exactly one represented alias; check mapping audit.",
+  "Gene sets are fixed GO annotation memberships, not defined using DEG p or FC."
+),file.path(out_dir,"README_Figure5_Methods.txt"))
+message("Figure 5 tables: ", tables_dir)
+message("Figure 5 plots: ", plots_dir)
+if (interactive() && .Platform$OS.type=="windows")
+  try(shell.exec(normalizePath(plots_dir,winslash="\\")),silent=TRUE)

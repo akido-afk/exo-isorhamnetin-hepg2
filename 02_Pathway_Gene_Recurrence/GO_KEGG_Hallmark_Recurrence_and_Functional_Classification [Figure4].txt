@@ -1,0 +1,1196 @@
+# ========================================================================
+# GO KEGG Hallmark Recurrence and Functional Classification Figure 4
+# ========================================================================
+#
+# WHAT THE ANALYSIS DOES?
+# This script shows the GO, KEGG and Hallmark recurrence analysis we used to prepare Figure 4.
+#
+# HOW TO RUN THIS CODE?
+# Run in R or RStudio using source(file.choose(), encoding = "UTF-8").
+#
+# This script illustrates the feature-level input from the original TAC files,
+# identifies genes passing the Figure 4 cutoff and examines how often each gene
+# appears among the selected biological terms. UP and DOWN genes are analyzed
+# separately, using the same procedure for GO and KEGG term selection.
+#
+# Input files
+#   All Expressions.txt                              Sample-level expression and gene symbols
+#   All Expressions of Groups.txt                    TAC group-level mean expression
+#   EXO-ISO Vs Ctrl ALL.txt                          TAC comparison statistics
+#   GO_2026_07_26_HUMAN_gene_term_membership.tsv.gz  Frozen human GO mapping
+#   MSIGDB_H_CACHE.tsv.gz                            Frozen Hallmark gene membership
+#   MSIGDB_KEGG_LEGACY_CACHE.tsv.gz                  Frozen KEGG gene membership
+#
+# To run in RStudio, enter:
+#   source(file.choose(), encoding = "UTF-8")
+# Choose this script, then All Expressions.txt. The other files are sought in
+# nearby input/reference folders, a file dialog opens if one is missing.
+# The code creates the Figure 4-specific evidence CSV from these original files.
+#
+# Analysis: nominal p < 0.05 and absolute linear fold change >= 1.30.
+# GO:BP, GO:MF, GO:CC and KEGG terms are screened for metabolic relevance and
+# ranked by ORA p-value separately for UP and DOWN. The 6 Hallmark pathways
+# in each direction are fixed biological-context selections, not ORA rankings.
+# A recurrence hit means membership in one selected term. 
+#
+# Descriptive functional modules are assigned from GO/KEGG annotations. 
+# These labels help organize the heatmap.
+#
+# Outputs are written under results/ GO KEGG Hallmark Recurrence and Functional Classification/.
+# -----------------------------------------------------------------------------
+
+options(stringsAsFactors=FALSE)
+cran <- c("msigdbr", "ComplexHeatmap", "circlize")
+for (pkg in cran) if (!requireNamespace(pkg, quietly=TRUE)) {
+  if (pkg == "ComplexHeatmap") {
+    if (!requireNamespace("BiocManager",quietly=TRUE)) install.packages("BiocManager")
+    BiocManager::install("ComplexHeatmap", ask=FALSE, update=FALSE)
+  } else install.packages(pkg, repos="https://cloud.r-project.org")
+}
+for (pkg in cran) if (!requireNamespace(pkg,quietly=TRUE)) stop("Please install: ",pkg)
+
+# The first file picker identifies the dataset. No working-directory setup is
+# needed, and the companion TAC files can be found alongside the expression file.
+if (!interactive()) {
+  stop("Open R or RStudio interactively, then use source(file.choose(), encoding='UTF-8').",
+       call. = FALSE)
+}
+message("Select the ORIGINAL TAC file: All Expressions.txt")
+samples_file <- normalizePath(file.choose(), winslash = "/", mustWork = TRUE)
+in_dir <- dirname(samples_file)
+
+# TAC places a few metadata lines before the tabular header. Skip those lines
+# while retaining the original column names and transcript-cluster identifiers.
+read_tac_export <- function(path) {
+  lines <- readLines(path, n = 30L, warn = FALSE, encoding = "UTF-8")
+  hdr <- which(startsWith(sub("^\ufeff", "", lines), "ID\t"))[1L]
+  if (is.na(hdr)) stop("Could not find the TAC 'ID' header in ", basename(path))
+  x <- read.delim(path, skip = hdr - 1L, header = TRUE,
+                  check.names = FALSE, quote = "", comment.char = "",
+                  stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
+  if (!"ID" %in% names(x) || anyNA(x$ID) || anyDuplicated(x$ID)) {
+    stop("TAC export has missing/duplicated ID values: ", basename(path))
+  }
+  x
+}
+
+# Look for the other exports in the same package. If a file was stored
+# elsewhere, this will let the user locate it.
+source_roots <- unique(c(in_dir, dirname(in_dir), dirname(dirname(in_dir))))
+source_dirs <- unique(c(source_roots,
+                        file.path(source_roots, "Input_Source_Files"),
+                        file.path(source_roots, "input")))
+choose_companion <- function(expected_name, explanation) {
+  paths <- file.path(source_dirs, expected_name)
+  found <- paths[file.exists(paths)]
+  if (length(found)) {
+    candidate <- normalizePath(found[1L], winslash = "/", mustWork = TRUE)
+    message("Found ", expected_name, ": ", candidate)
+    return(candidate)
+  }
+  message("Select ", expected_name, " — ", explanation)
+  normalizePath(file.choose(), winslash = "/", mustWork = TRUE)
+}
+
+group_file <- choose_companion(
+  "All Expressions of Groups.txt",
+  "TAC's original four-group mean expression table"
+)
+pair_file <- choose_companion(
+  "EXO-ISO Vs Ctrl ALL.txt",
+  "TAC's EXO-ISO-versus-Control pairwise statistics"
+)
+
+samples <- read_tac_export(samples_file)
+groups <- read_tac_export(group_file)
+pair <- read_tac_export(pair_file)
+req_samples <- c("ID", "Gene Symbol", "Ctr 1 Avg (log2)",
+                 "EXO ISO 1 Avg (log2)", "Free ISO 1 Avg (log2)",
+                 "NC 1 Avg (log2)")
+req_groups <- c("ID", "Control Avg (log2)", "EXO-ISO Avg (log2)",
+                "Free ISO Avg (log2)", "NC Avg (log2)")
+req_pair <- c("ID", "EXO-ISO Avg (log2)", "Control Avg (log2)",
+              "Fold Change", "P-val")
+for (entry in list(list(samples, req_samples, samples_file),
+                   list(groups, req_groups, group_file),
+                   list(pair, req_pair, pair_file))) {
+  missing <- setdiff(entry[[2]], names(entry[[1]]))
+  if (length(missing)) {
+    stop("Wrong TAC export or missing columns in ", basename(entry[[3]]),
+         ": ", paste(missing, collapse = ", "), call. = FALSE)
+  }
+}
+if (nrow(samples) < 2L ||
+    !setequal(samples$ID, groups$ID) ||
+    !setequal(samples$ID, pair$ID)) {
+  stop("The three TAC exports do not contain the same exact transcript-cluster IDs.")
+}
+# Match by cluster ID because TAC exports need not use the same row order.
+groups <- groups[match(samples$ID, groups$ID), , drop = FALSE]
+pair <- pair[match(samples$ID, pair$ID), , drop = FALSE]
+stopifnot(identical(samples$ID, groups$ID), identical(samples$ID, pair$ID))
+
+as_tac_numeric <- function(x, nm) {
+  y <- suppressWarnings(as.numeric(x))
+  bad <- !is.na(x) & nzchar(trimws(as.character(x))) & is.na(y)
+  if (any(bad)) stop("Non-numeric values in TAC column: ", nm)
+  y
+}
+mu <- lapply(req_groups[-1L], function(nm) as_tac_numeric(groups[[nm]], nm))
+names(mu) <- req_groups[-1L]
+for (nm in req_groups[-1L]) {
+  if (any(!is.finite(mu[[nm]]))) {
+    stop("Missing or nonfinite group expression in: ", nm)
+  }
+}
+pair_exo <- as_tac_numeric(pair[["EXO-ISO Avg (log2)"]], "EXO-ISO paired mean")
+pair_ctrl <- as_tac_numeric(pair[["Control Avg (log2)"]], "Ctrl paired mean")
+if (any(abs(pair_exo - mu[["EXO-ISO Avg (log2)"]]) > 1e-8) ||
+    any(abs(pair_ctrl - mu[["Control Avg (log2)"]]) > 1e-8)) {
+  stop("TAC pairwise group means differ from the group export. ",
+       "Check that both exports come from the same TAC analysis run.")
+}
+
+# Assemble the fields used by Figure 4. This is a focused evidence table,
+# It will Keep the established column names so the downstream recurrence steps receive the same type of data.
+evidence <- data.frame(
+  ID = samples$ID,
+  Gene_symbol_Tac = as.character(samples[["Gene Symbol"]]),
+  EXO_vs_Ctrl_log2FC = mu[["EXO-ISO Avg (log2)"]] - mu[["Control Avg (log2)"]],
+  EXO_vs_Ctrl_p = as_tac_numeric(pair[["P-val"]], "EXO-vs-Ctrl P-val"),
+  NC_Tac_mean = mu[["NC Avg (log2)"]],
+  Ctrl_Tac_mean = mu[["Control Avg (log2)"]],
+  Free_Tac_mean = mu[["Free ISO Avg (log2)"]],
+  EXO_Tac_mean = mu[["EXO-ISO Avg (log2)"]],
+  check.names = FALSE, stringsAsFactors = FALSE
+)
+# Retain TAC's FDR values when available for auditing. DEG selection below
+# still uses the reported nominal p-values, as specified for Figure 4.
+if ("FDR P-val" %in% names(pair)) {
+  evidence$EXO_vs_Ctrl_FDR <- as_tac_numeric(pair[["FDR P-val"]],
+                                             "EXO-vs-Ctrl FDR P-val")
+}
+
+# This places this run's results beside the input package. 
+root <- if (basename(in_dir) %in% c("Input_Source_Files", "input")) {
+  dirname(in_dir)
+} else {
+  in_dir
+}
+out_dir <- file.path(root, "GO_KEGG_Hallmark_Recurrence_and_Functional_Classification", "results")
+prepared_dir <- file.path(out_dir, "prepared_input")
+dir.create(prepared_dir, recursive = TRUE, showWarnings = FALSE)
+input_file <- file.path(prepared_dir, sprintf(
+  "08_All_Feature_Analysis_Evidence_%d.csv", nrow(evidence)))
+write.csv(evidence, input_file, row.names = FALSE, na = "")
+message("Prepared Figure 4 expression/statistics table: ", input_file)
+message("Exact cluster IDs joined: ", nrow(evidence))
+message("Now continuing automatically into directional GO/KEGG/Hallmark analysis.")
+rm(samples, groups, pair)
+
+# Use the saved GO annotation snapshot so that term memberships are not
+# affected by later ontology updates. Ask for its location if necessary.
+GO_FILE_NAME <- "GO_2026_07_26_HUMAN_gene_term_membership.tsv.gz"
+possible_ref_dirs <- unique(c(
+  file.path(source_roots, "reference"), source_roots,
+  file.path(source_roots, "results", "reference")
+))
+go_candidates <- file.path(possible_ref_dirs, GO_FILE_NAME)
+go_existing <- go_candidates[file.exists(go_candidates)]
+if (length(go_existing)) {
+  go_file <- normalizePath(go_existing[1L], winslash = "/", mustWork = TRUE)
+  message("Found original frozen GO annotations: ", go_file)
+} else {
+  message("Select frozen GO annotations: ", GO_FILE_NAME)
+  go_file <- normalizePath(file.choose(), winslash = "/", mustWork = TRUE)
+}
+if (basename(go_file) != GO_FILE_NAME) {
+  message("GO annotation file selected under a different filename: ", basename(go_file))
+}
+ref_dir <- dirname(go_file)
+write.csv(data.frame(
+  Input = c("Per-sample TAC", "Group-mean TAC", "EXO-vs-Ctrl TAC", "Frozen GO"),
+  File = c(samples_file, group_file, pair_file, go_file),
+  stringsAsFactors = FALSE
+), file.path(out_dir, "Figure4_Source_Provenance.csv"), row.names = FALSE)
+message("Results will be saved in: ", normalizePath(out_dir, winslash = "/"))
+
+# Main Figure 4 settings. Adjust these deliberately if applying the method to
+# another dataset as our reported manuscript analysis uses the values below.
+DEG_P_CUTOFF <- 0.05
+DEG_LINEAR_FC <- 1.30
+TOP_TERMS_PER_COLLECTION <- 10L
+MIN_GENES_PER_SELECTED_TERM <- 1L
+# Rank eligible terms by nominal ORA p-value and retain adjusted p-values in
+# the output. 
+
+
+# 1. Prepare gene-level DEG lists from the reconstructed TAC evidence
+e <- read.csv(input_file,
+              fileEncoding="UTF-8-BOM",check.names=FALSE,stringsAsFactors=FALSE)
+required <- c("ID","Gene_symbol_Tac","EXO_vs_Ctrl_log2FC","EXO_vs_Ctrl_p",
+              "NC_Tac_mean","Ctrl_Tac_mean","Free_Tac_mean","EXO_Tac_mean")
+if (!all(required %in% names(e))) stop("Missing required columns: ",paste(setdiff(required,names(e)),collapse=", "))
+if (nrow(e) < 1L || anyDuplicated(e$ID)) {
+  stop("The input must contain at least one uniquely identified feature per row.")
+}
+message("Transcript clusters in supplied table: ", nrow(e))
+e$Gene <- toupper(trimws(e$Gene_symbol_Tac))
+e$log2FC <- suppressWarnings(as.numeric(e$EXO_vs_Ctrl_log2FC))
+e$p <- suppressWarnings(as.numeric(e$EXO_vs_Ctrl_p))
+e$unambiguous <- !is.na(e$Gene) & grepl("^[A-Z0-9._-]+$",e$Gene) & nzchar(e$Gene)
+e$unambiguous[is.na(e$unambiguous)] <- FALSE
+e$pass <- is.finite(e$p) & e$p < DEG_P_CUTOFF & is.finite(e$log2FC) &
+          abs(e$log2FC) >= log2(DEG_LINEAR_FC)-1e-10
+e$Direction <- ifelse(e$log2FC>0,"UP","DOWN")
+write.csv(e[!e$unambiguous & e$pass,c("ID","Gene_symbol_Tac","log2FC","p")],
+          file.path(out_dir,"Ambiguous_qualifying_features_EXCLUDED.csv"),row.names=FALSE)
+write.csv(e[e$pass,c("ID","Gene_symbol_Tac","log2FC","p","Direction")],
+          file.path(out_dir,"All_Qualifying_Features_1p30.csv"),row.names=FALSE)
+
+# Some genes have several transcript clusters. Keep one qualifying cluster
+# per unambiguous gene using the reproducible ordering below.
+eligible_features <- e[e$pass & e$unambiguous,,drop=FALSE]
+eligible_features <- eligible_features[order(eligible_features$Gene,-abs(eligible_features$log2FC),eligible_features$p,eligible_features$ID),,drop=FALSE]
+representatives <- eligible_features[!duplicated(eligible_features$Gene),,drop=FALSE]
+write.csv(representatives[,c("Gene","ID","log2FC","p","Direction")],
+          file.path(out_dir,"Selected_Representative_Gene_Features.csv"),row.names=FALSE)
+counts <- aggregate(Direction ~ Gene, data=eligible_features,FUN=function(v)paste(sort(unique(v)),collapse="/"))
+write.csv(counts[counts$Direction=="DOWN/UP",,drop=FALSE],
+          file.path(out_dir,"Contradictory_Multifeature_Genes_For_Review.csv"),row.names=FALSE)
+message("Qualifying transcript-cluster features: ",nrow(eligible_features)," (unambiguous; before gene collapse)")
+message("Qualifying gene representatives: ",nrow(representatives),"; UP=",sum(representatives$Direction=="UP"),"; DOWN=",sum(representatives$Direction=="DOWN"))
+
+# Use all unambiguous symbols tested on the array as the ORA background.
+universe <- sort(unique(e$Gene[e$unambiguous])); N <- length(universe)
+write.csv(data.frame(Gene=universe),file.path(out_dir,"Background_Universe_Gene_Symbols.csv"),row.names=FALSE)
+
+# 2. Read the frozen human GO gene-to-term annotations
+go <- read.delim(gzfile(go_file),
+                 check.names=FALSE,stringsAsFactors=FALSE)
+go <- unique(go[go$Gene %in% universe,c("Source","Term_ID","Description","Gene")])
+GO_groups <- split(go$Gene,paste(go$Source,go$Term_ID,sep="||"))
+GO_meta <- unique(go[,c("Source","Term_ID","Description")])
+
+# 3. Load the Hallmark and KEGG gene sets
+# Prefer the included snapshots for the same membership definitions each run.
+# If absent, msigdbr supplies the corresponding human collection. A supplied
+# DEG-only enrichment table is not a valid substitute for full memberships.
+msig_get <- function(collection,subcollection=NULL) {
+  f <- file.path(ref_dir,paste0(if(collection=="H")"MSIGDB_H_" else "MSIGDB_KEGG_LEGACY_", "CACHE.tsv.gz"))
+  if (file.exists(f)) return(read.delim(gzfile(f),stringsAsFactors=FALSE))
+  message("First run: loading MSigDB ",collection,"/",subcollection," via msigdbr")
+  out <- tryCatch({
+    if (is.null(subcollection)) msigdbr::msigdbr(species="Homo sapiens",collection=collection)
+    else msigdbr::msigdbr(species="Homo sapiens",collection=collection,subcollection=subcollection)
+  },error=function(ex) stop("Unable to load MSigDB membership. Internet/R package setup may be required: ",conditionMessage(ex)))
+  if (!all(c("gs_name","gene_symbol") %in% names(out)) || nrow(out)<10)
+    stop("MSigDB ",collection,"/",subcollection," absent. Cannot substitute partial ORA gene lists.")
+  sel <- unique(out[,c("gs_name","gene_symbol")]); names(sel)<-c("Term","Gene")
+  gz <- gzfile(f,"wt");write.table(sel,gz,sep="\t",row.names=FALSE,quote=TRUE);close(gz)
+  sel
+}
+h <- msig_get("H")
+kegg <- tryCatch(msig_get("C2","CP:KEGG_LEGACY"), error=function(ex) {
+  stop(paste0("KEGG_LEGACY membership could not be loaded. ",conditionMessage(ex),
+   "\nPlease check your internet connection and install/update msigdbr. ",
+   "No incomplete substitute was applied."),call.=FALSE)
+})
+normalize_name <- function(x) gsub("[^A-Z0-9]","",toupper(as.character(x)))
+H_names <- unique(h$Term); KEGG_names <- unique(kegg$Term)
+H_groups <- split(toupper(h$Gene),h$Term)
+K_groups <- split(toupper(kegg$Gene),kegg$Term)
+
+# Evaluate each term against its full reference gene set.
+make_ora <- function(source,term_meta,groups,targets) {
+  output <- vector("list",nrow(term_meta));i<-0L
+  for (j in seq_len(nrow(term_meta))) {
+    key <- term_meta$Key[j]
+    tgenes <- intersect(unique(groups[[key]]),universe)
+    K <- length(tgenes);n <- length(targets);g <- intersect(tgenes,targets);k <- length(g)
+    if (K<3 || K>N || n<1) next
+    i<-i+1L
+    output[[i]] <- data.frame(Source=source,ID=term_meta$ID[j],Description=term_meta$Description[j],
+      Count=k,Background_count=K,Foreground_count=n,pvalue=phyper(k-1,K,N-K,n,lower.tail=FALSE),
+      geneID=paste(g,collapse="/"),stringsAsFactors=FALSE)
+  }
+  if (i == 0L) return(data.frame(Source = character(), ID = character(),
+    Description = character(), Count = integer(), Background_count = integer(),
+    Foreground_count = integer(), pvalue = numeric(), geneID = character(),
+    p.adjust = numeric(), stringsAsFactors = FALSE))
+  out <- do.call(rbind,output[seq_len(i)])
+  out$p.adjust <- p.adjust(out$pvalue,method="BH")
+  out[order(out$pvalue,-out$Count,out$Description),,drop=FALSE]
+}
+GO_meta$Key <- paste(GO_meta$Source,GO_meta$Term_ID,sep="||");GO_meta$ID<-GO_meta$Term_ID
+HM <- data.frame(Key=H_names,ID=H_names,Description=gsub("_"," ",sub("^HALLMARK_","",H_names)),stringsAsFactors=FALSE)
+KM <- data.frame(Key=KEGG_names,ID=KEGG_names,Description=gsub("_"," ",sub("^KEGG_(LEGACY_)?","",KEGG_names)),stringsAsFactors=FALSE)
+# Count each distinct gene once per term, even when several clusters map to it.
+
+# 4. Choose metabolism-related GO and KEGG terms
+# Apply the same inclusion and exclusion words to UP and DOWN. For each
+# collection, eligible terms are ranked by their own ORA results. Cellular
+# component terms describe metabolic locations.
+# A term needs at least one matching DEG to appear in the recurrence plot,
+# its ORA p-value may nevertheless be nonsignificant.
+
+exclude <- c("olfactory","odorant","smell","sensory","taste","synaptic","postsynaptic",
+  "presynaptic","gaba","neuro","axon","dendrite","benzodiazepine","nicotine","addiction",
+  "visual","phototransduction","muscle","myofibril","sarcolemma","t-tubule","cardiac",
+  "heart","sperm","spermatid","germ cell","fertilization","acrosome","reproductive",
+  "cilium","ciliary","axoneme","cornified","keratin","hair","skin","salivary",
+  "pancreatic secretion","carbohydrate digestion","digestion and absorption","starch and sucrose","amylase")
+include <- list(
+ "GO:BP"=c("metabolic process","metabolism","biosynthetic process","catabolic process","oxidation","oxidative",
+     "reduction","redox","glutathione","xenobiotic","drug metabolic","lipid metabolic","fatty acid",
+     "cholesterol","sterol","bile acid","retino","vitamin","cofactor","carbohydrate metabolic","glucose metabolic",
+     "glycogen","hexose metabolic","monosaccharide metabolic","pyruvate","acetyl","nadh","nadp",
+     "atp metabolic","glycosylation","glycolipid","glycoprotein","proteoglycan","hyaluronan biosynthetic","glycosaminoglycan"),
+ "GO:MF"=c("transferase activity","hydrolase activity","oxidoreductase activity","dehydrogenase activity","monooxygenase activity",
+     "dioxygenase activity","reductase activity","kinase activity","phosphatase activity","ligase activity",
+     "isomerase activity","lyase activity","glutathione","udp","glycosyltransferase","acetyltransferase",
+     "methyltransferase","sulfotransferase","ubiquitin","nad","fad","heme","iron","zinc","cofactor","vitamin",
+     "retinol","lipid binding","fatty acid binding","cholesterol binding","bile acid","hyaluronan synthase","catalytic activity"),
+ "GO:CC"=c("mitochond","respirasome","respiratory chain","oxidative phosphorylation","endoplasmic reticulum",
+     "er membrane","golgi","lysosome","lysosomal","endosome","endosomal","peroxisome","peroxisomal",
+     "lipid droplet","vacuolar","secretory vesicle","transport vesicle","membrane coat","organelle membrane",
+     "basement membrane","extracellular matrix","hyaluronan","transporter complex","atpase complex","plasma membrane protein complex"),
+ "KEGG"=c("metabolism","biosynthesis","degradation","glycolysis","gluconeogenesis","pentose","pyruvate",
+     "citrate cycle","oxidative phosphorylation","fatty acid","glycerolipid","glycerophospholipid","sphingolipid",
+     "ether lipid","arachidonic acid","linoleic acid","cholesterol","bile secretion","bile acid","retinol",
+     "steroid","xenobiotics","drug metabolism","cytochrome p450","glutathione","abc transporters","peroxisome"))
+
+# These Hallmark sets were chosen in advance to represent the biological
+# context of each direction. They remain fixed even if their ORA rank is low,
+# GO and KEGG, by contrast, are selected from the current dataset.
+FIXED_HALLMARKS <- list(
+  UP = c(
+    "HALLMARK_ANGIOGENESIS",
+    "HALLMARK_ALLOGRAFT_REJECTION",
+    "HALLMARK_INFLAMMATORY_RESPONSE",
+    "HALLMARK_KRAS_SIGNALING_DN",
+    "HALLMARK_HYPOXIA",
+    "HALLMARK_MYOGENESIS"
+  ),
+  DOWN = c(
+    "HALLMARK_ADIPOGENESIS",
+    "HALLMARK_OXIDATIVE_PHOSPHORYLATION",
+    "HALLMARK_E2F_TARGETS",
+    "HALLMARK_BILE_ACID_METABOLISM",
+    "HALLMARK_GLYCOLYSIS",
+    "HALLMARK_FATTY_ACID_METABOLISM"
+  )
+)
+for (direction in names(FIXED_HALLMARKS)) {
+  if (length(FIXED_HALLMARKS[[direction]]) != 6L ||
+      anyDuplicated(FIXED_HALLMARKS[[direction]]) ||
+      !all(FIXED_HALLMARKS[[direction]] %in% HM$ID)) {
+    stop("Missing or duplicated predefined Hallmark terms for ", direction,
+         ". Review the MSigDB collection and the six term IDs.")
+  }
+}
+
+select_strict <- function(df,source) {
+  if (nrow(df)<1) return(df)
+  name <- tolower(df$Description)
+  keep <- grepl(paste(include[[source]],collapse="|"),name) &
+    !grepl(paste(exclude,collapse="|"),name)
+  x <- df[keep & df$Count >= MIN_GENES_PER_SELECTED_TERM,,drop=FALSE]
+  x <- x[order(x$pvalue,-x$Count,x$ID,x$Description),,drop=FALSE]
+  head(x, TOP_TERMS_PER_COLLECTION)
+}
+
+# 5. Build gene-to-term membership records
+get_msig_genes <- function(groups, meta, query) {
+  index <- match(normalize_name(query),normalize_name(meta$Description))
+  if (is.na(index)) index <- match(normalize_name(query), normalize_name(meta$ID))
+  if(is.na(index)) return(NULL)
+  groups[[meta$Key[index]]]
+}
+make_annotation <- function(selected,genes) {
+  rows <- list();i<-0L;miss<-character()
+  for (j in seq_len(nrow(selected))) {
+    src <- selected$Source[j]; t <- selected$Description[j]; id <- selected$ID[j]
+    termgenes <- switch(src,
+      "GO:BP"=GO_groups[[paste(src,id,sep="||")]],
+      "GO:CC"=GO_groups[[paste(src,id,sep="||")]],
+      "GO:MF"=GO_groups[[paste(src,id,sep="||")]],
+      "KEGG"=get_msig_genes(K_groups,KM,t),
+      "Hallmark"=get_msig_genes(H_groups,HM,t),
+      NULL)
+    if (is.null(termgenes)) {miss<-c(miss,paste(src,t,id,sep=" | "));next}
+    gs <- intersect(intersect(unique(termgenes),genes),universe)
+    if (length(gs)>0L) {
+      i<-i+1L;rows[[i]]<-data.frame(Gene=gs,Source=src,Term=t,ID=id,
+        Term_Label=paste(src,t,sep=": "),stringsAsFactors=FALSE)
+    }
+  }
+  list(data=if(i)unique(do.call(rbind,rows)) else
+    data.frame(Gene=character(),Source=character(),Term=character(),ID=character(),Term_Label=character()),
+    unmapped=unique(miss))
+}
+
+# The 6 Hallmarks are kept for each direction. GO/KEGG terms are selected independently.
+
+# Functional submodules: annotation-supported gene classification
+#
+# To make the recurrence map more informative, each displayed gene is assigned
+# to its best-supported functional module. Classification considers the full
+# frozen GO annotations and KEGG membership. More specific activities receive higher rule scores.
+# Within each annotation source we use its strongest relevant match, so broad
+# or inherited GO terms do not contribute repeatedly to the same module.
+# The exported audit records supporting terms and competing classifications.
+# Genes without adequate evidence stay in 'Other annotated features'.
+#
+# Module assignment controls only the descriptive labels and gene arrangement
+# in the plot. DEG selection, GO/KEGG term selection, recurrence counts, and
+# expression Z-scores are calculated separately.
+# Researchers can adapt the documented rules for other biological questions.
+
+MODULE_RULES <- data.frame(Module=character(), Source=character(),
+                           Pattern=character(), Weight=numeric(),
+                           stringsAsFactors=FALSE)
+add_module_rule <- function(module, source, pattern, weight) {
+  MODULE_RULES <<- rbind(MODULE_RULES,
+    data.frame(Module=module, Source=source, Pattern=pattern,
+               Weight=as.numeric(weight), stringsAsFactors=FALSE))
+}
+
+# Distinguish nucleotide kinases from general phosphate chemistry and from
+# protein kinases that act mainly in signaling pathways.
+add_module_rule("Nucleotide kinases", "GO:MF",
+  "AMP kinase activity|adenylate kinase activity|nucleoside diphosphate kinase activity|nucleoside monophosphate kinase activity|nucleobase-containing compound kinase activity|UMP kinase activity|dTMP kinase activity|guanylate kinase activity|thymidylate kinase activity|cytidylate kinase activity", 12)
+add_module_rule("Nucleotide kinases", "GO:BP",
+  "nucleoside monophosphate phosphorylation|nucleoside diphosphate phosphorylation", 7)
+
+add_module_rule("Nucleotide synthesis / turnover", "GO:MF",
+  "CTP synthase activity|UTP--ammonia ligase activity|ribonucleotide reductase activity|nucleoside deaminase activity|nucleotidase activity|nucleoside phosphorylase activity|dihydroorotate dehydrogenase activity|beta-ureidopropionase activity", 10)
+add_module_rule("Nucleotide synthesis / turnover", "GO:BP",
+  "pyrimidine nucleotide biosynthetic process|purine nucleotide biosynthetic process|pyrimidine nucleotide catabolic process|nucleotide salvage|de novo.*nucleotide biosynthetic|deoxyribonucleotide biosynthetic", 4)
+add_module_rule("Nucleotide synthesis / turnover", "KEGG",
+  "purine metabolism|pyrimidine metabolism", 6)
+
+add_module_rule("Phosphate / phosphatase reactions", "GO:MF",
+  "inorganic pyrophosphatase activity|phosphomonoesterase activity|phosphodiesterase activity|nucleoside-triphosphatase activity|phosphate ion binding", 5)
+add_module_rule("Phosphate / phosphatase reactions", "GO:BP",
+  "phosphate ion homeostasis|inorganic phosphate metabolic process|polyphosphate metabolic process", 4)
+
+# Keep respiratory-chain, TCA/pyruvate and cofactor-related annotations separate.
+add_module_rule("Respiratory chain / OXPHOS", "GO:BP",
+  "oxidative phosphorylation|mitochondrial electron transport|respiratory electron transport|ATP synthesis coupled electron transport|respiratory chain complex assembly", 11)
+add_module_rule("Respiratory chain / OXPHOS", "GO:MF",
+  "NADH dehydrogenase [(]ubiquinone[)] activity|NADH:ubiquinone oxidoreductase activity|cytochrome-c oxidase activity|ubiquinol-cytochrome-c reductase activity", 10)
+add_module_rule("Respiratory chain / OXPHOS", "GO:CC",
+  "respiratory chain complex|mitochondrial respiratory chain|respirasome|NADH dehydrogenase complex|cytochrome complex", 5)
+add_module_rule("Respiratory chain / OXPHOS", "KEGG", "OXIDATIVE_PHOSPHORYLATION", 8)
+
+add_module_rule("TCA / pyruvate / acetyl-CoA metabolism", "GO:BP",
+  "tricarboxylic acid cycle|pyruvate decarboxylation to acetyl-CoA|pyruvate metabolic process|acetyl-CoA metabolic process|citrate metabolic process", 9)
+add_module_rule("TCA / pyruvate / acetyl-CoA metabolism", "GO:MF",
+  "isocitrate dehydrogenase activity|pyruvate dehydrogenase.*activity|acetate--CoA ligase activity|acetyl-CoA synthetase activity|dihydrolipoyl.*acetyltransferase activity", 11)
+add_module_rule("TCA / pyruvate / acetyl-CoA metabolism", "KEGG",
+  "CITRATE_CYCLE|PYRUVATE_METABOLISM|PROPANOATE_METABOLISM", 7)
+
+add_module_rule("Cofactor / quinone / vitamin metabolism", "GO:BP",
+  "ubiquinone biosynthetic process|coenzyme Q biosynthetic process|heme.*biosynthetic process|porphyrin-containing compound biosynthetic process|cofactor biosynthetic process|riboflavin metabolic process|flavin.*metabolic process|vitamin.*biosynthetic process", 9)
+add_module_rule("Cofactor / quinone / vitamin metabolism", "GO:MF",
+  "prenyl diphosphate synthase activity|protoheme IX farnesyltransferase activity|riboflavin kinase activity|flavin kinase activity|quinone.*activity", 9)
+add_module_rule("Cofactor / quinone / vitamin metabolism", "KEGG",
+  "UBIQUINONE|TERPENOID_BACKBONE|RIBOFLAVIN_METABOLISM|PANTOTHENATE_AND_COA_BIOSYNTHESIS", 6)
+
+add_module_rule("Glycolysis / carbohydrate metabolism", "GO:BP",
+  "glycolytic process|gluconeogenesis|pentose-phosphate shunt", 8)
+add_module_rule("Glycolysis / carbohydrate metabolism", "GO:BP",
+  "^(glucose|glycogen|fructose) metabolic process$", 4)
+add_module_rule("Glycolysis / carbohydrate metabolism", "GO:MF",
+  "glucose-6-phosphate.*activity|fructose-bisphosphate.*activity|fructose-bisphosphate aldolase activity|hexokinase activity|glucokinase activity|phosphofructokinase activity|glycogen synthase activity", 9)
+add_module_rule("Glycolysis / carbohydrate metabolism", "KEGG",
+  "GLYCOLYSIS|GLUCONEOGENESIS|PENTOSE_PHOSPHATE_PATHWAY|STARCH_AND_SUCROSE_METABOLISM", 7)
+
+# Phosphoinositide kinases and phosphatases form a different functional class
+# from generic phosphate transfer and hydrolysis.
+add_module_rule("Phosphoinositide metabolism / PI3K signaling", "GO:MF",
+  "phosphatidylinositol.*kinase activity|1-phosphatidylinositol.*kinase activity|phosphoinositide.*phosphatase activity|phosphatidylinositol.*phosphatase activity", 11)
+add_module_rule("Phosphoinositide metabolism / PI3K signaling", "GO:BP",
+  "phosphatidylinositol-mediated signaling|phosphatidylinositol phosphate biosynthetic process|phosphatidylinositol.*signal transduction|phosphoinositide metabolic process", 8)
+add_module_rule("Phosphoinositide metabolism / PI3K signaling", "GO:CC",
+  "phosphatidylinositol 3-kinase complex", 7)
+add_module_rule("Phosphoinositide metabolism / PI3K signaling", "KEGG",
+  "INOSITOL_PHOSPHATE_METABOLISM|PHOSPHATIDYLINOSITOL_SIGNALING_SYSTEM", 7)
+
+add_module_rule("Lipid / fatty acid / peroxisomal metabolism", "GO:BP",
+  "fatty acid.*metabolic process|fatty acid.*biosynthetic process|fatty acid.*catabolic process|fatty acid beta-oxidation|phospholipid metabolic process|sphingolipid metabolic process|sterol biosynthetic process|cholesterol biosynthetic process|peroxisome organization", 8)
+add_module_rule("Lipid / fatty acid / peroxisomal metabolism", "GO:MF",
+  "acyl-CoA.*activity|fatty-acyl-CoA.*activity|phospholipase.*activity|sphingosine kinase activity|sphingomyelin.*activity", 8)
+add_module_rule("Lipid / fatty acid / peroxisomal metabolism", "KEGG",
+  "FATTY_ACID|PEROXISOME|GLYCEROLIPID_METABOLISM|GLYCEROPHOSPHOLIPID_METABOLISM|SPHINGOLIPID_METABOLISM|ETHER_LIPID_METABOLISM|ARACHIDONIC_ACID_METABOLISM", 7)
+add_module_rule("Lipid / fatty acid / peroxisomal metabolism", "GO:CC",
+  "peroxisome|peroxisomal membrane|lipid droplet", 2)
+
+add_module_rule("Glycan / proteoglycan / ECM remodeling", "GO:BP",
+  "glycosaminoglycan.*biosynthetic process|hyaluronan.*biosynthetic process|proteoglycan.*biosynthetic process|extracellular matrix organization|collagen fibril organization|glycosylation", 8)
+add_module_rule("Glycan / proteoglycan / ECM remodeling", "GO:MF",
+  "hyaluronan synthase activity|glycosyltransferase activity|glycosaminoglycan.*activity|sulfotransferase activity", 8)
+add_module_rule("Glycan / proteoglycan / ECM remodeling", "GO:CC",
+  "extracellular matrix|collagen-containing extracellular matrix|basement membrane", 3)
+add_module_rule("Glycan / proteoglycan / ECM remodeling", "KEGG",
+  "GLYCOSAMINOGLYCAN|GLYCAN|PROTEOGLYCANS|ECM_RECEPTOR", 6)
+
+add_module_rule("Xenobiotic / retinoid / drug metabolism", "GO:BP",
+  "xenobiotic metabolic process|drug metabolic process|retinoid metabolic process|retinol metabolic process|ethanol metabolic process|bilirubin metabolic process", 9)
+add_module_rule("Xenobiotic / retinoid / drug metabolism", "GO:MF",
+  "alcohol dehydrogenase.*activity|cytochrome P450.*activity|retinol dehydrogenase activity|glucuronosyltransferase activity", 8)
+add_module_rule("Xenobiotic / retinoid / drug metabolism", "KEGG",
+  "DRUG_METABOLISM|METABOLISM_OF_XENOBIOTICS|RETINOL_METABOLISM", 7)
+
+add_module_rule("Membrane transport / ion channels", "GO:MF",
+  "ion channel activity|transmembrane transporter activity|ATPase-coupled.*transmembrane transporter activity|sodium:potassium-exchanging.*activity|P-type.*transporter activity|organic anion transmembrane transporter activity|transporter regulator activity|transporter activator activity", 7)
+add_module_rule("Membrane transport / ion channels", "GO:BP",
+  "potassium ion transport|sodium ion transport|transmembrane transport|organic anion transport|drug transmembrane transport", 4)
+add_module_rule("Membrane transport / ion channels", "KEGG", "ABC_TRANSPORTERS", 6)
+
+# Include relevant nonmetabolic functions as separate groups. A gene can be
+# associated with the selected metabolic terms without catalyzing metabolism.
+add_module_rule("Lysosome / autophagy / endosomal turnover", "GO:BP",
+  "autophagy|autophagosome assembly|lysosome organization|lysosomal transport|protein localization to lysosome|endosome organization|endosomal transport|endocytic recycling", 9)
+add_module_rule("Lysosome / autophagy / endosomal turnover", "GO:CC",
+  "autophagosome|lysosome|lysosomal membrane|endosome|endosomal membrane", 3)
+add_module_rule("Lysosome / autophagy / endosomal turnover", "KEGG", "LYSOSOME|AUTOPHAGY|ENDOCYTOSIS", 7)
+
+add_module_rule("RNA processing / RNA modification", "GO:BP",
+  "tRNA.*modification|snRNA.*processing|snRNA.*modification|rRNA.*processing|RNA methylation|RNA modification|RNA splicing|mRNA processing|RNA processing", 9)
+add_module_rule("RNA processing / RNA modification", "GO:MF",
+  "RNA methyltransferase activity|snRNA.*methyltransferase activity|rRNA methyltransferase activity|tRNA.*activity|RNA helicase activity|RNA binding.*splicing", 9)
+add_module_rule("RNA processing / RNA modification", "GO:CC",
+  "spliceosomal complex|small-subunit processome", 4)
+
+add_module_rule("Ribosome / protein translation", "GO:BP",
+  "ribosome biogenesis|cytoplasmic translation|mitochondrial translation|translational initiation|rRNA processing", 8)
+add_module_rule("Ribosome / protein translation", "GO:MF",
+  "structural constituent of ribosome|translation initiation factor activity|translation elongation factor activity", 9)
+add_module_rule("Ribosome / protein translation", "GO:CC",
+  "ribosomal subunit|mitochondrial ribosome|cytosolic ribosome", 6)
+
+add_module_rule("Transcription / chromatin regulation", "GO:MF",
+  "DNA-directed RNA polymerase activity|DNA-binding transcription factor activity|transcription coactivator activity|transcription corepressor activity|histone acetyltransferase activity|histone methyltransferase activity|chromatin remodeling activity", 9)
+add_module_rule("Transcription / chromatin regulation", "GO:BP",
+  "chromatin organization|chromatin remodeling|histone modification|transcription by RNA polymerase|RNA polymerase III transcription|DNA-templated transcription initiation", 8)
+add_module_rule("Transcription / chromatin regulation", "GO:CC",
+  "RNA polymerase.*complex|chromatin remodeling complex|histone acetyltransferase complex", 6)
+
+add_module_rule("Protein phosphatases / signaling", "GO:MF",
+  "protein tyrosine phosphatase activity|transmembrane receptor protein.*phosphatase activity|phosphoprotein phosphatase activity|protein serine/threonine phosphatase activity", 11)
+add_module_rule("Protein phosphatases / signaling", "GO:BP",
+  "protein dephosphorylation|peptidyl-tyrosine dephosphorylation", 7)
+
+add_module_rule("Peptide / hormone signaling", "GO:MF",
+  "neuropeptide hormone activity|hormone activity|receptor ligand activity|endothelin.*receptor binding", 9)
+add_module_rule("Peptide / hormone signaling", "GO:BP",
+  "neuropeptide signaling pathway|hormone-mediated signaling|endothelin receptor signaling", 7)
+
+add_module_rule("Protein kinase / receptor signaling", "GO:MF",
+  "protein tyrosine kinase activity|protein serine/threonine kinase activity|receptor signaling protein.*activity|protein kinase activity", 8)
+add_module_rule("Protein kinase / receptor signaling", "GO:BP",
+  "MAPK cascade|JAK-STAT cascade|protein tyrosine kinase signaling|G protein-coupled receptor signaling|Wnt signaling pathway|cell surface receptor.*signaling", 6)
+add_module_rule("Protein kinase / receptor signaling", "KEGG",
+  "MAPK_SIGNALING|JAK_STAT|MTOR_SIGNALING|WNT_SIGNALING", 6)
+
+add_module_rule("Cell cycle / DNA replication / repair", "GO:BP",
+  "DNA replication|DNA repair|DNA damage response|mitotic cell cycle|cell cycle checkpoint|chromosome segregation", 9)
+add_module_rule("Cell cycle / DNA replication / repair", "GO:MF",
+  "DNA polymerase processivity factor activity|DNA clamp loader activity|DNA helicase activity|DNA ligase activity", 9)
+add_module_rule("Cell cycle / DNA replication / repair", "GO:CC",
+  "replication fork|DNA replication factor C complex", 6)
+add_module_rule("Cell cycle / DNA replication / repair", "KEGG",
+  "CELL_CYCLE|DNA_REPLICATION|BASE_EXCISION_REPAIR|NUCLEOTIDE_EXCISION_REPAIR", 7)
+
+add_module_rule("Immune / cytokine response", "GO:BP",
+  "immune response|inflammatory response|cytokine production|interleukin.*signaling|response to interferon|T cell activation|lymphocyte activation", 8)
+add_module_rule("Immune / cytokine response", "GO:MF",
+  "cytokine activity|cytokine receptor activity|chemokine receptor activity|interleukin.*binding", 10)
+add_module_rule("Immune / cytokine response", "KEGG",
+  "CYTOKINE_CYTOKINE_RECEPTOR|T_CELL_RECEPTOR|B_CELL_RECEPTOR|CHEMOKINE_SIGNALING", 7)
+
+add_module_rule("Protein turnover / proteostasis", "GO:BP",
+  "proteasomal protein catabolic process|protein ubiquitination|ubiquitin-dependent protein catabolic process|protein folding|endoplasmic reticulum unfolded protein response|protein maturation|N-terminal protein acetylation", 8)
+add_module_rule("Protein turnover / proteostasis", "GO:MF",
+  "ubiquitin-protein transferase activity|ubiquitin ligase activity|unfolded protein binding|protein disulfide isomerase activity|acetyltransferase activator activity", 8)
+add_module_rule("Protein turnover / proteostasis", "GO:CC",
+  "proteasome complex|ubiquitin ligase complex", 5)
+
+add_module_rule("Amino acid / redox metabolism", "GO:BP",
+  "amino acid.*metabolic process|glutathione metabolic process|glutathione biosynthetic process|reactive oxygen species metabolic process|serine metabolic process|methionine metabolic process", 7)
+add_module_rule("Amino acid / redox metabolism", "GO:MF",
+  "glutathione transferase activity|glutathione reductase activity|amino acid.*aminotransferase activity|superoxide dismutase activity", 8)
+add_module_rule("Amino acid / redox metabolism", "KEGG",
+  "GLUTATHIONE_METABOLISM|CYSTEINE_AND_METHIONINE_METABOLISM|GLYCINE_SERINE_AND_THREONINE_METABOLISM", 6)
+
+# The ordering below resolves equal scores consistently, favoring more
+# specific activities ahead of broader biological groupings.
+MODULE_ORDER <- c(
+ "Nucleotide kinases", "Nucleotide synthesis / turnover",
+ "Phosphate / phosphatase reactions", "Respiratory chain / OXPHOS",
+ "TCA / pyruvate / acetyl-CoA metabolism",
+ "Cofactor / quinone / vitamin metabolism",
+ "Glycolysis / carbohydrate metabolism",
+ "Phosphoinositide metabolism / PI3K signaling",
+ "Lipid / fatty acid / peroxisomal metabolism",
+ "Glycan / proteoglycan / ECM remodeling",
+ "Xenobiotic / retinoid / drug metabolism",
+ "Membrane transport / ion channels",
+ "Lysosome / autophagy / endosomal turnover",
+ "RNA processing / RNA modification", "Ribosome / protein translation",
+ "Transcription / chromatin regulation", "Protein phosphatases / signaling",
+ "Peptide / hormone signaling", "Protein kinase / receptor signaling",
+ "Cell cycle / DNA replication / repair", "Immune / cytokine response",
+ "Protein turnover / proteostasis", "Amino acid / redox metabolism",
+ "Other annotated features"
+)
+stopifnot(setequal(unique(MODULE_RULES$Module),
+                   setdiff(MODULE_ORDER, "Other annotated features")))
+
+# Score each gene using GO and KEGG term descriptions. Within a source
+# (GO:BP, GO:MF, GO:CC or KEGG), only the strongest match contributes to
+# a module score, related ontology terms should not inflate it.
+assign_modules_automatically <- function(gene_vector, go_snapshot, kegg_membership) {
+  gene_vector <- unique(toupper(as.character(gene_vector)))
+  a <- unique(go_snapshot[go_snapshot$Gene %in% gene_vector,
+                          c("Gene", "Source", "Term_ID", "Description")])
+  kg <- unique(kegg_membership[
+    toupper(kegg_membership$Gene) %in% gene_vector,
+    c("Term", "Gene")])
+  if (nrow(kg)) {
+    a <- rbind(a, data.frame(
+      Gene=toupper(kg$Gene), Source="KEGG", Term_ID=kg$Term,
+      Description=kg$Term,
+      stringsAsFactors=FALSE))
+  }
+  a$Gene <- toupper(as.character(a$Gene))
+  a$Description <- as.character(a$Description)
+  a <- unique(a[!is.na(a$Description) & nzchar(a$Description), , drop=FALSE])
+  if (!nrow(a)) stop("No GO or KEGG annotations available for the module classifier.")
+
+  hit_list <- vector("list", nrow(MODULE_RULES)); h <- 0L
+  for (j in seq_len(nrow(MODULE_RULES))) {
+    rule <- MODULE_RULES[j, , drop=FALSE]
+    match <- a$Source == rule$Source &
+      grepl(rule$Pattern, a$Description, ignore.case=TRUE, perl=TRUE)
+    match[is.na(match)] <- FALSE
+    if (!any(match)) next
+    h <- h + 1L
+    x <- a[match, , drop=FALSE]
+    x$Module <- rule$Module
+    # 'Regulation of X' supports an association with X, but does not mean the
+    # gene itself performs X. Give these regulatory GO:BP terms less weight.
+    regulatory <- rule$Source == "GO:BP" &
+      grepl("^(positive |negative )?regulation of ",
+            x$Description, ignore.case=TRUE)
+    x$Weight <- ifelse(regulatory, pmin(rule$Weight, 2), rule$Weight)
+    x$Rule_Index <- j
+    hit_list[[h]] <- x
+  }
+  matched <- if(h) unique(do.call(rbind, hit_list[seq_len(h)])) else
+    data.frame(Gene=character(), Source=character(), Term_ID=character(),
+      Description=character(), Module=character(), Weight=numeric(),
+      Rule_Index=integer(), stringsAsFactors=FALSE)
+
+  # Add the strongest evidence across the 4 annotation sources.
+  per_source <- if(nrow(matched))
+    aggregate(Weight ~ Gene + Module + Source, matched, max) else
+    data.frame(Gene=character(),Module=character(),Source=character(),Weight=numeric())
+  per_module <- if(nrow(per_source))
+    aggregate(Weight ~ Gene + Module, per_source, sum) else
+    data.frame(Gene=character(),Module=character(),Weight=numeric())
+  if(nrow(per_module)) {
+    coverage <- aggregate(Source ~ Gene + Module, per_source,
+                          function(x) length(unique(x)))
+    names(coverage)[names(coverage)=="Source"] <- "Supporting_Sources"
+    per_module <- merge(per_module, coverage, by=c("Gene", "Module"), sort=FALSE)
+    per_module$Score <- per_module$Weight +
+      pmax(0, per_module$Supporting_Sources-1) * 1.0
+  }
+  result <- vector("list", length(gene_vector))
+  for(i in seq_along(gene_vector)) {
+    gene <- gene_vector[i]
+    z <- per_module[per_module$Gene==gene, , drop=FALSE]
+    if(nrow(z)) {
+      z$Tie_Order <- match(z$Module, MODULE_ORDER)
+      z <- z[order(-z$Score, -z$Supporting_Sources, z$Tie_Order),,drop=FALSE]
+      top <- z$Score[1]
+      second <- if(nrow(z)>1) z$Score[2] else 0
+      margin <- top-second
+      # A specific molecular function can justify a module, because cellular location
+      # alone is generally not strong enough for a functional assignment.
+      chosen <- if(top >= 5) z$Module[1] else "Other annotated features"
+      status <- if(chosen=="Other annotated features") "Insufficient specific evidence" else
+        if(margin < 2) "Ambiguous: review alternative module" else
+        if(z$Supporting_Sources[1]>=2 && top>=10) "Strong" else "Supported"
+      winner_ev <- matched[matched$Gene==gene & matched$Module==chosen,,drop=FALSE]
+      if(nrow(winner_ev)) {
+        winner_ev <- winner_ev[order(-winner_ev$Weight,
+                       winner_ev$Source,winner_ev$Description),,drop=FALSE]
+        evidence <- paste(head(unique(paste0(winner_ev$Source, ": ",
+                                winner_ev$Description)), 6), collapse=" | ")
+      } else evidence <- ""
+      result[[i]] <- data.frame(Gene=gene,Module=chosen,
+        Module_Score=top,Next_Best_Module_Score=second,Score_Margin=margin,
+        Module_Confidence=status,
+        Module_Competing=if(nrow(z)>1) z$Module[2] else "",
+        Evidence_Source_Count=z$Supporting_Sources[1],
+        Module_Evidence=evidence,stringsAsFactors=FALSE)
+    } else {
+      result[[i]] <- data.frame(Gene=gene, Module="Other annotated features",
+        Module_Score=0,Next_Best_Module_Score=0,Score_Margin=0,
+        Module_Confidence="No matching functional module annotation",
+        Module_Competing="",Evidence_Source_Count=0,
+        Module_Evidence="",stringsAsFactors=FALSE)
+    }
+  }
+  list(summary=do.call(rbind,result),
+       evidence=matched, scores=per_module,
+       rule_registry=MODULE_RULES)
+}
+
+# 6. Analyze UP and DOWN gene lists independently
+run_direction <- function(dir) {
+  genes <- representatives$Gene[representatives$Direction == dir]
+  if (!length(genes)) stop("No ",dir," genes pass the DEG criteria.")
+  prefix <- file.path(out_dir,paste0("FIG4_",dir))
+
+  # Use the predefined Hallmarks for this direction. GO/KEGG ORA is run
+  # against the full tested gene universe, with UP and DOWN analyzed separately.
+  fixed_ids <- FIXED_HALLMARKS[[dir]]
+  hm_selected <- HM[match(fixed_ids, HM$ID), , drop = FALSE]
+  if (anyNA(hm_selected$ID)) stop("Predefined Hallmark ID missing for ", dir)
+  ora <- list()
+  for (src in c("Hallmark","GO:BP","KEGG","GO:MF","GO:CC")) {
+    rr <- if (src == "Hallmark") {
+      make_ora(src, hm_selected, H_groups, genes)
+    } else if (src == "KEGG") {
+      make_ora(src, KM, K_groups, genes)
+    } else {
+      make_ora(src, GO_meta[GO_meta$Source == src,,drop=FALSE], GO_groups, genes)
+    }
+    ora[[src]] <- rr
+    write.csv(rr,paste0(prefix,"_",gsub(":","_",src),"_ALL_ORA.csv"),row.names=FALSE)
+  }
+
+  # Retain all 6 Hallmarks whether or not they overlap the DEG list.
+  # For GO/KEGG, retain up to 10 eligible terms per collection by ORA rank.
+  selection <- lapply(names(ora),function(src) {
+    tab <- ora[[src]]
+    if (src == "Hallmark") {
+      tab <- tab[match(fixed_ids, tab$ID), , drop = FALSE]
+      if (anyNA(tab$ID) || nrow(tab) != 6L) {
+        stop("Unable to retain the six predefined Hallmarks for ", dir)
+      }
+      tab
+    } else {
+      select_strict(tab, src)
+    }
+  })
+  names(selection) <- names(ora)
+  if (!sum(vapply(selection,nrow,integer(1)))) {
+    stop("No metabolism-related terms overlapped ",dir," DEGs.")
+  }
+  base_terms <- unique(do.call(rbind,lapply(selection,function(z) {
+    z[,c("Source","ID","Description"),drop=FALSE]
+  })))
+  rownames(base_terms) <- NULL
+
+  # Save the terms with overlap counts and both nominal and adjusted p-values.
+  # This table lets readers check the ranking and selection independently.
+  selected_evidence <- do.call(rbind, lapply(names(selection), function(src) {
+    z <- selection[[src]][,c("Source","ID","Description","Count",
+                                "Background_count","Foreground_count",
+                                "pvalue","p.adjust"),drop=FALSE]
+    z$Selection_rule <- if (src == "Hallmark") {
+      "Predefined direction-specific Hallmark set"
+    } else {
+      "Top metabolism-related ORA term; same procedure in UP and DOWN"
+    }
+    z
+  }))
+  write.csv(selected_evidence,paste0(prefix,"_Selected_Term_ORA_Evidence.csv"),row.names=FALSE)
+  write.csv(data.frame(Direction=dir,Source=names(selection),
+                       Selected_Terms=vapply(selection,nrow,integer(1))),
+            paste0(prefix,"_Selected_Term_Counts_By_Collection.csv"),row.names=FALSE)
+  write.csv(base_terms,paste0(prefix,"_Selected_Terms.csv"),row.names=FALSE)
+  message(dir, " fixed Hallmarks: ", paste(fixed_ids, collapse = ", "))
+  for (src in c("GO:BP", "GO:MF", "GO:CC", "KEGG")) {
+    message(dir, " selected ", src, " metabolism terms: ", nrow(selection[[src]]))
+  }
+  # All qualifying genes enter the membership step.
+  ann <- make_annotation(base_terms,genes)
+  write.csv(data.frame(Unmapped_term=ann$unmapped),paste0(prefix,"_Unmapped_Terms.csv"),row.names=FALSE)
+  if(!nrow(ann$data))stop("No annotations matched for direction: ",dir)
+  write.csv(ann$data,paste0(prefix,"_Gene_Term_Membership_LONG.csv"),row.names=FALSE)
+  ag <- ann$data
+  # Count unique source-term memberships for each gene. 
+  split_gene <- split(seq_len(nrow(ag)),ag$Gene)
+  summarize <- function(g) {
+    z<-ag[split_gene[[g]],,drop=FALSE]
+    c(Total_Hits=length(unique(z$Term_Label)),
+      Hallmark_Hits=length(unique(z$Term_Label[z$Source=="Hallmark"])),
+      GO_BP_Hits=length(unique(z$Term_Label[z$Source=="GO:BP"])),
+      KEGG_Hits=length(unique(z$Term_Label[z$Source=="KEGG"])),
+      GO_MF_Hits=length(unique(z$Term_Label[z$Source=="GO:MF"])),
+      GO_CC_Hits=length(unique(z$Term_Label[z$Source=="GO:CC"])))
+  }
+  genes_hit <- names(split_gene)
+  cnt <- as.data.frame(t(vapply(genes_hit,summarize,numeric(6))),stringsAsFactors=FALSE)
+  cnt$Gene<-genes_hit
+  cnt<-cnt[order(-cnt$Total_Hits,-cnt$Hallmark_Hits,-cnt$KEGG_Hits,
+                 -cnt$GO_BP_Hits,-cnt$GO_MF_Hits,-cnt$GO_CC_Hits,cnt$Gene),,drop=FALSE]
+  write.csv(cnt,paste0(prefix,"_ALL_Ranked_Gene_Hits.csv"),row.names=FALSE)
+  cnt <- head(cnt,50)
+  if (nrow(cnt)<2L) stop("Fewer than two annotated genes for ",dir,
+                         ". Inspect selected terms and MSigDB downloads.")
+  cnt$Direction <- dir
+  idx<-match(cnt$Gene,representatives$Gene)
+  cnt$Clariom_ID<-representatives$ID[idx]
+  cnt$log2FC<-representatives$log2FC[idx]
+  cnt$p<-representatives$p[idx]
+  write.csv(cnt,paste0(prefix,"_TOP50_Gene_Table.csv"),row.names=FALSE)
+
+  term_names <- paste(base_terms$Source,base_terms$Description,sep=": ")
+  hit<-matrix(0L,nrow=nrow(cnt),ncol=length(term_names),dimnames=list(cnt$Gene,make.unique(term_names)))
+  for(j in seq_len(nrow(ag))) {
+    ri<-match(ag$Gene[j],cnt$Gene);ci<-match(ag$Term_Label[j],term_names)
+    if(!is.na(ri)&&!is.na(ci))hit[ri,ci]<-1L
+  }
+  write.csv(cbind(Gene=rownames(hit),as.data.frame(hit,check.names=FALSE)),
+            paste0(prefix,"_TOP50_Term_Binary_Matrix.csv"),row.names=FALSE)
+  means<-as.matrix(e[match(cnt$Clariom_ID,e$ID),c("NC_Tac_mean","Ctrl_Tac_mean","Free_Tac_mean","EXO_Tac_mean")])
+  storage.mode(means)<-"numeric"
+  colnames(means)<-c("NC","Control","FreeISO","EXOISO")
+  rownames(means)<-cnt$Gene
+  z <- t(apply(means,1,function(x)if(any(!is.finite(x)) || sd(x)==0) rep(0,4) else (x-mean(x))/sd(x)))
+  colnames(z)<-colnames(means);rownames(z)<-cnt$Gene
+  write.csv(cbind(Gene=rownames(z),as.data.frame(z)),paste0(prefix,"_TOP50_Group_Z.csv"),row.names=FALSE)
+  # Classify the top-ranked genes from the full GO/KEGG reference information.
+  module_run <- assign_modules_automatically(cnt$Gene, go, kegg)
+  ma <- module_run$summary[match(cnt$Gene, module_run$summary$Gene),,drop=FALSE]
+  stopifnot(identical(as.character(ma$Gene),as.character(cnt$Gene)))
+  cnt$Module <- ma$Module
+  cnt$Module_Score <- ma$Module_Score
+  cnt$Module_Confidence <- ma$Module_Confidence
+  cnt$Module_Competing <- ma$Module_Competing
+  cnt$Module_Evidence <- ma$Module_Evidence
+  write.csv(module_run$summary,
+            paste0(prefix,"_TOP50_Automatic_Module_Assignment_AUDIT.csv"),row.names=FALSE)
+  write.csv(module_run$evidence,
+            paste0(prefix,"_TOP50_Module_GO_KEGG_Matched_Evidence_LONG.csv"),row.names=FALSE)
+  write.csv(module_run$scores,
+            paste0(prefix,"_TOP50_All_Candidate_Module_Scores.csv"),row.names=FALSE)
+  write.csv(module_run$rule_registry,
+            paste0(prefix,"_Functional_Module_Rule_Registry.csv"),row.names=FALSE)
+  write.csv(cnt,paste0(prefix,"_TOP50_Gene_Table_With_Modules.csv"),row.names=FALSE)
+  message(dir, " automatically classified modules: ",
+          paste(sort(unique(cnt$Module)), collapse="; "))
+  message(dir, " assignment audit: ",
+          paste0(prefix,"_TOP50_Automatic_Module_Assignment_AUDIT.csv"))
+
+  # Plotting uses these same exported tables, so the displayed genes,
+  # recurrence hits and 4-group Z-scores can all be checked separately.
+  return(cnt)
+}
+
+up <- run_direction("UP")
+down <- run_direction("DOWN")
+# 7. Save basic run checks and R package versions
+write.csv(data.frame(Metric=c("All_TAC_features","Unambiguous_gene_universe","Pass_FC1p30_feature_total",
+          "UP_rep_genes","DOWN_rep_genes","UP_Figure4_count","DOWN_Figure4_count"),
+          Value=c(nrow(e),N,sum(e$pass),sum(representatives$Direction=="UP"),sum(representatives$Direction=="DOWN"),nrow(up),nrow(down))),
+          file.path(out_dir,"FINAL_Figure4_Run_QC.csv"),row.names=FALSE)
+writeLines(capture.output(sessionInfo()),file.path(out_dir,"R_sessionInfo.txt"))
+message("Directional recurrence tables saved to: ", normalizePath(out_dir,winslash="/"))
+
+# 8. Draw the 2 Figure 4 recurrence panels
+# Read the tables calculated during this run. The layout combines gene names,
+# total recurrence bars, hit counts by collection, term membership, functional
+# modules and group-expression Z-scores. 
+
+RESULTS <- out_dir
+OUTPUT <- file.path(RESULTS,"plots")
+dir.create(OUTPUT,recursive=TRUE,showWarnings=FALSE)
+read_table <- function(path) {
+  if (!file.exists(path)) stop("Missing generated result: ",path)
+  read.csv(path,check.names=FALSE,stringsAsFactors=FALSE,fileEncoding="UTF-8-BOM")
+}
+
+COL_H <- "#7E57C2"        # Hallmark
+COL_BP <- "#F4A261"       # GO biological process
+COL_KEGG <- "#4CAF50"     # KEGG
+COL_MF <- "#7F7F7F"       # GO molecular function
+COL_CC <- "#2A9D8F"       # GO cellular component
+COL_BAR <- "darkgreen"    # Total annotation hits per gene
+
+# Both directions use the same functional categories. Their display order
+# differs to make the main biological themes easier to follow.
+DOWN_MODULE_ORDER <- MODULE_ORDER
+UP_MODULE_ORDER <- c(
+  "Xenobiotic / retinoid / drug metabolism",
+  "Membrane transport / ion channels",
+  "Glycan / proteoglycan / ECM remodeling",
+  "Phosphoinositide metabolism / PI3K signaling",
+  "Lipid / fatty acid / peroxisomal metabolism",
+  "Nucleotide kinases", "Nucleotide synthesis / turnover",
+  "Phosphate / phosphatase reactions",
+  setdiff(MODULE_ORDER, c("Xenobiotic / retinoid / drug metabolism",
+     "Membrane transport / ion channels", "Glycan / proteoglycan / ECM remodeling",
+     "Phosphoinositide metabolism / PI3K signaling",
+     "Lipid / fatty acid / peroxisomal metabolism",
+     "Nucleotide kinases", "Nucleotide synthesis / turnover",
+     "Phosphate / phosphatase reactions"))
+)
+standardize_module_label <- function(values, direction) {
+  x <- trimws(as.character(values))
+  x[is.na(x) | !nzchar(x)] <- "Other annotated features"
+  # Keep the computed classifications; no gene-specific relabeling.
+  x
+}
+
+ordered_modules <- function(values, direction) {
+  preferred <- if (direction == "DOWN") DOWN_MODULE_ORDER else UP_MODULE_ORDER
+  present <- unique(as.character(values))
+  c(preferred[preferred %in% present], sort(setdiff(present, preferred)))
+}
+
+# Shorten the displayed term labels only. The full names and membership
+# values remain available in the exported CSV files.
+short_term_label <- function(label) {
+  x <- as.character(label)
+  x <- sub("^Hallmark: *", "H: ", x)
+  x <- sub("^GO:BP: *", "BP: ", x)
+  x <- sub("^GO:MF: *", "MF: ", x)
+  x <- sub("^GO:CC: *", "CC: ", x)
+  x <- sub("^KEGG: *", "KEGG: ", x)
+  x <- gsub("_", " ", x, fixed = TRUE)
+  x
+}
+
+plot_one_direction <- function(direction) {
+  direction <- toupper(direction)
+  if (!(direction %in% c("UP", "DOWN"))) stop("Use UP or DOWN")
+  prefix <- file.path(RESULTS, paste0("FIG4_", direction))
+  gene_file <- paste0(prefix, "_TOP50_Gene_Table_With_Modules.csv")
+  matrix_file <- paste0(prefix, "_TOP50_Term_Binary_Matrix.csv")
+  z_file <- paste0(prefix, "_TOP50_Group_Z.csv")
+  genes <- read_table(gene_file)
+  binary <- read_table(matrix_file)
+  zdat <- read_table(z_file)
+
+  # Show total recurrence in the bars and collection-specific counts in the
+  # small shaded matrix, without duplicating the total there.
+  hits_cols <- c("Hallmark_Hits", "GO_BP_Hits", "KEGG_Hits",
+                 "GO_MF_Hits", "GO_CC_Hits")
+  needed_genes <- c("Gene", "Module", "Total_Hits", hits_cols)
+  needed_z <- c("Gene", "NC", "Control", "FreeISO", "EXOISO")
+  for (name in setdiff(needed_genes, names(genes)))
+    stop(direction, " gene table missing: ", name)
+  for (name in setdiff(needed_z, names(zdat)))
+    stop(direction, " expression Z-score table missing: ", name)
+  if (!("Gene" %in% names(binary))) stop(direction, " term matrix missing Gene column")
+  if (anyDuplicated(genes$Gene) || anyDuplicated(binary$Gene) || anyDuplicated(zdat$Gene))
+    stop(direction, " has duplicated Gene entries")
+  if (!all(genes$Gene %in% binary$Gene) || !all(genes$Gene %in% zdat$Gene))
+    stop(direction, " gene IDs cannot be matched across this run's result tables")
+
+  genes$Module <- standardize_module_label(genes$Module, direction)
+  genes$Total_Hits <- as.numeric(genes$Total_Hits)
+  module_levels <- ordered_modules(genes$Module, direction)
+  genes$Module <- factor(genes$Module, levels = module_levels)
+
+  # Within each module, order genes by recurrence and the stated tie-breakers.
+  # The same rule is applied to every gene.
+  ord <- order(as.integer(genes$Module), -genes$Total_Hits,
+               -as.numeric(genes$Hallmark_Hits), -as.numeric(genes$KEGG_Hits),
+               genes$Gene)
+  genes <- genes[ord, , drop = FALSE]
+  rownames(genes) <- NULL
+  labels <- genes$Gene
+  splits <- droplevels(genes$Module)
+  n <- nrow(genes)
+  if (n < 2) stop(direction, " has fewer than two genes")
+
+  # A compact green scale summarizes hits within each annotation collection.
+  count_mat <- as.matrix(genes[, hits_cols, drop = FALSE])
+  storage.mode(count_mat) <- "numeric"
+  if (any(!is.finite(count_mat))) stop(direction, ": nonnumeric hit count")
+  rownames(count_mat) <- labels
+  colnames(count_mat) <- c("Hallmark Hits", "GO:BP Hits", "KEGG Hits",
+                           "GO:MF Hits", "GO:CC Hits")
+
+  # The main matrix shows whether each gene belongs to each selected term.
+  i_bin <- match(labels, binary$Gene)
+  tcols <- setdiff(names(binary), "Gene")
+  if (!length(tcols)) stop(direction, " has zero annotation columns")
+  term_mat <- as.matrix(binary[i_bin, tcols, drop = FALSE])
+  storage.mode(term_mat) <- "numeric"
+  if (any(!is.finite(term_mat)) || any(!term_mat %in% c(0, 1)))
+    stop(direction, ": unexpected values in the precomputed binary hit matrix")
+  rownames(term_mat) <- labels
+  colnames(term_mat) <- tcols
+
+  # Add row-standardized TAC group means for NC, Ctrl, free ISO and EXO-ISO.
+  i_z <- match(labels, zdat$Gene)
+  z <- as.matrix(zdat[i_z, needed_z[-1], drop = FALSE])
+  storage.mode(z) <- "numeric"
+  rownames(z) <- labels
+  if (any(!is.finite(z))) stop(direction, ": nonfinite Z-score")
+
+  # Split the complete heatmap consistently by functional module, so all
+  # annotation tracks remain aligned with the same gene rows.
+  max_hits <- max(count_mat)
+  hit_col <- circlize::colorRamp2(c(0, max(1, max_hits)),
+                                  c("white", COL_BAR))
+  z_col <- circlize::colorRamp2(c(-2, 0, 2),
+                                c("#7735EF", "#FFFFFF", "#F47766"))
+
+  # Gene names, total-hit bars and numeric counts on the left.
+  left_anno <- ComplexHeatmap::rowAnnotation(
+    Gene = ComplexHeatmap::anno_text(labels, which = "row",
+      just = "right", location = grid::unit(1, "npc"),
+      gp = grid::gpar(fontsize = 9), width = grid::unit(34, "mm")),
+    Total_Hits_bar = ComplexHeatmap::anno_barplot(genes$Total_Hits,
+      gp = grid::gpar(fill = COL_BAR, col = COL_BAR),
+      baseline = 0, border = FALSE,
+      width = grid::unit(26, "mm"),
+      axis_param = list(side = "top", at = c(0, max(genes$Total_Hits)),
+        labels = c("0", as.character(max(genes$Total_Hits))),
+        gp = grid::gpar(fontsize = 7))),
+    Total_Hits_n = ComplexHeatmap::anno_text(as.character(genes$Total_Hits),
+      which = "row", just = "center", location = grid::unit(0.5, "npc"),
+      gp = grid::gpar(fontsize = 8), width = grid::unit(8, "mm")),
+    annotation_name_side = "top",
+    annotation_name_gp = grid::gpar(fontsize = 9, fontface = "bold"),
+    show_annotation_name = c(Gene = FALSE, Total_Hits_bar = TRUE,
+                             Total_Hits_n = FALSE)
+  )
+
+  common_args <- list(
+    cluster_rows = FALSE, cluster_columns = FALSE,
+    show_row_dend = FALSE, show_column_dend = FALSE,
+    show_row_names = FALSE, border = TRUE,
+    row_title = NULL,          # CRITICAL: remove auto vertical module titles
+    column_names_side = "bottom",
+    column_names_rot = 90,
+    column_names_gp = grid::gpar(fontsize = 7.5),
+    column_names_max_height = grid::unit(98, "mm"),
+    use_raster = FALSE
+  )
+
+  # 5-column summary of hits across the annotation collections.
+  counts_ht <- do.call(ComplexHeatmap::Heatmap, c(
+    list(matrix = count_mat, name = "Hit counts", col = hit_col,
+      row_split = splits, cluster_row_slices = FALSE,
+      row_gap = grid::unit(1.3, "mm"),
+      width = grid::unit(5 * 4.8, "mm")), common_args))
+
+  # Give each functional module a horizontal label beside its group of genes.
+  module_anno <- ComplexHeatmap::rowAnnotation(
+    Module = ComplexHeatmap::anno_block(
+      gp = grid::gpar(fill = "white", col = NA),
+      labels = levels(splits),
+      labels_gp = grid::gpar(fontsize = 9.2, col = "black"),
+      labels_rot = 0),
+    width = grid::unit(89, "mm"),
+    show_annotation_name = FALSE
+  )
+
+  # Plot each collection as a binary membership matrix in its own color.
+  make_term_ht <- function(src, col) {
+    cols <- which(startsWith(colnames(term_mat), paste0(src, ": ")))
+    if (!length(cols)) return(NULL)
+    m <- term_mat[, cols, drop = FALSE]
+    m_chr <- matrix(ifelse(m > 0, "1", "0"), nrow = nrow(m),
+                    ncol = ncol(m), dimnames = dimnames(m))
+    colnames(m_chr) <- make.unique(short_term_label(colnames(m_chr)))
+    do.call(ComplexHeatmap::Heatmap, c(
+      list(matrix = m_chr, name = src, col = c("0" = "white", "1" = col),
+        width = grid::unit(ncol(m_chr) * 4.35, "mm"),
+        heatmap_legend_param = list(at = c("0", "1"), labels = c("0", "1"))),
+      common_args))
+  }
+
+  hm_h <- make_term_ht("Hallmark", COL_H)
+  hm_bp <- make_term_ht("GO:BP", COL_BP)
+  hm_kegg <- make_term_ht("KEGG", COL_KEGG)
+  hm_mf <- make_term_ht("GO:MF", COL_MF)
+  hm_cc <- make_term_ht("GO:CC", COL_CC)
+
+  # 4-group expression Z-scores on the right.
+  expr_ht <- do.call(ComplexHeatmap::Heatmap, c(
+    list(matrix = z, name = "Group Z", col = z_col,
+      width = grid::unit(4 * 5.0, "mm"),
+      heatmap_legend_param = list(at = c(-2, -1, 0, 1, 2))),
+    modifyList(common_args, list(column_names_gp = grid::gpar(fontsize = 9)))))
+
+  # Add the collections in a fixed order, skipping any without selected terms.
+  ht <- left_anno + counts_ht + module_anno
+  for (part in list(hm_h, hm_bp, hm_kegg, hm_mf, hm_cc, expr_ht)) {
+    if (!is.null(part)) ht <- ht + part
+  }
+
+  draw_once <- function() {
+    ComplexHeatmap::draw(ht,
+      merge_legends = FALSE,
+      heatmap_legend_side = "right",
+      annotation_legend_side = "right",
+      padding = grid::unit(c(4, 6, 4, 4), "mm"))
+  }
+
+  outfile <- file.path(OUTPUT, paste0("Fig4_", direction, "_AutoModules_FC1p30"))
+  # Use a wide layout for readable term names. 
+  if (.Platform$OS.type == "windows" && nchar(paste0(outfile, ".tiff")) >= 245L) {
+    stop("The result path is too long for reliable Windows graphics export: ",
+         outfile, "\nMove the extracted package to a shorter location (e.g. C:/EXOISO_F4).",
+         call. = FALSE)
+  }
+  grDevices::pdf(paste0(outfile, ".pdf"), width = 28, height = 16,
+                 onefile = FALSE, useDingbats = FALSE)
+  tryCatch(draw_once(), finally = grDevices::dev.off())
+
+  grDevices::png(paste0(outfile, ".png"), width = 7200, height = 4200,
+                 res = 350, bg = "white")
+  tryCatch(draw_once(), finally = grDevices::dev.off())
+
+  grDevices::tiff(paste0(outfile, ".tiff"), width = 7200, height = 4200,
+                  res = 300, compression = "lzw", bg = "white")
+  tryCatch(draw_once(), finally = grDevices::dev.off())
+
+  # Write a short record of the inputs and selection procedure for each panel.
+  writeLines(c(
+    paste("Panel:", direction),
+    paste("Input gene table:", gene_file),
+    paste("Input binary matrix:", matrix_file),
+    paste("Input group Z:", z_file),
+    "GO and KEGG terms selected independently by the same metabolic/ORA rules.",
+    "Six original predefined Hallmark pathways retained in each direction.",
+    "No gene-specific exceptions or preselected DOWN GO/KEGG terms used.",
+    "Modules assigned from full frozen GO/KEGG annotations, not gene names.",
+    "Collection annotations, recurrence bars and group Z values are drawn from this analysis."
+  ), file.path(OUTPUT, paste0("FIG4_", direction, "_ANALYSIS_MANIFEST.txt")))
+  message("SAVED: ", outfile, ".{pdf,png,tiff}")
+  message("First module displayed: ", as.character(genes$Module[1]))
+  message("First five genes displayed: ", paste(head(labels, 5), collapse = ", "))
+  invisible(outfile)
+}
+
+# Generate the DOWN and UP figures with the same plotting conventions.
+plot_one_direction("DOWN")
+plot_one_direction("UP")
+
+# Confirm both PDFs were actually written before reporting completion.
+for (direction in c("DOWN", "UP")) {
+  expected_pdf <- file.path(OUTPUT, paste0("Fig4_", direction,
+                                          "_AutoModules_FC1p30.pdf"))
+  if (!file.exists(expected_pdf) || file.info(expected_pdf)$size < 1000) {
+    stop("Figure 4 output could not be verified: ", expected_pdf, call. = FALSE)
+  }
+}
+message("\nDONE. Both plots saved to: ", OUTPUT)
+if (interactive() && .Platform$OS.type == "windows") {
+  try(shell.exec(normalizePath(OUTPUT, winslash = "\\")), silent = TRUE)
+}

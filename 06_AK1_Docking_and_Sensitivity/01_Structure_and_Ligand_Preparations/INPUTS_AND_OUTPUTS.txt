@@ -1,0 +1,58 @@
+01 Structure and Ligand Preparation
+INPUTS AND OUTPUTS
+
+Paths below use the original project layout. The preparation helper reconstructs these locations from the chapter folders.
+
+AK1_dominant_representative.py 
+Inputs:
+  results/AK1_ISO_pose_RMSD_matrix.csv
+Outputs:
+  [console output]
+Other file references in the original source:
+  results/AK1_ISO_pose_RMSD_matrix.csv
+
+AK1_final_representative.pml
+Inputs:
+Outputs:
+Other file references in the original source:
+  ligand/AK1_native_AP5_chainA.pdb
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_repr9009/AK1_ISO_seed9009_best.sdf
+
+AK1_repr9009_static.pml
+Inputs:
+  ligand/AK1_native_AP5_chainA.pdb
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_repr9009/AK1_ISO_seed9009_best.sdf
+Outputs:
+  results/AK1_repr9009/AK1_ISO_representative_seed9009_static.png
+Other file references in the original source:
+  ligand/AK1_native_AP5_chainA.pdb
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_repr9009/AK1_ISO_representative_seed9009_static.png
+  results/AK1_repr9009/AK1_ISO_seed9009_best.sdf
+
+fix_AK1.py
+Inputs:
+Outputs:
+Other file references in the original source:
+  receptors/AK1_chainA.pdb
+  receptors/AK1_chainA_FIXED.pdb
+
+make_AK1_box.py
+Inputs:
+Outputs:
+Other file references in the original source:
+  ligand/AK1_native_AP5_chainA.pdb

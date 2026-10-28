@@ -1,0 +1,9945 @@
+Whole-protein blind docking and recovery of targeted pose families
+Figure 8h–j; Figure S19c–e. These panels show blind mode-1 RMSD, targeted-versus-blind scores and targeted-family recovery across mode-1 and all retained poses.
+
+COMPLETE ORIGINAL SOURCE CODE
+
+Use the separate executable source files in code/. Each section below contains the complete original source for one file. This TXT is a readable record, not one combined executable script.
+
+================================================================================
+FILE: AK1_analyze_blind_10seed_full.py
+Executable source: code/AK1_analyze_blind_10seed_full.py
+================================================================================
+from pathlib import Path
+
+from collections import Counter
+
+import csv
+
+import math
+
+
+
+import numpy as np
+
+import xlsxwriter
+
+
+
+
+
+# ============================================================
+
+# PROJECT PATHS
+
+# ============================================================
+
+
+
+PROJECT = Path(
+
+    r"C:\Users\akidi\Desktop\ISO_AK_Docking"
+
+)
+
+
+
+DOCKING = PROJECT / "docking"
+
+LIGAND_DIR = PROJECT / "ligand"
+
+
+
+OUT_DIR = (
+
+    PROJECT
+
+    / "results"
+
+    / "AK1_blind_docking"
+
+    / "full_10seed_analysis_v1"
+
+)
+
+
+
+OUT_DIR.mkdir(
+
+    parents=True,
+
+    exist_ok=True
+
+)
+
+
+
+
+
+# ============================================================
+
+# SEEDS
+
+# ============================================================
+
+
+
+SEEDS = [
+
+    1001,
+
+    2002,
+
+    3003,
+
+    4004,
+
+    5005,
+
+    6006,
+
+    7007,
+
+    8008,
+
+    9009,
+
+    10101
+
+]
+
+
+
+
+
+# ============================================================
+
+# TARGETED CLOSED-STATE REFERENCE FAMILIES
+
+# ============================================================
+
+
+
+DOMINANT_SEEDS = [
+
+    1001,
+
+    2002,
+
+    3003,
+
+    4004,
+
+    5005,
+
+    7007,
+
+    9009,
+
+    10101
+
+]
+
+
+
+ALTERNATIVE_SEEDS = [
+
+    6006,
+
+    8008
+
+]
+
+
+
+
+
+# ============================================================
+
+# REFERENCE FILES
+
+# ============================================================
+
+
+
+AP5_FILE = (
+
+    LIGAND_DIR
+
+    / "AK1_native_AP5_chainA.pdb"
+
+)
+
+
+
+
+
+# ============================================================
+
+# OUTPUT FILES
+
+# ============================================================
+
+
+
+ALL_POSES_CSV = (
+
+    OUT_DIR
+
+    / "AK1_BLIND_all_poses.csv"
+
+)
+
+
+
+SEED_SUMMARY_CSV = (
+
+    OUT_DIR
+
+    / "AK1_BLIND_seed_summary.csv"
+
+)
+
+
+
+OVERALL_SUMMARY_CSV = (
+
+    OUT_DIR
+
+    / "AK1_BLIND_overall_summary.csv"
+
+)
+
+
+
+XLSX_FILE = (
+
+    OUT_DIR
+
+    / "AK1_BLIND_10SEED_COMPREHENSIVE_ANALYSIS.xlsx"
+
+)
+
+
+
+
+
+# ============================================================
+
+# ELEMENT HANDLING
+
+# ============================================================
+
+
+
+def pdbqt_element(atom_type):
+
+
+
+    atom_type = (
+
+        atom_type
+
+        .strip()
+
+        .upper()
+
+    )
+
+
+
+    if atom_type.startswith("H"):
+
+        return "H"
+
+
+
+    if atom_type.startswith("O"):
+
+        return "O"
+
+
+
+    if atom_type.startswith("N"):
+
+        return "N"
+
+
+
+    if atom_type.startswith("S"):
+
+        return "S"
+
+
+
+    if atom_type.startswith("P"):
+
+        return "P"
+
+
+
+    if atom_type in (
+
+        "C",
+
+        "A"
+
+    ):
+
+        return "C"
+
+
+
+    return atom_type[:1]
+
+
+
+
+
+# ============================================================
+
+# READ MULTI-MODE PDBQT
+
+# ============================================================
+
+
+
+def read_pdbqt_models(path):
+
+
+
+    path = Path(path)
+
+
+
+    if not path.exists():
+
+
+
+        raise FileNotFoundError(
+
+            path
+
+        )
+
+
+
+
+
+    lines = path.read_text(
+
+        errors="ignore"
+
+    ).splitlines()
+
+
+
+
+
+    models = {}
+
+    scores = {}
+
+
+
+    current_model = None
+
+    atoms = []
+
+
+
+
+
+    for line in lines:
+
+
+
+        if line.startswith("MODEL"):
+
+
+
+            current_model = int(
+
+                line.split()[1]
+
+            )
+
+
+
+            atoms = []
+
+
+
+            continue
+
+
+
+
+
+        if line.startswith(
+
+            "REMARK VINA RESULT:"
+
+        ):
+
+
+
+            if current_model is not None:
+
+
+
+                scores[
+
+                    current_model
+
+                ] = float(
+
+                    line.split()[3]
+
+                )
+
+
+
+            continue
+
+
+
+
+
+        if line.startswith("ENDMDL"):
+
+
+
+            if current_model is not None:
+
+
+
+                models[
+
+                    current_model
+
+                ] = atoms
+
+
+
+            current_model = None
+
+            atoms = []
+
+
+
+            continue
+
+
+
+
+
+        if current_model is None:
+
+            continue
+
+
+
+
+
+        if not (
+
+            line.startswith("ATOM")
+
+            or
+
+            line.startswith("HETATM")
+
+        ):
+
+            continue
+
+
+
+
+
+        atom_name = (
+
+            line[12:16]
+
+            .strip()
+
+        )
+
+
+
+        atom_type = (
+
+            line.split()[-1]
+
+        )
+
+
+
+        element = (
+
+            pdbqt_element(
+
+                atom_type
+
+            )
+
+        )
+
+
+
+
+
+        if element == "H":
+
+            continue
+
+
+
+
+
+        x = float(
+
+            line[30:38]
+
+        )
+
+
+
+        y = float(
+
+            line[38:46]
+
+        )
+
+
+
+        z = float(
+
+            line[46:54]
+
+        )
+
+
+
+
+
+        atoms.append({
+
+
+
+            "atom_name":
+
+                atom_name,
+
+
+
+            "atom_type":
+
+                atom_type,
+
+
+
+            "element":
+
+                element,
+
+
+
+            "coord":
+
+                np.array(
+
+                    [x, y, z],
+
+                    dtype=float
+
+                )
+
+        })
+
+
+
+
+
+    if not models:
+
+
+
+        raise RuntimeError(
+
+            f"No docking models found in {path}"
+
+        )
+
+
+
+
+
+    return (
+
+        models,
+
+        scores
+
+    )
+
+
+
+
+
+# ============================================================
+
+# READ TARGETED MODE 1
+
+# ============================================================
+
+
+
+def read_targeted_pose(path):
+
+
+
+    models, scores = (
+
+        read_pdbqt_models(
+
+            path
+
+        )
+
+    )
+
+
+
+
+
+    if 1 not in models:
+
+
+
+        raise RuntimeError(
+
+            f"No mode 1 found in {path}"
+
+        )
+
+
+
+
+
+    atoms = (
+
+        models[
+
+            1
+
+        ]
+
+    )
+
+
+
+
+
+    coords = np.array(
+
+        [
+
+            atom[
+
+                "coord"
+
+            ]
+
+            for atom in atoms
+
+        ],
+
+        dtype=float
+
+    )
+
+
+
+
+
+    atom_types = [
+
+        atom[
+
+            "atom_type"
+
+        ]
+
+        for atom in atoms
+
+    ]
+
+
+
+
+
+    return (
+
+        coords,
+
+        atom_types
+
+    )
+
+
+
+
+
+# ============================================================
+
+# READ AP5 HEAVY ATOMS
+
+# ============================================================
+
+
+
+def read_ap5(path):
+
+
+
+    coords = []
+
+
+
+
+
+    with open(
+
+        path,
+
+        "r",
+
+        encoding="utf-8",
+
+        errors="ignore"
+
+    ) as handle:
+
+
+
+        for line in handle:
+
+
+
+            if not (
+
+                line.startswith("ATOM")
+
+                or
+
+                line.startswith("HETATM")
+
+            ):
+
+                continue
+
+
+
+
+
+            element = (
+
+                line[76:78]
+
+                .strip()
+
+                .upper()
+
+                if len(line) >= 78
+
+                else ""
+
+            )
+
+
+
+
+
+            if element == "H":
+
+                continue
+
+
+
+
+
+            try:
+
+
+
+                x = float(
+
+                    line[30:38]
+
+                )
+
+
+
+                y = float(
+
+                    line[38:46]
+
+                )
+
+
+
+                z = float(
+
+                    line[46:54]
+
+                )
+
+
+
+            except Exception:
+
+
+
+                continue
+
+
+
+
+
+            coords.append(
+
+                [x, y, z]
+
+            )
+
+
+
+
+
+    if not coords:
+
+
+
+        raise RuntimeError(
+
+            "No AP5 heavy atoms found."
+
+        )
+
+
+
+
+
+    return np.array(
+
+        coords,
+
+        dtype=float
+
+    )
+
+
+
+
+
+# ============================================================
+
+# POSITIONAL RMSD
+
+#
+
+# Same receptor coordinate frame.
+
+# No ligand post-superposition.
+
+# ============================================================
+
+
+
+def positional_rmsd(
+
+    coords_a,
+
+    coords_b
+
+):
+
+
+
+    if coords_a.shape != coords_b.shape:
+
+
+
+        raise RuntimeError(
+
+            "Coordinate arrays have different shapes."
+
+        )
+
+
+
+
+
+    diff = (
+
+        coords_a -
+
+        coords_b
+
+    )
+
+
+
+
+
+    return math.sqrt(
+
+
+
+        np.mean(
+
+
+
+            np.sum(
+
+                diff ** 2,
+
+                axis=1
+
+            )
+
+        )
+
+    )
+
+
+
+
+
+# ============================================================
+
+# AP5 REGION METRICS
+
+# ============================================================
+
+
+
+def ap5_metrics(
+
+    iso_coords,
+
+    ap5_coords
+
+):
+
+
+
+    iso_centroid = np.mean(
+
+        iso_coords,
+
+        axis=0
+
+    )
+
+
+
+    ap5_centroid = np.mean(
+
+        ap5_coords,
+
+        axis=0
+
+    )
+
+
+
+
+
+    centroid_distance = float(
+
+        np.linalg.norm(
+
+            iso_centroid -
+
+            ap5_centroid
+
+        )
+
+    )
+
+
+
+
+
+    distance_matrix = np.linalg.norm(
+
+
+
+        iso_coords[
+
+            :,
+
+            None,
+
+            :
+
+        ]
+
+        -
+
+        ap5_coords[
+
+            None,
+
+            :,
+
+            :
+
+        ],
+
+
+
+        axis=2
+
+    )
+
+
+
+
+
+    minimum_distance = float(
+
+        np.min(
+
+            distance_matrix
+
+        )
+
+    )
+
+
+
+
+
+    min_to_ap5 = np.min(
+
+        distance_matrix,
+
+        axis=1
+
+    )
+
+
+
+
+
+    percent_within_4 = float(
+
+        100.0
+
+        *
+
+        np.mean(
+
+            min_to_ap5 <= 4.0
+
+        )
+
+    )
+
+
+
+
+
+    percent_within_6 = float(
+
+        100.0
+
+        *
+
+        np.mean(
+
+            min_to_ap5 <= 6.0
+
+        )
+
+    )
+
+
+
+
+
+    return {
+
+
+
+        "ISO_AP5_centroid_distance_A":
+
+            centroid_distance,
+
+
+
+        "Minimum_ISO_AP5_distance_A":
+
+            minimum_distance,
+
+
+
+        "ISO_atoms_within_4A_percent":
+
+            percent_within_4,
+
+
+
+        "ISO_atoms_within_6A_percent":
+
+            percent_within_6
+
+    }
+
+
+
+
+
+# ============================================================
+
+# LOAD TARGETED REFERENCE FAMILIES
+
+# ============================================================
+
+
+
+dominant_poses = []
+
+alternative_poses = []
+
+
+
+reference_atom_types = None
+
+
+
+
+
+for seed in DOMINANT_SEEDS:
+
+
+
+    path = (
+
+        DOCKING
+
+        /
+
+        f"AK1_ISO_seed{seed}.pdbqt"
+
+    )
+
+
+
+
+
+    coords, atom_types = (
+
+        read_targeted_pose(
+
+            path
+
+        )
+
+    )
+
+
+
+
+
+    if reference_atom_types is None:
+
+
+
+        reference_atom_types = (
+
+            atom_types
+
+        )
+
+
+
+
+
+    if atom_types != reference_atom_types:
+
+
+
+        raise RuntimeError(
+
+            f"Atom order mismatch in targeted seed {seed}"
+
+        )
+
+
+
+
+
+    dominant_poses.append(
+
+        coords
+
+    )
+
+
+
+
+
+for seed in ALTERNATIVE_SEEDS:
+
+
+
+    path = (
+
+        DOCKING
+
+        /
+
+        f"AK1_ISO_seed{seed}.pdbqt"
+
+    )
+
+
+
+
+
+    coords, atom_types = (
+
+        read_targeted_pose(
+
+            path
+
+        )
+
+    )
+
+
+
+
+
+    if atom_types != reference_atom_types:
+
+
+
+        raise RuntimeError(
+
+            f"Atom order mismatch in targeted seed {seed}"
+
+        )
+
+
+
+
+
+    alternative_poses.append(
+
+        coords
+
+    )
+
+
+
+
+
+# ============================================================
+
+# LOAD AP5
+
+# ============================================================
+
+
+
+ap5_coords = (
+
+    read_ap5(
+
+        AP5_FILE
+
+    )
+
+)
+
+
+
+
+
+print()
+
+print("=" * 80)
+
+print("AK1 10-SEED WHOLE-PROTEIN BLIND-DOCKING ANALYSIS")
+
+print("=" * 80)
+
+
+
+print(
+
+    f"Targeted dominant reference poses : "
+
+    f"{len(dominant_poses)}"
+
+)
+
+
+
+print(
+
+    f"Targeted alternative poses        : "
+
+    f"{len(alternative_poses)}"
+
+)
+
+
+
+print(
+
+    f"Native AP5 heavy atoms            : "
+
+    f"{len(ap5_coords)}"
+
+)
+
+
+
+
+
+# ============================================================
+
+# ANALYZE ALL BLIND POSES
+
+# ============================================================
+
+
+
+all_pose_rows = []
+
+
+
+
+
+for seed in SEEDS:
+
+
+
+    blind_file = (
+
+        DOCKING
+
+        /
+
+        f"AK1_ISO_BLIND_seed{seed}.pdbqt"
+
+    )
+
+
+
+
+
+    models, scores = (
+
+        read_pdbqt_models(
+
+            blind_file
+
+        )
+
+    )
+
+
+
+
+
+    print()
+
+    print(
+
+        f"Seed {seed}: "
+
+        f"{len(models)} modes detected"
+
+    )
+
+
+
+
+
+    for mode in sorted(
+
+        models
+
+    ):
+
+
+
+        atoms = (
+
+            models[
+
+                mode
+
+            ]
+
+        )
+
+
+
+
+
+        atom_types = [
+
+            atom[
+
+                "atom_type"
+
+            ]
+
+            for atom in atoms
+
+        ]
+
+
+
+
+
+        if atom_types != reference_atom_types:
+
+
+
+            raise RuntimeError(
+
+                f"Atom-order mismatch: "
+
+                f"seed {seed}, mode {mode}"
+
+            )
+
+
+
+
+
+        coords = np.array(
+
+            [
+
+                atom[
+
+                    "coord"
+
+                ]
+
+                for atom in atoms
+
+            ],
+
+            dtype=float
+
+        )
+
+
+
+
+
+        # ----------------------------------------------------
+
+        # RMSD to original targeted families
+
+        # ----------------------------------------------------
+
+
+
+        dominant_rmsds = [
+
+
+
+            positional_rmsd(
+
+                coords,
+
+                ref_pose
+
+            )
+
+
+
+            for ref_pose
+
+            in dominant_poses
+
+        ]
+
+
+
+
+
+        alternative_rmsds = [
+
+
+
+            positional_rmsd(
+
+                coords,
+
+                ref_pose
+
+            )
+
+
+
+            for ref_pose
+
+            in alternative_poses
+
+        ]
+
+
+
+
+
+        min_dom = float(
+
+            np.min(
+
+                dominant_rmsds
+
+            )
+
+        )
+
+
+
+
+
+        min_alt = float(
+
+            np.min(
+
+                alternative_rmsds
+
+            )
+
+        )
+
+
+
+
+
+        if min_dom < min_alt:
+
+
+
+            nearest_family = (
+
+                "Dominant"
+
+            )
+
+
+
+            nearest_family_rmsd = (
+
+                min_dom
+
+            )
+
+
+
+        else:
+
+
+
+            nearest_family = (
+
+                "Alternative"
+
+            )
+
+
+
+            nearest_family_rmsd = (
+
+                min_alt
+
+            )
+
+
+
+
+
+        # ----------------------------------------------------
+
+        # AP5 region
+
+        # ----------------------------------------------------
+
+
+
+        site_metrics = (
+
+            ap5_metrics(
+
+                coords,
+
+                ap5_coords
+
+            )
+
+        )
+
+
+
+
+
+        all_pose_rows.append({
+
+
+
+            "Seed":
+
+                seed,
+
+
+
+            "Mode":
+
+                mode,
+
+
+
+            "Vina_score":
+
+                scores[
+
+                    mode
+
+                ],
+
+
+
+            "Min_RMSD_to_targeted_dominant_A":
+
+                min_dom,
+
+
+
+            "Min_RMSD_to_targeted_alternative_A":
+
+                min_alt,
+
+
+
+            "Nearest_targeted_family":
+
+                nearest_family,
+
+
+
+            "Nearest_targeted_family_RMSD_A":
+
+                nearest_family_rmsd,
+
+
+
+            "Targeted_like_2A":
+
+                nearest_family_rmsd <= 2.0,
+
+
+
+            "Targeted_like_3A":
+
+                nearest_family_rmsd <= 3.0,
+
+
+
+            "Dominant_like_2A":
+
+                min_dom <= 2.0,
+
+
+
+            "Alternative_like_2A":
+
+                min_alt <= 2.0,
+
+
+
+            "Dominant_like_3A":
+
+                min_dom <= 3.0,
+
+
+
+            "Alternative_like_3A":
+
+                min_alt <= 3.0,
+
+
+
+            "AP5_centroid_within_4A":
+
+                site_metrics[
+
+                    "ISO_AP5_centroid_distance_A"
+
+                ] <= 4.0,
+
+
+
+            "AP5_centroid_within_6A":
+
+                site_metrics[
+
+                    "ISO_AP5_centroid_distance_A"
+
+                ] <= 6.0,
+
+
+
+            **site_metrics
+
+        })
+
+
+
+
+
+# ============================================================
+
+# ADD SCORE DELTA FROM MODE 1
+
+# ============================================================
+
+
+
+for seed in SEEDS:
+
+
+
+    seed_rows = [
+
+
+
+        row
+
+
+
+        for row in all_pose_rows
+
+
+
+        if row[
+
+            "Seed"
+
+        ] == seed
+
+    ]
+
+
+
+
+
+    global_best_score = min(
+
+        row[
+
+            "Vina_score"
+
+        ]
+
+        for row in seed_rows
+
+    )
+
+
+
+
+
+    for row in seed_rows:
+
+
+
+        row[
+
+            "Delta_score_from_seed_best"
+
+        ] = (
+
+            row[
+
+                "Vina_score"
+
+            ]
+
+            -
+
+            global_best_score
+
+        )
+
+
+
+
+
+# ============================================================
+
+# PER-SEED SUMMARY
+
+# ============================================================
+
+
+
+seed_summary_rows = []
+
+
+
+
+
+for seed in SEEDS:
+
+
+
+    seed_rows = sorted(
+
+
+
+        [
+
+            row
+
+
+
+            for row in all_pose_rows
+
+
+
+            if row[
+
+                "Seed"
+
+            ] == seed
+
+        ],
+
+
+
+        key=lambda row:
+
+            row[
+
+                "Mode"
+
+            ]
+
+    )
+
+
+
+
+
+    mode1 = next(
+
+
+
+        row
+
+
+
+        for row in seed_rows
+
+
+
+        if row[
+
+            "Mode"
+
+        ] == 1
+
+    )
+
+
+
+
+
+    targeted2 = [
+
+
+
+        row
+
+
+
+        for row in seed_rows
+
+
+
+        if row[
+
+            "Targeted_like_2A"
+
+        ]
+
+    ]
+
+
+
+
+
+    targeted3 = [
+
+
+
+        row
+
+
+
+        for row in seed_rows
+
+
+
+        if row[
+
+            "Targeted_like_3A"
+
+        ]
+
+    ]
+
+
+
+
+
+    dominant2 = [
+
+
+
+        row
+
+
+
+        for row in seed_rows
+
+
+
+        if row[
+
+            "Dominant_like_2A"
+
+        ]
+
+    ]
+
+
+
+
+
+    alternative2 = [
+
+
+
+        row
+
+
+
+        for row in seed_rows
+
+
+
+        if row[
+
+            "Alternative_like_2A"
+
+        ]
+
+    ]
+
+
+
+
+
+    ap5_centroid6 = [
+
+
+
+        row
+
+
+
+        for row in seed_rows
+
+
+
+        if row[
+
+            "AP5_centroid_within_6A"
+
+        ]
+
+    ]
+
+
+
+
+
+    def first_rank(rows):
+
+
+
+        if not rows:
+
+            return None
+
+
+
+        return min(
+
+            row[
+
+                "Mode"
+
+            ]
+
+            for row in rows
+
+        )
+
+
+
+
+
+    def best_score(rows):
+
+
+
+        if not rows:
+
+            return None
+
+
+
+        return min(
+
+            row[
+
+                "Vina_score"
+
+            ]
+
+            for row in rows
+
+        )
+
+
+
+
+
+    best2 = (
+
+        best_score(
+
+            targeted2
+
+        )
+
+    )
+
+
+
+
+
+    best3 = (
+
+        best_score(
+
+            targeted3
+
+        )
+
+    )
+
+
+
+
+
+    seed_summary_rows.append({
+
+
+
+        "Seed":
+
+            seed,
+
+
+
+        "Modes_returned":
+
+            len(
+
+                seed_rows
+
+            ),
+
+
+
+        "Global_best_score":
+
+            mode1[
+
+                "Vina_score"
+
+            ],
+
+
+
+        "Mode1_nearest_family":
+
+            mode1[
+
+                "Nearest_targeted_family"
+
+            ],
+
+
+
+        "Mode1_nearest_family_RMSD_A":
+
+            mode1[
+
+                "Nearest_targeted_family_RMSD_A"
+
+            ],
+
+
+
+        "Mode1_targeted_like_2A":
+
+            mode1[
+
+                "Targeted_like_2A"
+
+            ],
+
+
+
+        "Mode1_targeted_like_3A":
+
+            mode1[
+
+                "Targeted_like_3A"
+
+            ],
+
+
+
+        "Mode1_AP5_centroid_distance_A":
+
+            mode1[
+
+                "ISO_AP5_centroid_distance_A"
+
+            ],
+
+
+
+        "Any_targeted_like_2A":
+
+            len(
+
+                targeted2
+
+            ) > 0,
+
+
+
+        "Any_targeted_like_3A":
+
+            len(
+
+                targeted3
+
+            ) > 0,
+
+
+
+        "Targeted_like_2A_n":
+
+            len(
+
+                targeted2
+
+            ),
+
+
+
+        "Targeted_like_3A_n":
+
+            len(
+
+                targeted3
+
+            ),
+
+
+
+        "First_targeted_like_2A_rank":
+
+            first_rank(
+
+                targeted2
+
+            ),
+
+
+
+        "First_targeted_like_3A_rank":
+
+            first_rank(
+
+                targeted3
+
+            ),
+
+
+
+        "Best_targeted_like_2A_score":
+
+            best2,
+
+
+
+        "Best_targeted_like_3A_score":
+
+            best3,
+
+
+
+        "Score_penalty_to_best_targeted_like_2A":
+
+            (
+
+                best2
+
+                -
+
+                mode1[
+
+                    "Vina_score"
+
+                ]
+
+                if best2 is not None
+
+                else None
+
+            ),
+
+
+
+        "Score_penalty_to_best_targeted_like_3A":
+
+            (
+
+                best3
+
+                -
+
+                mode1[
+
+                    "Vina_score"
+
+                ]
+
+                if best3 is not None
+
+                else None
+
+            ),
+
+
+
+        "Dominant_like_2A_n":
+
+            len(
+
+                dominant2
+
+            ),
+
+
+
+        "Alternative_like_2A_n":
+
+            len(
+
+                alternative2
+
+            ),
+
+
+
+        "AP5_centroid_within_6A_n":
+
+            len(
+
+                ap5_centroid6
+
+            )
+
+    })
+
+
+
+
+
+# ============================================================
+
+# OVERALL SUMMARY
+
+# ============================================================
+
+
+
+total_poses = len(
+
+    all_pose_rows
+
+)
+
+
+
+
+
+mode1_rows = [
+
+
+
+    row
+
+
+
+    for row in all_pose_rows
+
+
+
+    if row[
+
+        "Mode"
+
+    ] == 1
+
+]
+
+
+
+
+
+n_mode1_2A = sum(
+
+    row[
+
+        "Targeted_like_2A"
+
+    ]
+
+    for row in mode1_rows
+
+)
+
+
+
+
+
+n_mode1_3A = sum(
+
+    row[
+
+        "Targeted_like_3A"
+
+    ]
+
+    for row in mode1_rows
+
+)
+
+
+
+
+
+n_seed_any_2A = sum(
+
+    row[
+
+        "Any_targeted_like_2A"
+
+    ]
+
+    for row in seed_summary_rows
+
+)
+
+
+
+
+
+n_seed_any_3A = sum(
+
+    row[
+
+        "Any_targeted_like_3A"
+
+    ]
+
+    for row in seed_summary_rows
+
+)
+
+
+
+
+
+all_targeted2 = [
+
+
+
+    row
+
+
+
+    for row in all_pose_rows
+
+
+
+    if row[
+
+        "Targeted_like_2A"
+
+    ]
+
+]
+
+
+
+
+
+all_targeted3 = [
+
+
+
+    row
+
+
+
+    for row in all_pose_rows
+
+
+
+    if row[
+
+        "Targeted_like_3A"
+
+    ]
+
+]
+
+
+
+
+
+mode1_family_counts = Counter(
+
+
+
+    row[
+
+        "Nearest_targeted_family"
+
+    ]
+
+
+
+    for row in mode1_rows
+
+)
+
+
+
+
+
+first_rank_2A_values = [
+
+
+
+    row[
+
+        "First_targeted_like_2A_rank"
+
+    ]
+
+
+
+    for row in seed_summary_rows
+
+
+
+    if row[
+
+        "First_targeted_like_2A_rank"
+
+    ] is not None
+
+]
+
+
+
+
+
+first_rank_3A_values = [
+
+
+
+    row[
+
+        "First_targeted_like_3A_rank"
+
+    ]
+
+
+
+    for row in seed_summary_rows
+
+
+
+    if row[
+
+        "First_targeted_like_3A_rank"
+
+    ] is not None
+
+]
+
+
+
+
+
+global_scores = np.array(
+
+
+
+    [
+
+        row[
+
+            "Global_best_score"
+
+        ]
+
+
+
+        for row in seed_summary_rows
+
+    ],
+
+
+
+    dtype=float
+
+)
+
+
+
+
+
+mode1_rmsds = np.array(
+
+
+
+    [
+
+        row[
+
+            "Mode1_nearest_family_RMSD_A"
+
+        ]
+
+
+
+        for row in seed_summary_rows
+
+    ],
+
+
+
+    dtype=float
+
+)
+
+
+
+
+
+overall_summary_rows = [
+
+
+
+    {
+
+        "Metric":
+
+            "Blind seeds analyzed",
+
+
+
+        "Value":
+
+            len(
+
+                SEEDS
+
+            )
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "Total blind poses analyzed",
+
+
+
+        "Value":
+
+            total_poses
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "Mean global-best Vina score",
+
+
+
+        "Value":
+
+            float(
+
+                np.mean(
+
+                    global_scores
+
+                )
+
+            )
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "SD global-best Vina score",
+
+
+
+        "Value":
+
+            float(
+
+                np.std(
+
+                    global_scores,
+
+                    ddof=1
+
+                )
+
+            )
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "Mode 1 targeted-like <=2A seeds",
+
+
+
+        "Value":
+
+            n_mode1_2A
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "Mode 1 targeted-like <=2A percent",
+
+
+
+        "Value":
+
+            100.0
+
+            *
+
+            n_mode1_2A
+
+            /
+
+            len(
+
+                SEEDS
+
+            )
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "Mode 1 targeted-like <=3A seeds",
+
+
+
+        "Value":
+
+            n_mode1_3A
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "Mode 1 targeted-like <=3A percent",
+
+
+
+        "Value":
+
+            100.0
+
+            *
+
+            n_mode1_3A
+
+            /
+
+            len(
+
+                SEEDS
+
+            )
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "Seeds recovering any targeted-like pose <=2A",
+
+
+
+        "Value":
+
+            n_seed_any_2A
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "Seeds recovering any targeted-like pose <=2A percent",
+
+
+
+        "Value":
+
+            100.0
+
+            *
+
+            n_seed_any_2A
+
+            /
+
+            len(
+
+                SEEDS
+
+            )
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "Seeds recovering any targeted-like pose <=3A",
+
+
+
+        "Value":
+
+            n_seed_any_3A
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "Seeds recovering any targeted-like pose <=3A percent",
+
+
+
+        "Value":
+
+            100.0
+
+            *
+
+            n_seed_any_3A
+
+            /
+
+            len(
+
+                SEEDS
+
+            )
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "All blind poses targeted-like <=2A",
+
+
+
+        "Value":
+
+            len(
+
+                all_targeted2
+
+            )
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "All blind poses targeted-like <=2A percent",
+
+
+
+        "Value":
+
+            100.0
+
+            *
+
+            len(
+
+                all_targeted2
+
+            )
+
+            /
+
+            total_poses
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "All blind poses targeted-like <=3A",
+
+
+
+        "Value":
+
+            len(
+
+                all_targeted3
+
+            )
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "All blind poses targeted-like <=3A percent",
+
+
+
+        "Value":
+
+            100.0
+
+            *
+
+            len(
+
+                all_targeted3
+
+            )
+
+            /
+
+            total_poses
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "Mean mode-1 nearest targeted-family RMSD",
+
+
+
+        "Value":
+
+            float(
+
+                np.mean(
+
+                    mode1_rmsds
+
+                )
+
+            )
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "Median first <=2A targeted-like rank",
+
+
+
+        "Value":
+
+            (
+
+                float(
+
+                    np.median(
+
+                        first_rank_2A_values
+
+                    )
+
+                )
+
+                if first_rank_2A_values
+
+                else None
+
+            )
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "Median first <=3A targeted-like rank",
+
+
+
+        "Value":
+
+            (
+
+                float(
+
+                    np.median(
+
+                        first_rank_3A_values
+
+                    )
+
+                )
+
+                if first_rank_3A_values
+
+                else None
+
+            )
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "Mode 1 nearest dominant-family seeds",
+
+
+
+        "Value":
+
+            mode1_family_counts[
+
+                "Dominant"
+
+            ]
+
+    },
+
+
+
+    {
+
+        "Metric":
+
+            "Mode 1 nearest alternative-family seeds",
+
+
+
+        "Value":
+
+            mode1_family_counts[
+
+                "Alternative"
+
+            ]
+
+    }
+
+]
+
+
+
+
+
+# ============================================================
+
+# CSV HELPER
+
+# ============================================================
+
+
+
+def write_csv(
+
+    path,
+
+    rows
+
+):
+
+
+
+    if not rows:
+
+        return
+
+
+
+
+
+    headers = list(
+
+        rows[
+
+            0
+
+        ].keys()
+
+    )
+
+
+
+
+
+    with open(
+
+        path,
+
+        "w",
+
+        newline="",
+
+        encoding="utf-8"
+
+    ) as handle:
+
+
+
+        writer = csv.DictWriter(
+
+            handle,
+
+            fieldnames=headers
+
+        )
+
+
+
+        writer.writeheader()
+
+
+
+        writer.writerows(
+
+            rows
+
+        )
+
+
+
+
+
+# ============================================================
+
+# SAVE CSVs
+
+# ============================================================
+
+
+
+write_csv(
+
+    ALL_POSES_CSV,
+
+    all_pose_rows
+
+)
+
+
+
+write_csv(
+
+    SEED_SUMMARY_CSV,
+
+    seed_summary_rows
+
+)
+
+
+
+write_csv(
+
+    OVERALL_SUMMARY_CSV,
+
+    overall_summary_rows
+
+)
+
+
+
+
+
+# ============================================================
+
+# EXCEL
+
+# ============================================================
+
+
+
+workbook = xlsxwriter.Workbook(
+
+    XLSX_FILE
+
+)
+
+
+
+
+
+header_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_color": "white",
+
+    "bg_color": "#4472C4",
+
+    "border": 1
+
+})
+
+
+
+
+
+cell_fmt = workbook.add_format({
+
+    "border": 1
+
+})
+
+
+
+
+
+number_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "num_format": "0.000"
+
+})
+
+
+
+
+
+def write_sheet(
+
+    name,
+
+    rows,
+
+    width=25
+
+):
+
+
+
+    ws = workbook.add_worksheet(
+
+        name
+
+    )
+
+
+
+
+
+    if not rows:
+
+
+
+        ws.write(
+
+            0,
+
+            0,
+
+            "No data"
+
+        )
+
+
+
+        return
+
+
+
+
+
+    headers = list(
+
+        rows[
+
+            0
+
+        ].keys()
+
+    )
+
+
+
+
+
+    for col, header in enumerate(
+
+        headers
+
+    ):
+
+
+
+        ws.write(
+
+            0,
+
+            col,
+
+            header,
+
+            header_fmt
+
+        )
+
+
+
+
+
+    for row_i, row in enumerate(
+
+        rows,
+
+        start=1
+
+    ):
+
+
+
+        for col, header in enumerate(
+
+            headers
+
+        ):
+
+
+
+            value = row.get(
+
+                header,
+
+                ""
+
+            )
+
+
+
+
+
+            if value is None:
+
+
+
+                ws.write_blank(
+
+                    row_i,
+
+                    col,
+
+                    None,
+
+                    cell_fmt
+
+                )
+
+
+
+            elif isinstance(
+
+                value,
+
+                (
+
+                    float,
+
+                    np.floating
+
+                )
+
+            ):
+
+
+
+                ws.write_number(
+
+                    row_i,
+
+                    col,
+
+                    float(
+
+                        value
+
+                    ),
+
+                    number_fmt
+
+                )
+
+
+
+            elif isinstance(
+
+                value,
+
+                (
+
+                    bool,
+
+                    np.bool_
+
+                )
+
+            ):
+
+
+
+                ws.write(
+
+                    row_i,
+
+                    col,
+
+                    str(
+
+                        bool(
+
+                            value
+
+                        )
+
+                    ),
+
+                    cell_fmt
+
+                )
+
+
+
+            else:
+
+
+
+                ws.write(
+
+                    row_i,
+
+                    col,
+
+                    value,
+
+                    cell_fmt
+
+                )
+
+
+
+
+
+    ws.freeze_panes(
+
+        1,
+
+        0
+
+    )
+
+
+
+    ws.autofilter(
+
+        0,
+
+        0,
+
+        len(
+
+            rows
+
+        ),
+
+        len(
+
+            headers
+
+        ) - 1
+
+    )
+
+
+
+    ws.set_column(
+
+        0,
+
+        len(
+
+            headers
+
+        ) - 1,
+
+        width
+
+    )
+
+
+
+
+
+write_sheet(
+
+    "All_Blind_Poses",
+
+    all_pose_rows,
+
+    width=27
+
+)
+
+
+
+write_sheet(
+
+    "Seed_Summary",
+
+    seed_summary_rows,
+
+    width=28
+
+)
+
+
+
+write_sheet(
+
+    "Overall_Summary",
+
+    overall_summary_rows,
+
+    width=42
+
+)
+
+
+
+
+
+# ============================================================
+
+# METHOD NOTES
+
+# ============================================================
+
+
+
+ws_notes = workbook.add_worksheet(
+
+    "Method_Notes"
+
+)
+
+
+
+
+
+notes = [
+
+
+
+    [
+
+        "Experiment",
+
+        (
+
+            "Whole-protein blind docking of neutral isorhamnetin "
+
+            "against closed human AK1."
+
+        )
+
+    ],
+
+
+
+    [
+
+        "Search space",
+
+        (
+
+            "Whole AK1 receptor bounding box with 6 A padding "
+
+            "on each side; box selection did not use AP5."
+
+        )
+
+    ],
+
+
+
+    [
+
+        "Docking",
+
+        (
+
+            "10 independent seeds, AutoDock Vina 1.2.7, "
+
+            "exhaustiveness 128, up to 20 modes per seed, "
+
+            "energy range 10 kcal/mol."
+
+        )
+
+    ],
+
+
+
+    [
+
+        "Targeted reference",
+
+        (
+
+            "Original AP5-site targeted neutral-ISO docking: "
+
+            "dominant family = 8 seeds; alternative family = 2 seeds."
+
+        )
+
+    ],
+
+
+
+    [
+
+        "Pose similarity",
+
+        (
+
+            "Direct ligand heavy-atom positional RMSD in the common "
+
+            "1Z83 receptor coordinate frame; no post-docking "
+
+            "ligand superposition."
+
+        )
+
+    ],
+
+
+
+    [
+
+        "Targeted-like thresholds",
+
+        (
+
+            "<=2 A used as stringent recovery and <=3 A as "
+
+            "a broader pose-family recovery threshold."
+
+        )
+
+    ],
+
+
+
+    [
+
+        "AP5 metrics",
+
+        (
+
+            "AP5-relative localization was evaluated only after "
+
+            "blind docking and therefore did not influence the "
+
+            "whole-protein search."
+
+        )
+
+    ],
+
+
+
+    [
+
+        "Interpretation",
+
+        (
+
+            "Recovery of targeted pose families by unconstrained "
+
+            "whole-protein docking supports that the AP5/nucleotide "
+
+            "region was not selected solely because the original "
+
+            "targeted docking box was centered there."
+
+        )
+
+    ],
+
+
+
+    [
+
+        "Caution",
+
+        (
+
+            "Vina scores are computational docking scores, not "
+
+            "experimental binding affinities or free energies."
+
+        )
+
+    ]
+
+]
+
+
+
+
+
+for row_i, (
+
+    label,
+
+    description
+
+) in enumerate(
+
+    notes
+
+):
+
+
+
+    ws_notes.write(
+
+        row_i,
+
+        0,
+
+        label,
+
+        header_fmt
+
+    )
+
+
+
+    ws_notes.write(
+
+        row_i,
+
+        1,
+
+        description,
+
+        cell_fmt
+
+    )
+
+
+
+
+
+ws_notes.set_column(
+
+    "A:A",
+
+    30
+
+)
+
+
+
+ws_notes.set_column(
+
+    "B:B",
+
+    115
+
+)
+
+
+
+
+
+workbook.close()
+
+
+
+
+
+# ============================================================
+
+# CONSOLE: PER-SEED RESULTS
+
+# ============================================================
+
+
+
+print()
+
+print("=" * 80)
+
+print("BLIND DOCKING PER-SEED RECOVERY")
+
+print("=" * 80)
+
+
+
+
+
+for row in seed_summary_rows:
+
+
+
+    print()
+
+
+
+    print(
+
+        f"Seed {row['Seed']}"
+
+    )
+
+
+
+    print(
+
+        f"  global best score       : "
+
+        f"{row['Global_best_score']:.3f}"
+
+    )
+
+
+
+    print(
+
+        f"  mode 1 nearest family   : "
+
+        f"{row['Mode1_nearest_family']}"
+
+    )
+
+
+
+    print(
+
+        f"  mode 1 family RMSD      : "
+
+        f"{row['Mode1_nearest_family_RMSD_A']:.3f} A"
+
+    )
+
+
+
+    print(
+
+        f"  mode 1 <=2 A recovery   : "
+
+        f"{row['Mode1_targeted_like_2A']}"
+
+    )
+
+
+
+    print(
+
+        f"  mode 1 <=3 A recovery   : "
+
+        f"{row['Mode1_targeted_like_3A']}"
+
+    )
+
+
+
+    print(
+
+        f"  first <=2 A rank        : "
+
+        f"{row['First_targeted_like_2A_rank']}"
+
+    )
+
+
+
+    print(
+
+        f"  first <=3 A rank        : "
+
+        f"{row['First_targeted_like_3A_rank']}"
+
+    )
+
+
+
+    print(
+
+        f"  <=2 A poses             : "
+
+        f"{row['Targeted_like_2A_n']}"
+
+    )
+
+
+
+    print(
+
+        f"  dominant-like <=2 A     : "
+
+        f"{row['Dominant_like_2A_n']}"
+
+    )
+
+
+
+    print(
+
+        f"  alternative-like <=2 A  : "
+
+        f"{row['Alternative_like_2A_n']}"
+
+    )
+
+
+
+
+
+# ============================================================
+
+# CONSOLE: OVERALL RESULTS
+
+# ============================================================
+
+
+
+print()
+
+print("=" * 80)
+
+print("BLIND DOCKING OVERALL RECOVERY SUMMARY")
+
+print("=" * 80)
+
+
+
+
+
+for row in overall_summary_rows:
+
+
+
+    value = row[
+
+        "Value"
+
+    ]
+
+
+
+
+
+    if isinstance(
+
+        value,
+
+        float
+
+    ):
+
+
+
+        print(
+
+            f"{row['Metric']}: "
+
+            f"{value:.3f}"
+
+        )
+
+
+
+    else:
+
+
+
+        print(
+
+            f"{row['Metric']}: "
+
+            f"{value}"
+
+        )
+
+
+
+
+
+print()
+
+print("=" * 80)
+
+print("FILES SAVED")
+
+print("=" * 80)
+
+
+
+print(
+
+    XLSX_FILE
+
+)
+
+
+
+print(
+
+    ALL_POSES_CSV
+
+)
+
+
+
+print(
+
+    SEED_SUMMARY_CSV
+
+)
+
+
+
+print(
+
+    OVERALL_SUMMARY_CSV
+
+)
+
+
+
+print()
+
+print(
+
+    "10-seed blind-docking analysis complete."
+
+)
+
+END FILE: AK1_analyze_blind_10seed_full.py
+
+================================================================================
+FILE: AK1_analyze_blind_pilot.py
+Executable source: code/AK1_analyze_blind_pilot.py
+================================================================================
+from pathlib import Path
+
+import csv
+
+import math
+
+
+
+import numpy as np
+
+import xlsxwriter
+
+
+
+
+
+# ============================================================
+
+# PATHS
+
+# ============================================================
+
+
+
+PROJECT = Path(
+
+    r"C:\Users\akidi\Desktop\ISO_AK_Docking"
+
+)
+
+
+
+BLIND_FILE = (
+
+    PROJECT
+
+    / "docking"
+
+    / "AK1_ISO_BLIND_seed1001.pdbqt"
+
+)
+
+
+
+AP5_FILE = (
+
+    PROJECT
+
+    / "ligand"
+
+    / "AK1_native_AP5_chainA.pdb"
+
+)
+
+
+
+DOCKING_DIR = (
+
+    PROJECT
+
+    / "docking"
+
+)
+
+
+
+OUT_DIR = (
+
+    PROJECT
+
+    / "results"
+
+    / "AK1_blind_docking"
+
+    / "pilot_seed1001"
+
+)
+
+
+
+OUT_DIR.mkdir(
+
+    parents=True,
+
+    exist_ok=True
+
+)
+
+
+
+
+
+# ============================================================
+
+# TARGETED CLOSED-STATE REFERENCE FAMILIES
+
+# ============================================================
+
+
+
+DOMINANT_SEEDS = [
+
+    1001,
+
+    2002,
+
+    3003,
+
+    4004,
+
+    5005,
+
+    7007,
+
+    9009,
+
+    10101
+
+]
+
+
+
+ALTERNATIVE_SEEDS = [
+
+    6006,
+
+    8008
+
+]
+
+
+
+
+
+# ============================================================
+
+# PDBQT ELEMENT
+
+# ============================================================
+
+
+
+def pdbqt_element(atom_type):
+
+
+
+    atom_type = atom_type.strip().upper()
+
+
+
+    if atom_type.startswith("H"):
+
+        return "H"
+
+
+
+    if atom_type.startswith("O"):
+
+        return "O"
+
+
+
+    if atom_type.startswith("N"):
+
+        return "N"
+
+
+
+    if atom_type.startswith("S"):
+
+        return "S"
+
+
+
+    if atom_type.startswith("P"):
+
+        return "P"
+
+
+
+    if atom_type in ("C", "A"):
+
+        return "C"
+
+
+
+    return atom_type[:1]
+
+
+
+
+
+# ============================================================
+
+# READ ALL MODELS FROM PDBQT
+
+# ============================================================
+
+
+
+def read_pdbqt_models(path):
+
+
+
+    lines = Path(path).read_text(
+
+        errors="ignore"
+
+    ).splitlines()
+
+
+
+    models = {}
+
+    scores = {}
+
+
+
+    current_model = None
+
+    atoms = []
+
+
+
+    for line in lines:
+
+
+
+        if line.startswith("MODEL"):
+
+
+
+            current_model = int(
+
+                line.split()[1]
+
+            )
+
+
+
+            atoms = []
+
+            continue
+
+
+
+
+
+        if line.startswith("REMARK VINA RESULT:"):
+
+
+
+            if current_model is not None:
+
+
+
+                scores[
+
+                    current_model
+
+                ] = float(
+
+                    line.split()[3]
+
+                )
+
+
+
+            continue
+
+
+
+
+
+        if line.startswith("ENDMDL"):
+
+
+
+            if current_model is not None:
+
+
+
+                models[
+
+                    current_model
+
+                ] = atoms
+
+
+
+            current_model = None
+
+            atoms = []
+
+            continue
+
+
+
+
+
+        if current_model is None:
+
+            continue
+
+
+
+
+
+        if not (
+
+            line.startswith("ATOM")
+
+            or
+
+            line.startswith("HETATM")
+
+        ):
+
+            continue
+
+
+
+
+
+        atom_name = (
+
+            line[12:16]
+
+            .strip()
+
+        )
+
+
+
+        atom_type = (
+
+            line.split()[-1]
+
+        )
+
+
+
+        element = (
+
+            pdbqt_element(
+
+                atom_type
+
+            )
+
+        )
+
+
+
+        if element == "H":
+
+            continue
+
+
+
+
+
+        x = float(
+
+            line[30:38]
+
+        )
+
+
+
+        y = float(
+
+            line[38:46]
+
+        )
+
+
+
+        z = float(
+
+            line[46:54]
+
+        )
+
+
+
+
+
+        atoms.append({
+
+
+
+            "atom_name":
+
+                atom_name,
+
+
+
+            "atom_type":
+
+                atom_type,
+
+
+
+            "element":
+
+                element,
+
+
+
+            "coord":
+
+                np.array(
+
+                    [x, y, z],
+
+                    dtype=float
+
+                )
+
+        })
+
+
+
+
+
+    return (
+
+        models,
+
+        scores
+
+    )
+
+
+
+
+
+# ============================================================
+
+# READ BEST MODE FROM TARGETED PDBQT
+
+# ============================================================
+
+
+
+def read_best_targeted_pose(path):
+
+
+
+    models, scores = read_pdbqt_models(
+
+        path
+
+    )
+
+
+
+    if 1 not in models:
+
+
+
+        raise RuntimeError(
+
+            f"No mode 1 in {path}"
+
+        )
+
+
+
+    coords = np.array(
+
+        [
+
+            atom[
+
+                "coord"
+
+            ]
+
+            for atom in models[1]
+
+        ],
+
+        dtype=float
+
+    )
+
+
+
+    atom_types = [
+
+        atom[
+
+            "atom_type"
+
+        ]
+
+        for atom in models[1]
+
+    ]
+
+
+
+    return (
+
+        coords,
+
+        atom_types
+
+    )
+
+
+
+
+
+# ============================================================
+
+# READ AP5 HEAVY ATOMS
+
+# ============================================================
+
+
+
+def read_ap5(path):
+
+
+
+    coords = []
+
+
+
+    with open(
+
+        path,
+
+        "r",
+
+        encoding="utf-8",
+
+        errors="ignore"
+
+    ) as handle:
+
+
+
+        for line in handle:
+
+
+
+            if not (
+
+                line.startswith("ATOM")
+
+                or
+
+                line.startswith("HETATM")
+
+            ):
+
+                continue
+
+
+
+
+
+            element = (
+
+                line[76:78]
+
+                .strip()
+
+                .upper()
+
+                if len(line) >= 78
+
+                else ""
+
+            )
+
+
+
+            if element == "H":
+
+                continue
+
+
+
+
+
+            x = float(
+
+                line[30:38]
+
+            )
+
+
+
+            y = float(
+
+                line[38:46]
+
+            )
+
+
+
+            z = float(
+
+                line[46:54]
+
+            )
+
+
+
+            coords.append(
+
+                [x, y, z]
+
+            )
+
+
+
+
+
+    return np.array(
+
+        coords,
+
+        dtype=float
+
+    )
+
+
+
+
+
+# ============================================================
+
+# RMSD
+
+# ============================================================
+
+
+
+def positional_rmsd(
+
+    coords_a,
+
+    coords_b
+
+):
+
+
+
+    if coords_a.shape != coords_b.shape:
+
+
+
+        raise RuntimeError(
+
+            "Coordinate arrays differ in shape."
+
+        )
+
+
+
+    diff = (
+
+        coords_a -
+
+        coords_b
+
+    )
+
+
+
+    return math.sqrt(
+
+        np.mean(
+
+            np.sum(
+
+                diff ** 2,
+
+                axis=1
+
+            )
+
+        )
+
+    )
+
+
+
+
+
+# ============================================================
+
+# AP5 REGION METRICS
+
+# ============================================================
+
+
+
+def ap5_metrics(
+
+    iso_coords,
+
+    ap5_coords
+
+):
+
+
+
+    iso_centroid = np.mean(
+
+        iso_coords,
+
+        axis=0
+
+    )
+
+
+
+    ap5_centroid = np.mean(
+
+        ap5_coords,
+
+        axis=0
+
+    )
+
+
+
+
+
+    centroid_distance = float(
+
+        np.linalg.norm(
+
+            iso_centroid -
+
+            ap5_centroid
+
+        )
+
+    )
+
+
+
+
+
+    distance_matrix = np.linalg.norm(
+
+
+
+        iso_coords[
+
+            :,
+
+            None,
+
+            :
+
+        ]
+
+        -
+
+        ap5_coords[
+
+            None,
+
+            :,
+
+            :
+
+        ],
+
+
+
+        axis=2
+
+    )
+
+
+
+
+
+    min_to_ap5 = np.min(
+
+        distance_matrix,
+
+        axis=1
+
+    )
+
+
+
+
+
+    percent_within_4 = float(
+
+        100.0
+
+        *
+
+        np.mean(
+
+            min_to_ap5 <= 4.0
+
+        )
+
+    )
+
+
+
+
+
+    percent_within_6 = float(
+
+        100.0
+
+        *
+
+        np.mean(
+
+            min_to_ap5 <= 6.0
+
+        )
+
+    )
+
+
+
+
+
+    minimum_distance = float(
+
+        np.min(
+
+            distance_matrix
+
+        )
+
+    )
+
+
+
+
+
+    return (
+
+        centroid_distance,
+
+        minimum_distance,
+
+        percent_within_4,
+
+        percent_within_6
+
+    )
+
+
+
+
+
+# ============================================================
+
+# LOAD BLIND MODES
+
+# ============================================================
+
+
+
+blind_models, blind_scores = (
+
+    read_pdbqt_models(
+
+        BLIND_FILE
+
+    )
+
+)
+
+
+
+
+
+print()
+
+print("=" * 80)
+
+print("AK1 BLIND-DOCKING PILOT ANALYSIS")
+
+print("=" * 80)
+
+
+
+print(
+
+    "Blind modes detected:",
+
+    len(
+
+        blind_models
+
+    )
+
+)
+
+
+
+
+
+# ============================================================
+
+# LOAD AP5
+
+# ============================================================
+
+
+
+ap5_coords = (
+
+    read_ap5(
+
+        AP5_FILE
+
+    )
+
+)
+
+
+
+print(
+
+    "Native AP5 heavy atoms:",
+
+    len(
+
+        ap5_coords
+
+    )
+
+)
+
+
+
+
+
+# ============================================================
+
+# LOAD CLOSED TARGETED REFERENCE FAMILIES
+
+# ============================================================
+
+
+
+dominant_poses = []
+
+alternative_poses = []
+
+
+
+reference_atom_types = None
+
+
+
+
+
+for seed in DOMINANT_SEEDS:
+
+
+
+    path = (
+
+        DOCKING_DIR
+
+        /
+
+        f"AK1_ISO_seed{seed}.pdbqt"
+
+    )
+
+
+
+    coords, atom_types = (
+
+        read_best_targeted_pose(
+
+            path
+
+        )
+
+    )
+
+
+
+    if reference_atom_types is None:
+
+
+
+        reference_atom_types = (
+
+            atom_types
+
+        )
+
+
+
+    dominant_poses.append(
+
+        coords
+
+    )
+
+
+
+
+
+for seed in ALTERNATIVE_SEEDS:
+
+
+
+    path = (
+
+        DOCKING_DIR
+
+        /
+
+        f"AK1_ISO_seed{seed}.pdbqt"
+
+    )
+
+
+
+    coords, atom_types = (
+
+        read_best_targeted_pose(
+
+            path
+
+        )
+
+    )
+
+
+
+    alternative_poses.append(
+
+        coords
+
+    )
+
+
+
+
+
+# ============================================================
+
+# ANALYZE ALL 20 BLIND MODES
+
+# ============================================================
+
+
+
+rows = []
+
+
+
+
+
+for mode in sorted(
+
+    blind_models
+
+):
+
+
+
+    atoms = (
+
+        blind_models[
+
+            mode
+
+        ]
+
+    )
+
+
+
+
+
+    coords = np.array(
+
+        [
+
+            atom[
+
+                "coord"
+
+            ]
+
+            for atom in atoms
+
+        ],
+
+        dtype=float
+
+    )
+
+
+
+
+
+    atom_types = [
+
+        atom[
+
+            "atom_type"
+
+        ]
+
+        for atom in atoms
+
+    ]
+
+
+
+
+
+    if (
+
+        atom_types !=
+
+        reference_atom_types
+
+    ):
+
+
+
+        raise RuntimeError(
+
+            f"Atom order mismatch in blind mode {mode}"
+
+        )
+
+
+
+
+
+    (
+
+        centroid_distance,
+
+        minimum_distance,
+
+        percent_within_4,
+
+        percent_within_6
+
+    ) = ap5_metrics(
+
+        coords,
+
+        ap5_coords
+
+    )
+
+
+
+
+
+    dom_rmsds = [
+
+        positional_rmsd(
+
+            coords,
+
+            ref
+
+        )
+
+        for ref in dominant_poses
+
+    ]
+
+
+
+
+
+    alt_rmsds = [
+
+        positional_rmsd(
+
+            coords,
+
+            ref
+
+        )
+
+        for ref in alternative_poses
+
+    ]
+
+
+
+
+
+    min_dom = float(
+
+        np.min(
+
+            dom_rmsds
+
+        )
+
+    )
+
+
+
+
+
+    min_alt = float(
+
+        np.min(
+
+            alt_rmsds
+
+        )
+
+    )
+
+
+
+
+
+    nearest_family = (
+
+        "Dominant"
+
+        if min_dom < min_alt
+
+        else "Alternative"
+
+    )
+
+
+
+
+
+    nearest_family_rmsd = min(
+
+        min_dom,
+
+        min_alt
+
+    )
+
+
+
+
+
+    rows.append({
+
+
+
+        "Mode":
+
+            mode,
+
+
+
+        "Vina_score":
+
+            blind_scores[
+
+                mode
+
+            ],
+
+
+
+        "ISO_AP5_centroid_distance_A":
+
+            centroid_distance,
+
+
+
+        "Minimum_ISO_AP5_distance_A":
+
+            minimum_distance,
+
+
+
+        "ISO_atoms_within_4A_percent":
+
+            percent_within_4,
+
+
+
+        "ISO_atoms_within_6A_percent":
+
+            percent_within_6,
+
+
+
+        "Min_RMSD_to_targeted_dominant_A":
+
+            min_dom,
+
+
+
+        "Min_RMSD_to_targeted_alternative_A":
+
+            min_alt,
+
+
+
+        "Nearest_targeted_family":
+
+            nearest_family,
+
+
+
+        "Nearest_targeted_family_RMSD_A":
+
+            nearest_family_rmsd,
+
+
+
+        "Centroid_within_6A_of_AP5":
+
+            centroid_distance <= 6.0,
+
+
+
+        "At_least_80pct_atoms_within_6A_of_AP5":
+
+            percent_within_6 >= 80.0
+
+    })
+
+
+
+
+
+# ============================================================
+
+# SAVE CSV
+
+# ============================================================
+
+
+
+CSV_FILE = (
+
+    OUT_DIR
+
+    / "AK1_BLIND_seed1001_all20_modes_analysis.csv"
+
+)
+
+
+
+
+
+headers = list(
+
+    rows[0].keys()
+
+)
+
+
+
+
+
+with open(
+
+    CSV_FILE,
+
+    "w",
+
+    newline="",
+
+    encoding="utf-8"
+
+) as handle:
+
+
+
+    writer = csv.DictWriter(
+
+        handle,
+
+        fieldnames=headers
+
+    )
+
+
+
+    writer.writeheader()
+
+
+
+    writer.writerows(
+
+        rows
+
+    )
+
+
+
+
+
+# ============================================================
+
+# SAVE EXCEL
+
+# ============================================================
+
+
+
+XLSX_FILE = (
+
+    OUT_DIR
+
+    / "AK1_BLIND_seed1001_PILOT_ANALYSIS.xlsx"
+
+)
+
+
+
+
+
+workbook = xlsxwriter.Workbook(
+
+    XLSX_FILE
+
+)
+
+
+
+
+
+header_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_color": "white",
+
+    "bg_color": "#4472C4",
+
+    "border": 1
+
+})
+
+
+
+
+
+cell_fmt = workbook.add_format({
+
+    "border": 1
+
+})
+
+
+
+
+
+num_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "num_format": "0.000"
+
+})
+
+
+
+
+
+ws = workbook.add_worksheet(
+
+    "All_20_Modes"
+
+)
+
+
+
+
+
+for col, header in enumerate(
+
+    headers
+
+):
+
+
+
+    ws.write(
+
+        0,
+
+        col,
+
+        header,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for row_i, row in enumerate(
+
+    rows,
+
+    start=1
+
+):
+
+
+
+    for col, header in enumerate(
+
+        headers
+
+    ):
+
+
+
+        value = row[
+
+            header
+
+        ]
+
+
+
+
+
+        if isinstance(
+
+            value,
+
+            float
+
+        ):
+
+
+
+            ws.write_number(
+
+                row_i,
+
+                col,
+
+                value,
+
+                num_fmt
+
+            )
+
+
+
+        else:
+
+
+
+            ws.write(
+
+                row_i,
+
+                col,
+
+                value,
+
+                cell_fmt
+
+            )
+
+
+
+
+
+ws.freeze_panes(
+
+    1,
+
+    0
+
+)
+
+
+
+ws.autofilter(
+
+    0,
+
+    0,
+
+    len(
+
+        rows
+
+    ),
+
+    len(
+
+        headers
+
+    ) - 1
+
+)
+
+
+
+ws.set_column(
+
+    0,
+
+    len(
+
+        headers
+
+    ) - 1,
+
+    30
+
+)
+
+
+
+
+
+workbook.close()
+
+
+
+
+
+# ============================================================
+
+# PRINT RESULTS
+
+# ============================================================
+
+
+
+print()
+
+print("=" * 80)
+
+print("BLIND MODES RANKED BY VINA SCORE")
+
+print("=" * 80)
+
+
+
+
+
+for row in rows:
+
+
+
+    print()
+
+
+
+    print(
+
+        f"Mode {row['Mode']:2d}"
+
+        f" | score {row['Vina_score']:.3f}"
+
+        f" | AP5 centroid {row['ISO_AP5_centroid_distance_A']:.3f} A"
+
+        f" | within6 {row['ISO_atoms_within_6A_percent']:.1f}%"
+
+        f" | nearest targeted family {row['Nearest_targeted_family']}"
+
+        f" | RMSD {row['Nearest_targeted_family_RMSD_A']:.3f} A"
+
+    )
+
+
+
+
+
+# ============================================================
+
+# AP5-LIKE MODES
+
+# ============================================================
+
+
+
+ap5_region_modes = [
+
+
+
+    row
+
+
+
+    for row in rows
+
+
+
+    if (
+
+        row[
+
+            "Centroid_within_6A_of_AP5"
+
+        ]
+
+        or
+
+        row[
+
+            "At_least_80pct_atoms_within_6A_of_AP5"
+
+        ]
+
+    )
+
+]
+
+
+
+
+
+print()
+
+print("=" * 80)
+
+print("AP5-REGION CANDIDATE MODES")
+
+print("=" * 80)
+
+
+
+
+
+if ap5_region_modes:
+
+
+
+    for row in ap5_region_modes:
+
+
+
+        print(
+
+            f"Mode {row['Mode']:2d}"
+
+            f" | score {row['Vina_score']:.3f}"
+
+            f" | centroid {row['ISO_AP5_centroid_distance_A']:.3f} A"
+
+            f" | within6 {row['ISO_atoms_within_6A_percent']:.1f}%"
+
+            f" | targeted-family RMSD {row['Nearest_targeted_family_RMSD_A']:.3f} A"
+
+        )
+
+
+
+else:
+
+
+
+    print(
+
+        "No mode met the broad AP5-region criteria."
+
+    )
+
+
+
+
+
+print()
+
+print("=" * 80)
+
+print("FILES SAVED")
+
+print("=" * 80)
+
+
+
+print(
+
+    CSV_FILE
+
+)
+
+
+
+print(
+
+    XLSX_FILE
+
+)
+
+
+
+print()
+
+print(
+
+    "Blind pilot analysis complete."
+
+)
+
+END FILE: AK1_analyze_blind_pilot.py
+
+================================================================================
+FILE: AK1_calculate_blind_docking_box.py
+Executable source: code/AK1_calculate_blind_docking_box.py
+================================================================================
+from pathlib import Path
+
+import numpy as np
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+
+
+RECEPTOR = (
+
+    PROJECT
+
+    / "receptors"
+
+    / "AK1_chainA_FIXED.pdb"
+
+)
+
+
+
+OUT_DIR = (
+
+    PROJECT
+
+    / "results"
+
+    / "AK1_blind_docking"
+
+)
+
+
+
+OUT_DIR.mkdir(
+
+    parents=True,
+
+    exist_ok=True
+
+)
+
+
+
+PADDING = 6.0
+
+
+
+
+
+coords = []
+
+
+
+
+
+with open(
+
+    RECEPTOR,
+
+    "r",
+
+    encoding="utf-8",
+
+    errors="ignore"
+
+) as handle:
+
+
+
+    for line in handle:
+
+
+
+        if not line.startswith("ATOM"):
+
+            continue
+
+
+
+        element = (
+
+            line[76:78]
+
+            .strip()
+
+            .upper()
+
+            if len(line) >= 78
+
+            else ""
+
+        )
+
+
+
+        if element == "H":
+
+            continue
+
+
+
+        try:
+
+
+
+            x = float(
+
+                line[30:38]
+
+            )
+
+
+
+            y = float(
+
+                line[38:46]
+
+            )
+
+
+
+            z = float(
+
+                line[46:54]
+
+            )
+
+
+
+        except Exception:
+
+            continue
+
+
+
+        coords.append(
+
+            [x, y, z]
+
+        )
+
+
+
+
+
+coords = np.array(
+
+    coords,
+
+    dtype=float
+
+)
+
+
+
+
+
+if len(coords) == 0:
+
+
+
+    raise RuntimeError(
+
+        "No receptor heavy-atom coordinates found."
+
+    )
+
+
+
+
+
+minimum = np.min(
+
+    coords,
+
+    axis=0
+
+)
+
+
+
+maximum = np.max(
+
+    coords,
+
+    axis=0
+
+)
+
+
+
+center = (
+
+    minimum
+
+    +
+
+    maximum
+
+) / 2.0
+
+
+
+
+
+protein_size = (
+
+    maximum
+
+    -
+
+    minimum
+
+)
+
+
+
+
+
+blind_size = (
+
+    protein_size
+
+    +
+
+    2.0 * PADDING
+
+)
+
+
+
+
+
+volume = float(
+
+    np.prod(
+
+        blind_size
+
+    )
+
+)
+
+
+
+
+
+print()
+
+print("=" * 80)
+
+print("AK1 WHOLE-PROTEIN BLIND-DOCKING BOX")
+
+print("=" * 80)
+
+
+
+print(
+
+    f"Heavy atoms: {len(coords)}"
+
+)
+
+
+
+print()
+
+
+
+print(
+
+    f"Protein min XYZ : "
+
+    f"{minimum[0]:.3f}, "
+
+    f"{minimum[1]:.3f}, "
+
+    f"{minimum[2]:.3f}"
+
+)
+
+
+
+print(
+
+    f"Protein max XYZ : "
+
+    f"{maximum[0]:.3f}, "
+
+    f"{maximum[1]:.3f}, "
+
+    f"{maximum[2]:.3f}"
+
+)
+
+
+
+print()
+
+
+
+print(
+
+    f"Protein span XYZ: "
+
+    f"{protein_size[0]:.3f}, "
+
+    f"{protein_size[1]:.3f}, "
+
+    f"{protein_size[2]:.3f} A"
+
+)
+
+
+
+print()
+
+
+
+print(
+
+    f"Padding per side: {PADDING:.1f} A"
+
+)
+
+
+
+print()
+
+
+
+print(
+
+    f"center_x = {center[0]:.3f}"
+
+)
+
+
+
+print(
+
+    f"center_y = {center[1]:.3f}"
+
+)
+
+
+
+print(
+
+    f"center_z = {center[2]:.3f}"
+
+)
+
+
+
+print()
+
+
+
+print(
+
+    f"size_x = {blind_size[0]:.3f}"
+
+)
+
+
+
+print(
+
+    f"size_y = {blind_size[1]:.3f}"
+
+)
+
+
+
+print(
+
+    f"size_z = {blind_size[2]:.3f}"
+
+)
+
+
+
+print()
+
+
+
+print(
+
+    f"Search volume = {volume:.1f} A^3"
+
+)
+
+
+
+
+
+config_file = (
+
+    OUT_DIR
+
+    / "AK1_blind_box.txt"
+
+)
+
+
+
+
+
+with open(
+
+    config_file,
+
+    "w"
+
+) as handle:
+
+
+
+    handle.write(
+
+        f"center_x = {center[0]:.3f}\n"
+
+    )
+
+
+
+    handle.write(
+
+        f"center_y = {center[1]:.3f}\n"
+
+    )
+
+
+
+    handle.write(
+
+        f"center_z = {center[2]:.3f}\n"
+
+    )
+
+
+
+    handle.write(
+
+        f"size_x = {blind_size[0]:.3f}\n"
+
+    )
+
+
+
+    handle.write(
+
+        f"size_y = {blind_size[1]:.3f}\n"
+
+    )
+
+
+
+    handle.write(
+
+        f"size_z = {blind_size[2]:.3f}\n"
+
+    )
+
+
+
+
+
+print()
+
+print(
+
+    "Saved:"
+
+)
+
+
+
+print(
+
+    config_file
+
+)
+
+
+
+print()
+
+print(
+
+    "Blind-box calculation complete."
+
+)
+
+END FILE: AK1_calculate_blind_docking_box.py
+
+================================================================================
+FILE: AK1_plot_blind_validation.R
+Executable source: code/AK1_plot_blind_validation.R
+================================================================================
+# ============================================================
+
+# AK1 WHOLE-PROTEIN BLIND-DOCKING VALIDATION FIGURE
+
+#
+
+# A = Mode-1 recovery RMSD across 10 blind-docking seeds
+
+# B = Targeted vs blind Vina-score distributions
+
+# C = Targeted-pose-family recovery frequencies
+
+#
+
+# Also creates a dedicated Excel workbook containing:
+
+# - full 200-pose blind data
+
+# - per-seed blind summary
+
+# - overall blind summary
+
+# - targeted 1Z83 scores
+
+# - exact data used for panels A, B and C
+
+# - method notes
+
+# ============================================================
+
+
+
+
+
+# ============================================================
+
+# PACKAGES
+
+# ============================================================
+
+
+
+needed_packages <- c(
+
+  "ggplot2",
+
+  "dplyr",
+
+  "readr",
+
+  "patchwork",
+
+  "openxlsx"
+
+)
+
+
+
+
+
+for (pkg in needed_packages) {
+
+
+
+  if (!requireNamespace(
+
+    pkg,
+
+    quietly = TRUE
+
+  )) {
+
+
+
+    install.packages(
+
+      pkg,
+
+      repos = "https://cloud.r-project.org"
+
+    )
+
+  }
+
+}
+
+
+
+
+
+suppressPackageStartupMessages({
+
+
+
+  library(ggplot2)
+
+  library(dplyr)
+
+  library(readr)
+
+  library(patchwork)
+
+  library(openxlsx)
+
+
+
+})
+
+
+
+
+
+# ============================================================
+
+# PATHS
+
+# ============================================================
+
+
+
+project_dir <- "C:/Users/akidi/Desktop/ISO_AK_Docking"
+
+
+
+
+
+blind_dir <- file.path(
+
+  project_dir,
+
+  "results",
+
+  "AK1_blind_docking",
+
+  "full_10seed_analysis_v1"
+
+)
+
+
+
+
+
+targeted_dir <- file.path(
+
+  project_dir,
+
+  "results",
+
+  "AK1_ensemble_sensitivity",
+
+  "docking_analysis_v1"
+
+)
+
+
+
+
+
+output_dir <- file.path(
+
+  blind_dir,
+
+  "figures_v1"
+
+)
+
+
+
+
+
+dir.create(
+
+  output_dir,
+
+  recursive = TRUE,
+
+  showWarnings = FALSE
+
+)
+
+
+
+
+
+# ============================================================
+
+# INPUT FILES
+
+# ============================================================
+
+
+
+blind_seed_file <- file.path(
+
+  blind_dir,
+
+  "AK1_BLIND_seed_summary.csv"
+
+)
+
+
+
+
+
+blind_all_file <- file.path(
+
+  blind_dir,
+
+  "AK1_BLIND_all_poses.csv"
+
+)
+
+
+
+
+
+blind_overall_file <- file.path(
+
+  blind_dir,
+
+  "AK1_BLIND_overall_summary.csv"
+
+)
+
+
+
+
+
+targeted_seed_file <- file.path(
+
+  targeted_dir,
+
+  "AK1_7X7S_ensemble_seed_results.csv"
+
+)
+
+
+
+
+
+required_files <- c(
+
+  blind_seed_file,
+
+  blind_all_file,
+
+  blind_overall_file,
+
+  targeted_seed_file
+
+)
+
+
+
+
+
+missing_files <- required_files[
+
+  !file.exists(
+
+    required_files
+
+  )
+
+]
+
+
+
+
+
+if (
+
+  length(
+
+    missing_files
+
+  ) > 0
+
+) {
+
+
+
+  stop(
+
+    paste(
+
+      "Missing required files:",
+
+      paste(
+
+        missing_files,
+
+        collapse = "\n"
+
+      ),
+
+      sep = "\n"
+
+    )
+
+  )
+
+}
+
+
+
+
+
+# ============================================================
+
+# READ DATA
+
+# ============================================================
+
+
+
+blind_seed <- read_csv(
+
+  blind_seed_file,
+
+  show_col_types = FALSE
+
+)
+
+
+
+
+
+blind_all <- read_csv(
+
+  blind_all_file,
+
+  show_col_types = FALSE
+
+)
+
+
+
+
+
+blind_overall <- read_csv(
+
+  blind_overall_file,
+
+  show_col_types = FALSE
+
+)
+
+
+
+
+
+targeted_all <- read_csv(
+
+  targeted_seed_file,
+
+  show_col_types = FALSE
+
+)
+
+
+
+
+
+# ============================================================
+
+# TARGETED 1Z83 DATA ONLY
+
+# ============================================================
+
+
+
+targeted_closed <- targeted_all %>%
+
+
+
+  filter(
+
+    Receptor == "1Z83 closed"
+
+  ) %>%
+
+
+
+  select(
+
+    Seed,
+
+    Best_Vina_score
+
+  ) %>%
+
+
+
+  mutate(
+
+    Search_strategy =
+
+      "AP5-centered targeted"
+
+  )
+
+
+
+
+
+# ============================================================
+
+# BLIND MODE-1 SCORES
+
+# ============================================================
+
+
+
+blind_scores <- blind_seed %>%
+
+
+
+  select(
+
+    Seed,
+
+    Global_best_score
+
+  ) %>%
+
+
+
+  rename(
+
+    Best_Vina_score =
+
+      Global_best_score
+
+  ) %>%
+
+
+
+  mutate(
+
+    Search_strategy =
+
+      "Whole-protein blind"
+
+  )
+
+
+
+
+
+# ============================================================
+
+# COMBINED SCORE DATA
+
+# ============================================================
+
+
+
+score_data <- bind_rows(
+
+  targeted_closed,
+
+  blind_scores
+
+)
+
+
+
+
+
+score_data$Search_strategy <- factor(
+
+
+
+  score_data$Search_strategy,
+
+
+
+  levels = c(
+
+    "AP5-centered targeted",
+
+    "Whole-protein blind"
+
+  )
+
+)
+
+
+
+
+
+# ============================================================
+
+# PANEL A DATA
+
+# ============================================================
+
+
+
+panel_A_data <- blind_seed %>%
+
+
+
+  transmute(
+
+
+
+    Seed = factor(
+
+      Seed,
+
+      levels = as.character(
+
+        Seed
+
+      )
+
+    ),
+
+
+
+    Seed_numeric =
+
+      as.numeric(
+
+        as.character(
+
+          Seed
+
+        )
+
+      ),
+
+
+
+    Mode1_RMSD_A =
+
+      Mode1_nearest_family_RMSD_A,
+
+
+
+    Nearest_family =
+
+      Mode1_nearest_family,
+
+
+
+    Recovered_2A =
+
+      Mode1_targeted_like_2A,
+
+
+
+    Recovered_3A =
+
+      Mode1_targeted_like_3A
+
+  )
+
+
+
+
+
+mean_mode1_rmsd <- mean(
+
+  panel_A_data$Mode1_RMSD_A
+
+)
+
+
+
+
+
+sd_mode1_rmsd <- sd(
+
+  panel_A_data$Mode1_RMSD_A
+
+)
+
+
+
+
+
+max_mode1_rmsd <- max(
+
+  panel_A_data$Mode1_RMSD_A
+
+)
+
+
+
+
+
+# ============================================================
+
+# PANEL B SUMMARY
+
+# ============================================================
+
+
+
+score_summary <- score_data %>%
+
+
+
+  group_by(
+
+    Search_strategy
+
+  ) %>%
+
+
+
+  summarise(
+
+
+
+    n = n(),
+
+
+
+    Mean =
+
+      mean(
+
+        Best_Vina_score
+
+      ),
+
+
+
+    SD =
+
+      sd(
+
+        Best_Vina_score
+
+      ),
+
+
+
+    Best =
+
+      min(
+
+        Best_Vina_score
+
+      ),
+
+
+
+    Worst =
+
+      max(
+
+        Best_Vina_score
+
+      ),
+
+
+
+    .groups = "drop"
+
+  )
+
+
+
+
+
+targeted_mean <- score_summary$Mean[
+
+  score_summary$Search_strategy ==
+
+    "AP5-centered targeted"
+
+]
+
+
+
+
+
+blind_mean <- score_summary$Mean[
+
+  score_summary$Search_strategy ==
+
+    "Whole-protein blind"
+
+]
+
+
+
+
+
+delta_mean <- (
+
+  blind_mean -
+
+  targeted_mean
+
+)
+
+
+
+
+
+# ============================================================
+
+# PANEL C DATA
+
+# ============================================================
+
+
+
+n_seeds <- nrow(
+
+  blind_seed
+
+)
+
+
+
+
+
+n_all_poses <- nrow(
+
+  blind_all
+
+)
+
+
+
+
+
+mode1_2A_n <- sum(
+
+  blind_seed$Mode1_targeted_like_2A
+
+)
+
+
+
+
+
+mode1_3A_n <- sum(
+
+  blind_seed$Mode1_targeted_like_3A
+
+)
+
+
+
+
+
+all_2A_n <- sum(
+
+  blind_all$Targeted_like_2A
+
+)
+
+
+
+
+
+all_3A_n <- sum(
+
+  blind_all$Targeted_like_3A
+
+)
+
+
+
+
+
+panel_C_data <- data.frame(
+
+
+
+  Population = c(
+
+    "Global best\nmode 1",
+
+    "Global best\nmode 1",
+
+    "All blind\nmodes",
+
+    "All blind\nmodes"
+
+  ),
+
+
+
+  Threshold = c(
+
+    "<= 2 Å",
+
+    "<= 3 Å",
+
+    "<= 2 Å",
+
+    "<= 3 Å"
+
+  ),
+
+
+
+  Recovered_n = c(
+
+    mode1_2A_n,
+
+    mode1_3A_n,
+
+    all_2A_n,
+
+    all_3A_n
+
+  ),
+
+
+
+  Total_n = c(
+
+    n_seeds,
+
+    n_seeds,
+
+    n_all_poses,
+
+    n_all_poses
+
+  )
+
+)
+
+
+
+
+
+panel_C_data <- panel_C_data %>%
+
+
+
+  mutate(
+
+
+
+    Percent =
+
+      100 *
+
+      Recovered_n /
+
+      Total_n,
+
+
+
+    Label = paste0(
+
+      Recovered_n,
+
+      "/",
+
+      Total_n,
+
+      "\n",
+
+      sprintf(
+
+        "%.1f%%",
+
+        Percent
+
+      )
+
+    ),
+
+
+
+    Population = factor(
+
+
+
+      Population,
+
+
+
+      levels = c(
+
+        "Global best\nmode 1",
+
+        "All blind\nmodes"
+
+      )
+
+    ),
+
+
+
+    Threshold = factor(
+
+
+
+      Threshold,
+
+
+
+      levels = c(
+
+        "<= 2 Å",
+
+        "<= 3 Å"
+
+      )
+
+    )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# PRESERVE EVERYTHING TO EXCEL
+
+# ============================================================
+
+
+
+excel_file <- file.path(
+
+  output_dir,
+
+  "AK1_BLIND_VALIDATION_FIGURE_DATA.xlsx"
+
+)
+
+
+
+
+
+wb <- createWorkbook()
+
+
+
+
+
+# ------------------------------------------------------------
+
+# Common styles
+
+# ------------------------------------------------------------
+
+
+
+header_style <- createStyle(
+
+
+
+  fontColour = "#FFFFFF",
+
+  fgFill = "#4472C4",
+
+
+
+  halign = "center",
+
+  valign = "center",
+
+
+
+  textDecoration = "bold",
+
+
+
+  border = "Bottom"
+
+)
+
+
+
+
+
+subheader_style <- createStyle(
+
+
+
+  fontColour = "#FFFFFF",
+
+  fgFill = "#5B9BD5",
+
+
+
+  textDecoration = "bold"
+
+)
+
+
+
+
+
+number_style <- createStyle(
+
+  numFmt = "0.000"
+
+)
+
+
+
+
+
+percent_style <- createStyle(
+
+  numFmt = "0.0"
+
+)
+
+
+
+
+
+# ------------------------------------------------------------
+
+# Helper function
+
+# ------------------------------------------------------------
+
+
+
+add_data_sheet <- function(
+
+  workbook,
+
+  sheet_name,
+
+  data
+
+) {
+
+
+
+  addWorksheet(
+
+    workbook,
+
+    sheet_name
+
+  )
+
+
+
+
+
+  writeData(
+
+    workbook,
+
+    sheet_name,
+
+    data,
+
+    headerStyle = header_style
+
+  )
+
+
+
+
+
+  freezePane(
+
+    workbook,
+
+    sheet_name,
+
+    firstRow = TRUE
+
+  )
+
+
+
+
+
+  setColWidths(
+
+    workbook,
+
+    sheet_name,
+
+    cols = 1:ncol(data),
+
+    widths = "auto"
+
+  )
+
+
+
+
+
+  if (
+
+    ncol(data) > 0
+
+  ) {
+
+
+
+    addFilter(
+
+      workbook,
+
+      sheet_name,
+
+      row = 1,
+
+      cols = 1:ncol(data)
+
+    )
+
+  }
+
+}
+
+
+
+
+
+# ------------------------------------------------------------
+
+# Full raw + summary sheets
+
+# ------------------------------------------------------------
+
+
+
+add_data_sheet(
+
+  wb,
+
+  "Blind_All_200_Poses",
+
+  blind_all
+
+)
+
+
+
+
+
+add_data_sheet(
+
+  wb,
+
+  "Blind_Seed_Summary",
+
+  blind_seed
+
+)
+
+
+
+
+
+add_data_sheet(
+
+  wb,
+
+  "Blind_Overall_Summary",
+
+  blind_overall
+
+)
+
+
+
+
+
+add_data_sheet(
+
+  wb,
+
+  "Targeted_1Z83_Scores",
+
+  targeted_closed
+
+)
+
+
+
+
+
+# ------------------------------------------------------------
+
+# Exact figure data
+
+# ------------------------------------------------------------
+
+
+
+add_data_sheet(
+
+  wb,
+
+  "Figure_A_RMSD",
+
+  panel_A_data
+
+)
+
+
+
+
+
+add_data_sheet(
+
+  wb,
+
+  "Figure_B_Scores",
+
+  score_data
+
+)
+
+
+
+
+
+add_data_sheet(
+
+  wb,
+
+  "Figure_B_Summary",
+
+  score_summary
+
+)
+
+
+
+
+
+add_data_sheet(
+
+  wb,
+
+  "Figure_C_Recovery",
+
+  panel_C_data
+
+)
+
+
+
+
+
+# ------------------------------------------------------------
+
+# Figure summary
+
+# ------------------------------------------------------------
+
+
+
+figure_summary <- data.frame(
+
+
+
+  Metric = c(
+
+
+
+    "Blind seeds",
+
+
+
+    "Blind poses",
+
+
+
+    "Mode-1 <=2 A recovery",
+
+
+
+    "Mode-1 <=3 A recovery",
+
+
+
+    "Mean mode-1 RMSD to targeted family (A)",
+
+
+
+    "SD mode-1 RMSD (A)",
+
+
+
+    "Targeted mean Vina score",
+
+
+
+    "Blind mean Vina score",
+
+
+
+    "Blind minus targeted mean score",
+
+
+
+    "All poses <=2 A",
+
+
+
+    "All poses <=3 A"
+
+  ),
+
+
+
+  Value = c(
+
+
+
+    n_seeds,
+
+
+
+    n_all_poses,
+
+
+
+    paste0(
+
+      mode1_2A_n,
+
+      "/",
+
+      n_seeds,
+
+      " (",
+
+      sprintf(
+
+        "%.1f%%",
+
+        100 * mode1_2A_n / n_seeds
+
+      ),
+
+      ")"
+
+    ),
+
+
+
+    paste0(
+
+      mode1_3A_n,
+
+      "/",
+
+      n_seeds,
+
+      " (",
+
+      sprintf(
+
+        "%.1f%%",
+
+        100 * mode1_3A_n / n_seeds
+
+      ),
+
+      ")"
+
+    ),
+
+
+
+    sprintf(
+
+      "%.3f",
+
+      mean_mode1_rmsd
+
+    ),
+
+
+
+    sprintf(
+
+      "%.3f",
+
+      sd_mode1_rmsd
+
+    ),
+
+
+
+    sprintf(
+
+      "%.3f",
+
+      targeted_mean
+
+    ),
+
+
+
+    sprintf(
+
+      "%.3f",
+
+      blind_mean
+
+    ),
+
+
+
+    sprintf(
+
+      "%.3f",
+
+      delta_mean
+
+    ),
+
+
+
+    paste0(
+
+      all_2A_n,
+
+      "/",
+
+      n_all_poses,
+
+      " (",
+
+      sprintf(
+
+        "%.1f%%",
+
+        100 * all_2A_n / n_all_poses
+
+      ),
+
+      ")"
+
+    ),
+
+
+
+    paste0(
+
+      all_3A_n,
+
+      "/",
+
+      n_all_poses,
+
+      " (",
+
+      sprintf(
+
+        "%.1f%%",
+
+        100 * all_3A_n / n_all_poses
+
+      ),
+
+      ")"
+
+    )
+
+  )
+
+)
+
+
+
+
+
+add_data_sheet(
+
+  wb,
+
+  "Figure_Summary",
+
+  figure_summary
+
+)
+
+
+
+
+
+# ------------------------------------------------------------
+
+# Method notes
+
+# ------------------------------------------------------------
+
+
+
+method_notes <- data.frame(
+
+
+
+  Item = c(
+
+
+
+    "Blind docking",
+
+
+
+    "Search space",
+
+
+
+    "Sampling",
+
+
+
+    "Targeted comparison",
+
+
+
+    "Pose RMSD",
+
+
+
+    "2 A threshold",
+
+
+
+    "3 A threshold",
+
+
+
+    "Score interpretation",
+
+
+
+    "Main conclusion"
+
+  ),
+
+
+
+  Description = c(
+
+
+
+    paste(
+
+      "Whole-protein blind docking of neutral isorhamnetin",
+
+      "against closed human AK1."
+
+    ),
+
+
+
+    paste(
+
+      "AK1 whole-protein bounding box with 6 A padding",
+
+      "per side. AP5 was not used to define the blind box."
+
+    ),
+
+
+
+    paste(
+
+      "10 independent seeds, exhaustiveness 128,",
+
+      "20 modes per seed, energy range 10 kcal/mol."
+
+    ),
+
+
+
+    paste(
+
+      "Original AP5-centered neutral-ISO docking against",
+
+      "the same AK1 receptor and using the same ligand preparation."
+
+    ),
+
+
+
+    paste(
+
+      "Direct ligand heavy-atom positional RMSD in the",
+
+      "shared receptor coordinate frame; no ligand superposition."
+
+    ),
+
+
+
+    "Stringent targeted-pose-family recovery criterion.",
+
+
+
+    "Broader targeted-pose-family recovery criterion.",
+
+
+
+    paste(
+
+      "Vina values are docking scores and are not interpreted",
+
+      "as experimental binding affinities or free energies."
+
+    ),
+
+
+
+    paste(
+
+      "Whole-protein blind docking independently recovered",
+
+      "the targeted dominant ISO pose as the global best",
+
+      "solution in all 10 independent seeds."
+
+    )
+
+  )
+
+)
+
+
+
+
+
+add_data_sheet(
+
+  wb,
+
+  "Method_Notes",
+
+  method_notes
+
+)
+
+
+
+
+
+# ------------------------------------------------------------
+
+# Improve widths on text-heavy sheets
+
+# ------------------------------------------------------------
+
+
+
+setColWidths(
+
+  wb,
+
+  "Method_Notes",
+
+  cols = 1,
+
+  widths = 25
+
+)
+
+
+
+
+
+setColWidths(
+
+  wb,
+
+  "Method_Notes",
+
+  cols = 2,
+
+  widths = 95
+
+)
+
+
+
+
+
+setColWidths(
+
+  wb,
+
+  "Figure_Summary",
+
+  cols = 1,
+
+  widths = 45
+
+)
+
+
+
+
+
+setColWidths(
+
+  wb,
+
+  "Figure_Summary",
+
+  cols = 2,
+
+  widths = 28
+
+)
+
+
+
+
+
+saveWorkbook(
+
+  wb,
+
+  excel_file,
+
+  overwrite = TRUE
+
+)
+
+
+
+
+
+# ============================================================
+
+# FIGURE COLORS
+
+# ============================================================
+
+
+
+targeted_color <- "#F28E2B"
+
+blind_color <- "#4E79A7"
+
+
+
+threshold_2_color <- "#4E79A7"
+
+threshold_3_color <- "#59A14F"
+
+
+
+
+
+# ============================================================
+
+# COMMON THEME
+
+# ============================================================
+
+
+
+theme_pub <- theme_classic(
+
+  base_size = 12
+
+) +
+
+
+
+  theme(
+
+
+
+    axis.text = element_text(
+
+      color = "black"
+
+    ),
+
+
+
+    axis.text.x = element_text(
+
+      size = 10,
+
+      face = "bold"
+
+    ),
+
+
+
+    axis.text.y = element_text(
+
+      size = 10
+
+    ),
+
+
+
+    axis.title = element_text(
+
+      size = 11,
+
+      face = "bold"
+
+    ),
+
+
+
+    plot.title = element_text(
+
+      size = 14,
+
+      face = "bold"
+
+    ),
+
+
+
+    plot.subtitle = element_text(
+
+      size = 9.5
+
+    ),
+
+
+
+    plot.caption = element_text(
+
+      size = 8,
+
+      color = "gray30"
+
+    ),
+
+
+
+    legend.position = "bottom",
+
+
+
+    legend.title = element_blank(),
+
+
+
+    plot.margin = margin(
+
+      10,
+
+      12,
+
+      10,
+
+      10
+
+    )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# PANEL A
+
+# MODE-1 RMSD
+
+# ============================================================
+
+
+
+panel_A <- ggplot(
+
+
+
+  panel_A_data,
+
+
+
+  aes(
+
+    x = Seed,
+
+    y = Mode1_RMSD_A
+
+  )
+
+) +
+
+
+
+  geom_hline(
+
+
+
+    yintercept =
+
+      mean_mode1_rmsd,
+
+
+
+    linetype = "dashed",
+
+
+
+    linewidth = 0.7,
+
+
+
+    color = "gray40"
+
+  ) +
+
+
+
+  geom_segment(
+
+
+
+    aes(
+
+      xend = Seed,
+
+      y = 0,
+
+      yend = Mode1_RMSD_A
+
+    ),
+
+
+
+    linewidth = 0.7,
+
+
+
+    color = "gray75"
+
+  ) +
+
+
+
+  geom_point(
+
+
+
+    size = 3.8,
+
+
+
+    color = blind_color
+
+  ) +
+
+
+
+  geom_text(
+
+
+
+    aes(
+
+      label = sprintf(
+
+        "%.3f",
+
+        Mode1_RMSD_A
+
+      )
+
+    ),
+
+
+
+    vjust = -0.8,
+
+
+
+    size = 3.1
+
+  ) +
+
+
+
+  annotate(
+
+
+
+    "text",
+
+
+
+    x = 1,
+
+
+
+    y = mean_mode1_rmsd + 0.012,
+
+
+
+    label = paste0(
+
+      "Mean = ",
+
+      sprintf(
+
+        "%.3f Å",
+
+        mean_mode1_rmsd
+
+      )
+
+    ),
+
+
+
+    hjust = 0,
+
+
+
+    size = 3.2,
+
+
+
+    color = "gray25"
+
+  ) +
+
+
+
+  scale_y_continuous(
+
+
+
+    limits = c(
+
+      0,
+
+      max_mode1_rmsd + 0.07
+
+    ),
+
+
+
+    expand = expansion(
+
+      mult = c(
+
+        0,
+
+        0
+
+      )
+
+    )
+
+  ) +
+
+
+
+  labs(
+
+
+
+    title =
+
+      "Global-best blind pose recovery",
+
+
+
+    subtitle =
+
+      "Mode 1 converged to the targeted dominant family in all 10 seeds",
+
+
+
+    x =
+
+      "Blind-docking seed",
+
+
+
+    y =
+
+      "RMSD to targeted pose family (Å)",
+
+
+
+    caption =
+
+      "All global-best blind poses were well below the 2 Å recovery criterion."
+
+  ) +
+
+
+
+  theme_pub +
+
+
+
+  theme(
+
+    axis.text.x =
+
+      element_text(
+
+        angle = 45,
+
+        hjust = 1,
+
+        face = "plain",
+
+        size = 9
+
+      ),
+
+
+
+    legend.position =
+
+      "none"
+
+  )
+
+
+
+
+
+# ============================================================
+
+# PANEL B
+
+# TARGETED VS BLIND SCORES
+
+# ============================================================
+
+
+
+panel_B <- ggplot(
+
+
+
+  score_data,
+
+
+
+  aes(
+
+    x = Search_strategy,
+
+    y = Best_Vina_score,
+
+    color = Search_strategy
+
+  )
+
+) +
+
+
+
+  geom_jitter(
+
+
+
+    width = 0.08,
+
+    height = 0,
+
+
+
+    size = 2.8,
+
+
+
+    alpha = 0.9
+
+  ) +
+
+
+
+  geom_errorbar(
+
+
+
+    data = score_summary,
+
+
+
+    aes(
+
+      x = Search_strategy,
+
+      ymin = Mean - SD,
+
+      ymax = Mean + SD
+
+    ),
+
+
+
+    inherit.aes = FALSE,
+
+
+
+    width = 0.13,
+
+
+
+    linewidth = 0.8,
+
+
+
+    color = "black"
+
+  ) +
+
+
+
+  geom_point(
+
+
+
+    data = score_summary,
+
+
+
+    aes(
+
+      x = Search_strategy,
+
+      y = Mean
+
+    ),
+
+
+
+    inherit.aes = FALSE,
+
+
+
+    shape = 23,
+
+
+
+    size = 4.2,
+
+
+
+    stroke = 1,
+
+
+
+    fill = "white",
+
+
+
+    color = "black"
+
+  ) +
+
+
+
+  geom_text(
+
+
+
+    data = score_summary,
+
+
+
+    aes(
+
+      x = Search_strategy,
+
+      y = Mean + 0.065,
+
+      label = paste0(
+
+        sprintf(
+
+          "%.3f",
+
+          Mean
+
+        ),
+
+        " ± ",
+
+        sprintf(
+
+          "%.3f",
+
+          SD
+
+        )
+
+      )
+
+    ),
+
+
+
+    inherit.aes = FALSE,
+
+
+
+    size = 3.2,
+
+
+
+    color = "black"
+
+  ) +
+
+
+
+  scale_color_manual(
+
+
+
+    values = c(
+
+
+
+      "AP5-centered targeted" =
+
+        targeted_color,
+
+
+
+      "Whole-protein blind" =
+
+        blind_color
+
+    )
+
+  ) +
+
+
+
+  scale_x_discrete(
+
+
+
+    labels = c(
+
+
+
+      "AP5-centered targeted" =
+
+        "Targeted",
+
+
+
+      "Whole-protein blind" =
+
+        "Blind"
+
+    )
+
+  ) +
+
+
+
+  labs(
+
+
+
+    title =
+
+      "Docking-score reproducibility",
+
+
+
+    subtitle = paste0(
+
+      "Mean difference = ",
+
+      sprintf(
+
+        "%.3f kcal/mol",
+
+        delta_mean
+
+      )
+
+    ),
+
+
+
+    x =
+
+      "Search strategy",
+
+
+
+    y =
+
+      "Best Vina score (kcal/mol)",
+
+
+
+    caption =
+
+      "Diamond = mean; error bar = ±1 SD. Same receptor, ligand and Vina scoring function."
+
+  ) +
+
+
+
+  theme_pub +
+
+
+
+  theme(
+
+    legend.position =
+
+      "none"
+
+  )
+
+
+
+
+
+# ============================================================
+
+# PANEL C
+
+# RECOVERY FREQUENCY
+
+# ============================================================
+
+
+
+panel_C <- ggplot(
+
+
+
+  panel_C_data,
+
+
+
+  aes(
+
+    x = Population,
+
+    y = Percent,
+
+    fill = Threshold
+
+  )
+
+) +
+
+
+
+  geom_col(
+
+
+
+    position = position_dodge(
+
+      width = 0.72
+
+    ),
+
+
+
+    width = 0.62
+
+  ) +
+
+
+
+  geom_text(
+
+
+
+    aes(
+
+      label = Label
+
+    ),
+
+
+
+    position = position_dodge(
+
+      width = 0.72
+
+    ),
+
+
+
+    vjust = -0.35,
+
+
+
+    size = 3.5,
+
+
+
+    lineheight = 0.9
+
+  ) +
+
+
+
+  scale_fill_manual(
+
+
+
+    values = c(
+
+
+
+      "<= 2 Å" =
+
+        threshold_2_color,
+
+
+
+      "<= 3 Å" =
+
+        threshold_3_color
+
+    ),
+
+
+
+    labels = c(
+
+      "<= 2 Å",
+
+      "<= 3 Å"
+
+    )
+
+  ) +
+
+
+
+  scale_y_continuous(
+
+
+
+    limits = c(
+
+      0,
+
+      112
+
+    ),
+
+
+
+    breaks = c(
+
+      0,
+
+      20,
+
+      40,
+
+      60,
+
+      80,
+
+      100
+
+    ),
+
+
+
+    expand = expansion(
+
+      mult = c(
+
+        0,
+
+        0
+
+      )
+
+    )
+
+  ) +
+
+
+
+  labs(
+
+
+
+    title =
+
+      "Targeted-pose-family recovery",
+
+
+
+    subtitle =
+
+      "Recovery assessed after whole-protein docking",
+
+
+
+    x =
+
+      NULL,
+
+
+
+    y =
+
+      "Recovered poses (%)"
+
+  ) +
+
+
+
+  theme_pub
+
+
+
+
+
+# ============================================================
+
+# SAVE INDIVIDUAL PANELS
+
+# ============================================================
+
+
+
+ggsave(
+
+
+
+  file.path(
+
+    output_dir,
+
+    "AK1_blind_panelA_mode1_RMSD.png"
+
+  ),
+
+
+
+  panel_A,
+
+
+
+  width = 7.3,
+
+  height = 5.3,
+
+
+
+  dpi = 600,
+
+
+
+  bg = "white"
+
+)
+
+
+
+
+
+ggsave(
+
+
+
+  file.path(
+
+    output_dir,
+
+    "AK1_blind_panelA_mode1_RMSD.pdf"
+
+  ),
+
+
+
+  panel_A,
+
+
+
+  width = 7.3,
+
+  height = 5.3,
+
+
+
+  bg = "white"
+
+)
+
+
+
+
+
+ggsave(
+
+
+
+  file.path(
+
+    output_dir,
+
+    "AK1_blind_panelB_targeted_vs_blind_scores.png"
+
+  ),
+
+
+
+  panel_B,
+
+
+
+  width = 6.6,
+
+  height = 5.3,
+
+
+
+  dpi = 600,
+
+
+
+  bg = "white"
+
+)
+
+
+
+
+
+ggsave(
+
+
+
+  file.path(
+
+    output_dir,
+
+    "AK1_blind_panelB_targeted_vs_blind_scores.pdf"
+
+  ),
+
+
+
+  panel_B,
+
+
+
+  width = 6.6,
+
+  height = 5.3,
+
+
+
+  bg = "white"
+
+)
+
+
+
+
+
+ggsave(
+
+
+
+  file.path(
+
+    output_dir,
+
+    "AK1_blind_panelC_recovery_frequency.png"
+
+  ),
+
+
+
+  panel_C,
+
+
+
+  width = 6.5,
+
+  height = 5.3,
+
+
+
+  dpi = 600,
+
+
+
+  bg = "white"
+
+)
+
+
+
+
+
+ggsave(
+
+
+
+  file.path(
+
+    output_dir,
+
+    "AK1_blind_panelC_recovery_frequency.pdf"
+
+  ),
+
+
+
+  panel_C,
+
+
+
+  width = 6.5,
+
+  height = 5.3,
+
+
+
+  bg = "white"
+
+)
+
+
+
+
+
+# ============================================================
+
+# COMBINED FIGURE
+
+# ============================================================
+
+
+
+combined <- (
+
+
+
+  panel_A
+
+  |
+
+  panel_B
+
+  |
+
+  panel_C
+
+
+
+) +
+
+
+
+  plot_annotation(
+
+
+
+    title =
+
+      "Whole-protein blind docking independently recovers the targeted AK1 isorhamnetin pose",
+
+
+
+    tag_levels =
+
+      "A",
+
+
+
+    theme = theme(
+
+
+
+      plot.title = element_text(
+
+
+
+        size = 17,
+
+
+
+        face = "bold",
+
+
+
+        hjust = 0.5
+
+      ),
+
+
+
+      plot.tag = element_text(
+
+
+
+        size = 16,
+
+
+
+        face = "bold"
+
+      )
+
+    )
+
+  )
+
+
+
+
+
+ggsave(
+
+
+
+  file.path(
+
+    output_dir,
+
+    "AK1_BLIND_VALIDATION_ABC.png"
+
+  ),
+
+
+
+  combined,
+
+
+
+  width = 19.0,
+
+  height = 6.3,
+
+
+
+  dpi = 600,
+
+
+
+  bg = "white"
+
+)
+
+
+
+
+
+ggsave(
+
+
+
+  file.path(
+
+    output_dir,
+
+    "AK1_BLIND_VALIDATION_ABC.pdf"
+
+  ),
+
+
+
+  combined,
+
+
+
+  width = 19.0,
+
+  height = 6.3,
+
+
+
+  bg = "white"
+
+)
+
+
+
+
+
+# ============================================================
+
+# CONSOLE SUMMARY
+
+# ============================================================
+
+
+
+cat("\n")
+
+cat("============================================================\n")
+
+cat("AK1 BLIND-DOCKING VALIDATION FIGURE COMPLETE\n")
+
+cat("============================================================\n\n")
+
+
+
+
+
+cat(
+
+  "Mode-1 recovery:\n"
+
+)
+
+
+
+cat(
+
+  mode1_2A_n,
+
+  "/",
+
+  n_seeds,
+
+  " seeds <=2 A\n",
+
+  sep = ""
+
+)
+
+
+
+cat(
+
+  "Mean mode-1 RMSD = ",
+
+  sprintf(
+
+    "%.3f",
+
+    mean_mode1_rmsd
+
+  ),
+
+  " A\n\n",
+
+  sep = ""
+
+)
+
+
+
+
+
+cat(
+
+  "Targeted score = ",
+
+  sprintf(
+
+    "%.3f",
+
+    targeted_mean
+
+  ),
+
+  " kcal/mol\n",
+
+  sep = ""
+
+)
+
+
+
+
+
+cat(
+
+  "Blind score    = ",
+
+  sprintf(
+
+    "%.3f",
+
+    blind_mean
+
+  ),
+
+  " kcal/mol\n",
+
+  sep = ""
+
+)
+
+
+
+
+
+cat(
+
+  "Mean difference = ",
+
+  sprintf(
+
+    "%.3f",
+
+    delta_mean
+
+  ),
+
+  " kcal/mol\n\n",
+
+  sep = ""
+
+)
+
+
+
+
+
+cat(
+
+  "All blind poses <=2 A: ",
+
+  all_2A_n,
+
+  "/",
+
+  n_all_poses,
+
+  " (",
+
+  sprintf(
+
+    "%.1f%%",
+
+    100 * all_2A_n / n_all_poses
+
+  ),
+
+  ")\n",
+
+  sep = ""
+
+)
+
+
+
+
+
+cat(
+
+  "All blind poses <=3 A: ",
+
+  all_3A_n,
+
+  "/",
+
+  n_all_poses,
+
+  " (",
+
+  sprintf(
+
+    "%.1f%%",
+
+    100 * all_3A_n / n_all_poses
+
+  ),
+
+  ")\n\n",
+
+  sep = ""
+
+)
+
+
+
+
+
+cat(
+
+  "Excel workbook:\n",
+
+  excel_file,
+
+  "\n\n"
+
+)
+
+
+
+
+
+cat(
+
+  "Combined figure:\n",
+
+  file.path(
+
+    output_dir,
+
+    "AK1_BLIND_VALIDATION_ABC.png"
+
+  ),
+
+  "\n"
+
+)
+
+
+
+
+
+cat(
+
+  file.path(
+
+    output_dir,
+
+    "AK1_BLIND_VALIDATION_ABC.pdf"
+
+  ),
+
+  "\n\n"
+
+)
+
+
+
+
+
+cat(
+
+  "All source data and figure data preserved.\n"
+
+)
+
+END FILE: AK1_plot_blind_validation.R
+
+================================================================================
+FILE: AK1_run_blind_remaining9.bat
+Executable source: code/AK1_run_blind_remaining9.bat
+================================================================================
+@echo off
+
+setlocal
+
+
+
+REM ============================================================
+
+REM AK1 WHOLE-PROTEIN BLIND DOCKING
+
+REM Remaining 9 seeds
+
+REM Seed 1001 already completed as pilot
+
+REM ============================================================
+
+
+
+set "VINA=C:\Users\akidi\Desktop\Docking tools\vina_win.exe"
+
+
+
+set "RECEPTOR=..\receptors\AK1.pdbqt"
+
+set "LIGAND=..\ligand\isorhamnetin.pdbqt"
+
+
+
+set "CONFIG=..\results\AK1_blind_docking\AK1_blind_box.txt"
+
+
+
+set "EXHAUST=128"
+
+set "MODES=20"
+
+set "ERANGE=10"
+
+
+
+
+
+echo.
+
+echo ============================================================
+
+echo AK1 BLIND DOCKING - REMAINING 9 SEEDS
+
+echo ============================================================
+
+echo.
+
+echo Receptor      : %RECEPTOR%
+
+echo Ligand        : %LIGAND%
+
+echo Config        : %CONFIG%
+
+echo Exhaustiveness: %EXHAUST%
+
+echo Modes         : %MODES%
+
+echo Energy range  : %ERANGE%
+
+echo.
+
+echo ============================================================
+
+
+
+
+
+for %%S in (
+
+2002
+
+3003
+
+4004
+
+5005
+
+6006
+
+7007
+
+8008
+
+9009
+
+10101
+
+) do (
+
+
+
+    echo.
+
+    echo ============================================================
+
+    echo BLIND DOCKING SEED %%S
+
+    echo ============================================================
+
+    echo.
+
+
+
+    "%VINA%" ^
+
+    --receptor "%RECEPTOR%" ^
+
+    --ligand "%LIGAND%" ^
+
+    --config "%CONFIG%" ^
+
+    --exhaustiveness %EXHAUST% ^
+
+    --num_modes %MODES% ^
+
+    --energy_range %ERANGE% ^
+
+    --seed %%S ^
+
+    --out "..\docking\AK1_ISO_BLIND_seed%%S.pdbqt"
+
+
+
+    if errorlevel 1 (
+
+
+
+        echo.
+
+        echo ERROR: seed %%S failed.
+
+        echo Stopping batch.
+
+        pause
+
+        exit /b 1
+
+    )
+
+
+
+    echo.
+
+    echo Seed %%S completed successfully.
+
+)
+
+
+
+
+
+echo.
+
+echo ============================================================
+
+echo ALL REMAINING 9 BLIND DOCKING RUNS COMPLETE
+
+echo ============================================================
+
+echo.
+
+
+
+endlocal
+
+pause
+
+END FILE: AK1_run_blind_remaining9.bat
+
+
+================================================================================
+EXECUTION SCRIPT: AK1_run_blind_remaining9.bat
+Purpose: Run the nine remaining blind-search seeds with exhaustiveness 128, 20 modes and energy range 10; skip completed outputs.
+================================================================================
+@echo off
+setlocal
+
+REM ============================================================
+REM AK1 WHOLE-PROTEIN BLIND DOCKING
+REM Remaining 9 seeds
+REM Seed 1001 already completed as pilot
+REM ============================================================
+
+set "VINA=C:\Users\akidi\Desktop\Docking tools\vina_win.exe"
+
+set "RECEPTOR=..\receptors\AK1.pdbqt"
+set "LIGAND=..\ligand\isorhamnetin.pdbqt"
+
+set "CONFIG=..\results\AK1_blind_docking\AK1_blind_box.txt"
+
+set "EXHAUST=128"
+set "MODES=20"
+set "ERANGE=10"
+
+
+echo.
+echo ============================================================
+echo AK1 BLIND DOCKING - REMAINING 9 SEEDS
+echo ============================================================
+echo.
+echo Receptor      : %RECEPTOR%
+echo Ligand        : %LIGAND%
+echo Config        : %CONFIG%
+echo Exhaustiveness: %EXHAUST%
+echo Modes         : %MODES%
+echo Energy range  : %ERANGE%
+echo.
+echo ============================================================
+
+
+for %%S in (
+2002
+3003
+4004
+5005
+6006
+7007
+8008
+9009
+10101
+) do (
+
+    echo.
+    echo ============================================================
+    echo BLIND DOCKING SEED %%S
+    echo ============================================================
+    echo.
+
+    if exist "..\docking\AK1_ISO_BLIND_seed%%S.pdbqt" (
+      echo Keeping existing output "..\docking\AK1_ISO_BLIND_seed%%S.pdbqt"
+    ) else (
+      "%VINA%" ^
+      --receptor "%RECEPTOR%" ^
+      --ligand "%LIGAND%" ^
+      --config "%CONFIG%" ^
+      --exhaustiveness %EXHAUST% ^
+      --num_modes %MODES% ^
+      --energy_range %ERANGE% ^
+      --seed %%S ^
+      --out "..\docking\AK1_ISO_BLIND_seed%%S.pdbqt"
+      if errorlevel 1 exit /b 1
+    )
+
+    if errorlevel 1 (
+
+        echo.
+        echo ERROR: seed %%S failed.
+        echo Stopping batch.
+        pause
+        exit /b 1
+    )
+
+    echo.
+    echo Seed %%S completed successfully.
+)
+
+
+echo.
+echo ============================================================
+echo ALL REMAINING 9 BLIND DOCKING RUNS COMPLETE
+echo ============================================================
+echo.
+
+endlocal
+pause
+
+END FILE: AK1_run_blind_remaining9.bat

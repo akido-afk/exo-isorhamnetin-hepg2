@@ -1,0 +1,61 @@
+"State","Seed","Observed_family","Reference_family","Nearest_RMSD_A"
+"Neutral",1001,"Dominant","Dominant family",0.0401421387615026
+"Neutral",1001,"Dominant","Alternative family",7.34798378143106
+"Neutral",2002,"Dominant","Dominant family",0.0252233501205597
+"Neutral",2002,"Dominant","Alternative family",7.34834597183197
+"Neutral",3003,"Dominant","Dominant family",0.0237166241457245
+"Neutral",3003,"Dominant","Alternative family",7.3506159280525
+"Neutral",4004,"Dominant","Dominant family",0.0473341498194537
+"Neutral",4004,"Dominant","Alternative family",7.3514929362208
+"Neutral",5005,"Dominant","Dominant family",0.0262769530362552
+"Neutral",5005,"Dominant","Alternative family",7.34424697652346
+"Neutral",6006,"Alternative","Dominant family",7.34009396042217
+"Neutral",6006,"Alternative","Alternative family",0.0566488036636415
+"Neutral",7007,"Dominant","Dominant family",0.0445996685501429
+"Neutral",7007,"Dominant","Alternative family",7.33495997440252
+"Neutral",8008,"Alternative","Dominant family",7.33495997440252
+"Neutral",8008,"Alternative","Alternative family",0.0566488036636415
+"Neutral",9009,"Dominant","Dominant family",0.0237166241457245
+"Neutral",9009,"Dominant","Alternative family",7.34850706221871
+"Neutral",10101,"Dominant","Dominant family",0.0371026777423436
+"Neutral",10101,"Dominant","Alternative family",7.34859300937202
+"7-O⁻ monoanion",1001,"Alternative","Dominant family",7.33365809129387
+"7-O⁻ monoanion",1001,"Alternative","Alternative family",0.0459034904422597
+"7-O⁻ monoanion",2002,"Alternative","Dominant family",7.34355126447096
+"7-O⁻ monoanion",2002,"Alternative","Alternative family",0.0350589565558164
+"7-O⁻ monoanion",3003,"Alternative","Dominant family",7.3432931985588
+"7-O⁻ monoanion",3003,"Alternative","Alternative family",0.0470753327818477
+"7-O⁻ monoanion",4004,"Alternative","Dominant family",7.33509715711713
+"7-O⁻ monoanion",4004,"Alternative","Alternative family",0.0476061742433375
+"7-O⁻ monoanion",5005,"Alternative","Dominant family",7.32856497905108
+"7-O⁻ monoanion",5005,"Alternative","Alternative family",0.0827221646340273
+"7-O⁻ monoanion",6006,"Alternative","Dominant family",7.34061710473042
+"7-O⁻ monoanion",6006,"Alternative","Alternative family",0.0497091540865459
+"7-O⁻ monoanion",7007,"Alternative","Dominant family",7.33001422680866
+"7-O⁻ monoanion",7007,"Alternative","Alternative family",0.0427286687182601
+"7-O⁻ monoanion",8008,"Alternative","Dominant family",7.34415852166226
+"7-O⁻ monoanion",8008,"Alternative","Alternative family",0.055849565021077
+"7-O⁻ monoanion",9009,"Alternative","Dominant family",7.34630271692473
+"7-O⁻ monoanion",9009,"Alternative","Alternative family",0.0467653718043596
+"7-O⁻ monoanion",10101,"Alternative","Dominant family",7.33556217281977
+"7-O⁻ monoanion",10101,"Alternative","Alternative family",0.0333987763379073
+"7-O⁻/4′-O⁻ dianion",1001,"Dominant","Dominant family",0.414107316483563
+"7-O⁻/4′-O⁻ dianion",1001,"Dominant","Alternative family",7.24572267827266
+"7-O⁻/4′-O⁻ dianion",2002,"Dominant","Dominant family",0.379269549666655
+"7-O⁻/4′-O⁻ dianion",2002,"Dominant","Alternative family",7.25536698499508
+"7-O⁻/4′-O⁻ dianion",3003,"Dominant","Dominant family",0.417775683518237
+"7-O⁻/4′-O⁻ dianion",3003,"Dominant","Alternative family",7.2443373387951
+"7-O⁻/4′-O⁻ dianion",4004,"Dominant","Dominant family",0.409614718230808
+"7-O⁻/4′-O⁻ dianion",4004,"Dominant","Alternative family",7.23916759867729
+"7-O⁻/4′-O⁻ dianion",5005,"Dominant","Dominant family",0.390214210959548
+"7-O⁻/4′-O⁻ dianion",5005,"Dominant","Alternative family",7.25262358526659
+"7-O⁻/4′-O⁻ dianion",6006,"Dominant","Dominant family",0.377381366328776
+"7-O⁻/4′-O⁻ dianion",6006,"Dominant","Alternative family",7.24393251955221
+"7-O⁻/4′-O⁻ dianion",7007,"Dominant","Dominant family",0.378325888964619
+"7-O⁻/4′-O⁻ dianion",7007,"Dominant","Alternative family",7.2588193763952
+"7-O⁻/4′-O⁻ dianion",8008,"Dominant","Dominant family",0.382019291568417
+"7-O⁻/4′-O⁻ dianion",8008,"Dominant","Alternative family",7.25232843868841
+"7-O⁻/4′-O⁻ dianion",9009,"Dominant","Dominant family",0.38197564229195
+"7-O⁻/4′-O⁻ dianion",9009,"Dominant","Alternative family",7.25318806067223
+"7-O⁻/4′-O⁻ dianion",10101,"Dominant","Dominant family",0.390156991813384
+"7-O⁻/4′-O⁻ dianion",10101,"Dominant","Alternative family",7.24538134442121

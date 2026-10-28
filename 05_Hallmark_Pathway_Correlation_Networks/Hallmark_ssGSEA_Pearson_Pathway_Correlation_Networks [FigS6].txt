@@ -1,0 +1,95 @@
+# =============================================================================
+# HALLMARK ssGSEA PATHWAY CORRELATION NETWORKS [FigS6]
+# =============================================================================
+#
+# WHAT THE ANALYSIS DOES
+# Computes Pearson pathway correlations across all 12 arrays. Retains positive
+# edges with r >= 0.80 and pathways connected by those edges (35 nodes, 67 edges).
+# The two panels share the same topology. Node colour is treatment-minus-Ctrl
+# mean ssGSEA score; node size is its absolute value. Colour/size scales are shared.
+# Fruchterman-Reingold layout seeds are 123 (EXO-ISO) and 456 (Free ISO), as
+# specified in the SI. Layout positions do not change the edge statistics.
+# This step starts from the original Hallmark scores; their generation is covered
+# by the submission's 01_Differential_Expression_and_Hallmark_ssGSEA method.
+# OUTPUT FILES: both panel PNG/PDF files, correlation matrix, edge list and nodes.
+# Manuscript circles and panel lettering are editorial figure annotations.
+#
+# RUN FIGURE 3c FIRST
+# First run Hallmark_ssGSEA [Figure3c].txt in
+# 01_Differential_Expression_and_Hallmark_ssGSEA.
+# It produces ssGSEA_Hallmark_scores.csv in its
+# Hallmark_ssGSEA_Group_Heatmap_Outputs results folder.
+# Create this method's Inputs folder and copy the generated CSV into it.
+# Then run this S6 script. Use the full 50-Hallmark x 12-sample
+# score table, not the group-mean or row-z-score heatmap tables.
+#
+# REQUIRED INPUT FILES
+# Inputs/ssGSEA_Hallmark_scores.csv: pathways x 12 sample scores.
+#
+# HOW TO RUN THIS CODE
+# Keep this TXT next to its Inputs folder. In R, run:
+# source(file.choose(), encoding = "UTF-8")
+# Select this TXT. Results are written to this method's Results folder.
+# For batch use, set options(reviewer.method_dir = "path/to/method",
+# reviewer.output_dir = "path/to/results") before source("method.txt").
+# Input files are not modified. Re-running replaces the generated results.
+# Required packages are listed in need_packages() below.
+# Tested using R 4.6.0. PDF export uses Cairo to preserve text characters.
+#
+
+options(stringsAsFactors = FALSE, encoding = "UTF-8")
+# Locate this method folder when run with source(file.choose()).
+method_dir <- getOption("reviewer.method_dir", NULL)
+if (is.null(method_dir)) {
+  source_files <- lapply(sys.frames(), function(f) f$ofile)
+  source_files <- Filter(function(x) is.character(x) && length(x)==1, source_files)
+  method_dir <- if (length(source_files)) dirname(normalizePath(tail(source_files,1)[[1]], mustWork=TRUE)) else getwd()
+}
+input_dir <- file.path(method_dir, "Inputs")
+output_dir <- getOption("reviewer.output_dir", file.path(method_dir, "Results"))
+dir.create(output_dir, recursive=TRUE, showWarnings=FALSE)
+need_packages <- function(pkgs) {
+  missing <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly=TRUE)]
+  if(length(missing)) stop("Install the required R packages before running: install.packages(c(", paste(sprintf('\"%s\"',missing),collapse=", "), "))")
+  invisible(lapply(pkgs, library, character.only=TRUE))
+}
+save_figure <- function(p, name, width, height) {
+  ggplot2::ggsave(file.path(output_dir,paste0(name,".png")),p,width=width,height=height,dpi=300,bg="white")
+  ggplot2::ggsave(file.path(output_dir,paste0(name,".pdf")),p,width=width,height=height,device=grDevices::cairo_pdf,bg="white")
+}
+
+need_packages(c("ggplot2","igraph","ggraph"))
+scores <- as.matrix(read.csv(file.path(input_dir,"ssGSEA_Hallmark_scores.csv"),row.names=1,check.names=FALSE))
+storage.mode(scores) <- "double"
+stopifnot(ncol(scores)==12,all(is.finite(scores)),!anyDuplicated(rownames(scores)))
+group <- sub("_[0-9]+$","",colnames(scores)); group[group=="Ctr"] <- "Ctrl"
+stopifnot(all(table(group)==3),setequal(unique(group),c("NC","Ctrl","EXOISO","FreeISO")))
+means <- sapply(c("NC","Ctrl","EXOISO","FreeISO"),function(g) rowMeans(scores[,group==g,drop=FALSE]))
+r <- cor(t(scores),method="pearson")
+edge_df <- as.data.frame(as.table(r),stringsAsFactors=FALSE)
+names(edge_df) <- c("from","to","correlation")
+edge_df <- edge_df[edge_df$from < edge_df$to & edge_df$correlation >= .80,]
+nodes <- data.frame(name=rownames(scores),EXOISO=means[,"EXOISO"]-means[,"Ctrl"],FreeISO=means[,"FreeISO"]-means[,"Ctrl"])
+nodes <- nodes[nodes$name %in% unique(c(edge_df$from,edge_df$to)),]
+nodes$Label <- gsub("_"," ",sub("^HALLMARK_","",nodes$name))
+stopifnot(nrow(nodes)==35,nrow(edge_df)==67)
+write.csv(r,file.path(output_dir,"Hallmark_Pearson_correlations.csv"))
+write.csv(edge_df,file.path(output_dir,"Hallmark_network_edges.csv"),row.names=FALSE)
+write.csv(nodes,file.path(output_dir,"Hallmark_network_nodes.csv"),row.names=FALSE)
+lim <- max(abs(as.matrix(nodes[,c("EXOISO","FreeISO")])))
+for (contrast in c("EXOISO","FreeISO")) {
+  v <- nodes;v$Delta <- v[[contrast]];v$Abs_Delta <- abs(v$Delta)
+  graph <- graph_from_data_frame(edge_df,vertices=v,directed=FALSE)
+  set.seed(if(contrast=="EXOISO")123 else 456)
+  p <- ggraph(graph,layout="fr") +
+    geom_edge_link(aes(width=correlation,alpha=correlation),color="grey55") +
+    geom_node_point(aes(color=Delta,size=Abs_Delta),alpha=.95) +
+    geom_node_text(aes(label=Label),repel=TRUE,size=3) +
+    scale_color_gradient2(low="blue",mid="white",high="red",midpoint=0,limits=c(-lim,lim),name="Treatment minus Ctrl
+ssGSEA score") +
+    scale_size_continuous(range=c(3,8),limits=c(0,lim),name="Absolute difference") +
+    theme_void() + labs(title=paste(contrast,"Hallmark pathway correlation network")) +
+    theme(plot.title=element_text(face="bold",hjust=.5,size=16),legend.position="right")
+  save_figure(p,paste0(if(contrast=="EXOISO")"FigS6a" else "FigS6b","_",contrast,"_Hallmark_network"),10,8)
+}
+message("Completed Figure S6: ",output_dir)

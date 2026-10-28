@@ -1,0 +1,213 @@
+# ============================================================================
+# AK-NEIGHBOURHOOD KEA3 ANALYSIS 
+# ============================================================================
+# This script calculates the mean standardized AK-family score across the 12
+# biological samples, then identifies genes positively and negatively correlated
+# with that score using Spearman correlation.
+# The top 100, 150 and 200 genes in each direction define 6 KEA3 queries.
+#
+# HOW TO RUN THIS CODE?
+# In R or RStudio, enter: source(file.choose(), encoding = "UTF-8")
+# Select this TXT, then choose All Expressions.txt from Input_Source_Files.
+# The official KEA3 server is queried when a matching response is not available.
+# This analysis can be run once the original TAC expression table is available.
+#
+# REQUIRED INPUTS
+# All Expressions.txt (12 biological samples)
+#
+# OUTPUTS
+# The AK-family expression scores and correlation tables are written to
+# AK_KEA3_Figure6_Results. The 6 raw KEA3 JSON response files are also copied
+# into Input_Source_Files for the final Figure 6 analysis.
+# ============================================================================
+
+options(stringsAsFactors=FALSE)
+for (pkg in c("dplyr", "jsonlite", "httr")) {
+  if (!requireNamespace(pkg, quietly=TRUE)) install.packages(pkg, repos="https://cloud.r-project.org")
+  if (!requireNamespace(pkg, quietly=TRUE)) stop("Missing R package: ", pkg)
+}
+suppressPackageStartupMessages(library(dplyr))
+KEA3_URL <- "https://maayanlab.cloud/kea3/api/enrich/"
+message("Choose All Expressions.txt from Input_Source_Files.")
+expression_file <- normalizePath(file.choose(), winslash="/", mustWork=TRUE)
+if (basename(expression_file) != "All Expressions.txt") stop("Choose All Expressions.txt.")
+input_dir <- dirname(expression_file)
+project_dir <- if (basename(input_dir) == "Input_Source_Files") dirname(input_dir) else input_dir
+output_dir <- file.path(project_dir, "AK_KEA3_Figure6_Results")
+dir.create(output_dir, recursive=TRUE, showWarnings=FALSE)
+save_csv <- function(x,name) utils::write.csv(x,file.path(output_dir,name),row.names=FALSE,na="")
+# ---------- Original 12-array expression matrix ---------------------
+header_lines <- readLines(expression_file, n = 15L, warn = FALSE, encoding = "UTF-8")
+header_line <- which(grepl("^ID\\t", header_lines))[1]
+if (is.na(header_line)) stop("Cannot find the TAC expression header beginning with ID.")
+tac <- utils::read.delim(expression_file, skip = header_line - 1L,
+                         sep = "\t", header = TRUE, quote = "", comment.char = "",
+                         check.names = FALSE, stringsAsFactors = FALSE,
+                         fileEncoding = "UTF-8")
+if (!"Gene Symbol" %in% names(tac)) stop("TAC file is missing Gene Symbol.")
+
+samples <- unlist(lapply(list(
+  NC = "NC", Ctrl = "Ctr", FreeISO = "Free ISO", EXOISO = "EXO ISO"),
+  function(prefix) sprintf("%s %s Avg (log2)", prefix, 1:3)), use.names = FALSE)
+if (!all(samples %in% names(tac))) {
+  stop("Missing TAC sample columns: ", paste(setdiff(samples, names(tac)), collapse = ", "))
+}
+expr_features <- as.matrix(tac[, samples, drop = FALSE])
+storage.mode(expr_features) <- "numeric"
+if (any(!is.finite(expr_features))) stop("Non-finite measurements found in TAC expression matrix.")
+colnames(expr_features) <- c(paste0("NC_", 1:3), paste0("Ctrl_", 1:3),
+                              paste0("FreeISO_", 1:3), paste0("EXOISO_", 1:3))
+sample_names <- colnames(expr_features)
+group_names <- rep(c("NC", "Ctrl", "FreeISO", "EXOISO"), each = 3L)
+
+# If a symbol occurs on several TAC features, average its log2 expression
+# values within each sample. Keep only valid annotated gene symbols.
+feature_sums <- new.env(hash = TRUE, parent = emptyenv())
+feature_counts <- new.env(hash = TRUE, parent = emptyenv())
+for (i in seq_len(nrow(tac))) {
+  genes <- unique(toupper(trimws(strsplit(as.character(tac[["Gene Symbol"]][i]),
+                                        "///|//|;|,")[[1]])))
+  genes <- genes[!is.na(genes) & nzchar(genes) & !genes %in% c("---", "NA", "-")]
+  for (gene in genes) {
+    if (exists(gene, envir = feature_sums, inherits = FALSE)) {
+      assign(gene, get(gene, envir = feature_sums, inherits = FALSE) +
+             expr_features[i, ], envir = feature_sums)
+      assign(gene, get(gene, envir = feature_counts, inherits = FALSE) + 1L,
+             envir = feature_counts)
+    } else {
+      assign(gene, expr_features[i, ], envir = feature_sums)
+      assign(gene, 1L, envir = feature_counts)
+    }
+  }
+}
+all_symbols <- sort(ls(feature_sums))
+expr_gene <- t(vapply(all_symbols, function(g) {
+  get(g, envir = feature_sums) / get(g, envir = feature_counts)
+}, numeric(12)))
+rownames(expr_gene) <- all_symbols
+colnames(expr_gene) <- sample_names
+expr_gene <- expr_gene[apply(expr_gene, 1, stats::sd) > 0, , drop = FALSE]
+
+# 8 AK-family members annotated to GO:0004017 and present on the array.
+ak_genes <- c("AK1", "AK2", "AK3", "AK4", "AK5", "AK7", "AK8", "AK9")
+if (!all(ak_genes %in% rownames(expr_gene))) {
+  stop("Missing AK-family genes: ", paste(setdiff(ak_genes, rownames(expr_gene)), collapse = ", "))
+}
+ak_z <- t(scale(t(expr_gene[ak_genes, , drop = FALSE]), center = TRUE, scale = TRUE))
+if (any(!is.finite(ak_z))) stop("Invalid AK-gene Z scores.")
+ak_score <- colMeans(ak_z)
+ak_samples <- data.frame(Sample = sample_names, Group = group_names,
+                         AK_GO0004017_score = as.numeric(ak_score))
+ak_means <- ak_samples %>% group_by(Group) %>%
+  summarise(N_biological = n(), Mean_AK_family_score = mean(AK_GO0004017_score),
+            .groups = "drop")
+ak_means$Group <- factor(ak_means$Group,
+                         levels = c("NC", "Ctrl", "FreeISO", "EXOISO"))
+save_csv(ak_samples, "Figure6a_AK_scores_per_biological_sample.csv")
+save_csv(ak_means, "Figure6a_AK_group_means_FC1p30.csv")
+
+# ---------- Kinase transcript correlations -------------------------------
+# Spearman p uses the standard t approximation with 12 independent arrays,
+# consistent with cor.test(method = "spearman", exact = FALSE). There are
+# 3 biological samples per treatment group. 
+score_resid <- ak_score - ave(ak_score, group_names)
+all_correlations <- lapply(seq_len(nrow(expr_gene)), function(i) {
+  x <- as.numeric(expr_gene[i, ])
+  rho <- suppressWarnings(stats::cor(x, ak_score, method = "spearman"))
+  p <- if (is.finite(rho)) {
+    if (abs(rho) == 1) 0 else {
+      t_value <- rho * sqrt(10 / (1 - rho^2))
+      2 * stats::pt(-abs(t_value), df = 10)
+    }
+  } else NA_real_
+  group_resid <- x - ave(x, group_names)
+  group_r <- suppressWarnings(stats::cor(group_resid, score_resid))
+  group_p <- if (is.finite(group_r)) {
+    if (abs(group_r) == 1) 0 else {
+      2 * stats::pt(-abs(group_r * sqrt(10 / (1 - group_r^2))), df = 10)
+    }
+  } else NA_real_
+  data.frame(Kinase_symbol = rownames(expr_gene)[i],
+             Spearman_rho = rho, Spearman_p = p,
+             Pearson_r = suppressWarnings(stats::cor(x, ak_score)),
+             Group_adjusted_r = group_r, Group_adjusted_p = group_p)
+})
+cor_table <- dplyr::bind_rows(all_correlations)
+cor_table$Spearman_FDR_all_tested_genes <- stats::p.adjust(cor_table$Spearman_p, method = "BH")
+save_csv(cor_table, "Figure6c_all_gene_correlations.csv")
+
+# Generate the 6 gene lists used for the AK-neighbourhood
+# sensitivity analysis. The saved KEA3 responses are fixed reference data. 
+# The lists document the correlation-based gene selection.
+query_output_dir <- file.path(output_dir, "AK_neighbourhood_query_lists")
+dir.create(query_output_dir, recursive = TRUE, showWarnings = FALSE)
+AK_ranked <- cor_table %>%
+  filter(is.finite(Spearman_rho),
+         !Kinase_symbol %in% c(ak_genes, "CMPK2"))
+save_csv(AK_ranked %>% arrange(desc(Spearman_rho), Kinase_symbol),
+         "Figure6_AK_neighbourhood_gene_correlations.csv")
+for (n in c(100L, 150L, 200L)) {
+  pos <- AK_ranked %>% arrange(desc(Spearman_rho), Kinase_symbol) %>%
+    slice_head(n = n) %>% pull(Kinase_symbol)
+  neg <- AK_ranked %>% arrange(Spearman_rho, Kinase_symbol) %>%
+    slice_head(n = n) %>% pull(Kinase_symbol)
+  writeLines(pos, file.path(query_output_dir, paste0("AKscore_POS_top", n, ".txt")))
+  writeLines(neg, file.path(query_output_dir, paste0("AKscore_NEG_top", n, ".txt")))
+}
+
+
+# KEA3 accepts a gene-symbol list with a descriptive, unique query name.
+# Each response is checked against its query name and gene-list checksum.
+query_names <- unlist(lapply(c("POS", "NEG"), function(direction)
+  paste0("AKscore_", direction, "_top", c(100L, 150L, 200L))), use.names=FALSE)
+raw_dir <- file.path(output_dir, "KEA3_raw_responses")
+dir.create(raw_dir, recursive=TRUE, showWarnings=FALSE)
+query_summary <- list()
+for (q in query_names) {
+  gene_file <- file.path(query_output_dir, paste0(q, ".txt"))
+  if (!file.exists(gene_file)) stop("Missing AK-neighbourhood list: ", q)
+  genes <- readLines(gene_file, warn=FALSE, encoding="UTF-8")
+  if (length(genes) != as.integer(sub(".*_top", "", q)))
+    stop("Incorrect number of ranked AK-neighbourhood genes for ", q)
+  query_hash <- unname(tools::md5sum(gene_file))
+  raw_file <- file.path(raw_dir, paste0(q, ".json"))
+  hash_file <- file.path(raw_dir, paste0(q, ".input.md5"))
+  cache_ok <- file.exists(raw_file) && file.exists(hash_file) &&
+    identical(trimws(readLines(hash_file, warn=FALSE)), query_hash)
+  if (cache_ok) {
+    raw_text <- paste(readLines(raw_file, warn=FALSE,encoding="UTF-8"),collapse="\n")
+  } else {
+    message("KEA3 ", q, ": submitting ", length(genes), " genes.")
+    response <- tryCatch(httr::RETRY("POST", KEA3_URL,
+       body=list(query_name=q,gene_set=unname(genes)),encode="json",times=3,
+       pause_base=2,pause_cap=12,httr::timeout(180)),
+       error=function(e) stop("KEA3 request failed for ",q,": ",conditionMessage(e)))
+    if (httr::status_code(response) != 200L)
+      stop("KEA3 returned HTTP ",httr::status_code(response)," for ",q)
+    raw_text <- httr::content(response,as="text",encoding="UTF-8")
+  }
+  raw <- jsonlite::fromJSON(raw_text,simplifyVector=TRUE)
+  for (method in c("Integrated--meanRank", "Integrated--topRank")) {
+    tab <- raw[[method]]
+    if (!is.data.frame(tab) || nrow(tab)<50L ||
+        !all(c("Query Name","TF","Rank") %in% names(tab)) ||
+        !identical(unique(as.character(tab[["Query Name"]])),q))
+      stop("KEA3 response lacks the expected query identity and integrated ranks: ",q)
+  }
+  if (!cache_ok) {
+    writeLines(raw_text,raw_file,useBytes=TRUE)
+    writeLines(query_hash,hash_file)
+  }
+  next_file <- file.path(input_dir,paste0(q,".json"))
+  if (!file.copy(raw_file,next_file,overwrite=TRUE))
+    stop("Cannot copy AK KEA3 JSON to Input_Source_Files: ",q)
+  if (!identical(unname(tools::md5sum(raw_file)),unname(tools::md5sum(next_file))))
+    stop("KEA3 response copy checksum mismatch: ",q)
+  query_summary[[q]] <- data.frame(Query_Name=q,N_genes=length(genes),
+     Gene_list_MD5=query_hash,Response_MD5=unname(tools::md5sum(raw_file)),
+     stringsAsFactors=FALSE)
+  message("Ready: ",next_file)
+}
+write.csv(do.call(rbind,query_summary),file.path(output_dir,"AK_KEA3_query_checksums.csv"),row.names=FALSE)
+writeLines(capture.output(sessionInfo()),file.path(output_dir,"sessionInfo.txt"))
+message("The 6 AK KEA3 responses are ready in Input_Source_Files.")

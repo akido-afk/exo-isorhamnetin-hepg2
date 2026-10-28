@@ -1,0 +1,47 @@
+06 Protonation State Sensitivity
+RECOMMENDED REPRODUCTION STEPS
+
+Run these commands from the working project's structures/ directory after completing the setup in the docking README. The optional new-search sections run new docking calculations.
+
+PROTONATION-STATE INPUT PREPARATION
+Prepared state-specific SDF/PDBQT inputs are supplied. To rebuild them in an independent working copy:
+python ..\run_analysis.py AK1_generate_ISO_protonation_states.py
+python "%CONDA_PREFIX%\Lib\site-packages\meeko\cli\mk_prepare_ligand.py" -i "..\ligand\ISO_protonation_states\isorhamnetin_state1_7O_minus.sdf" -o "..\ligand\ISO_protonation_states\isorhamnetin_state1_7O_minus.pdbqt"
+python "%CONDA_PREFIX%\Lib\site-packages\meeko\cli\mk_prepare_ligand.py" -i "..\ligand\ISO_protonation_states\isorhamnetin_state2_7O_4primeO_dianion.sdf" -o "..\ligand\ISO_protonation_states\isorhamnetin_state2_7O_4primeO_dianion.pdbqt"
+
+OPTIONAL NEW SEARCH (prepare with --fresh-docking)
+The neutral baseline must be present first: run the chapter 03 targeted search or use its supplied saved files.
+python ..\run_analysis.py --allow-docking run_AK1_ISO_protonation_sensitivity.bat
+
+ANALYSIS
+python ..\run_analysis.py AK1_analyze_ISO_protonation_sensitivity.py
+python ..\run_analysis.py AK1_compare_monoanion_to_neutral_alternative.py
+python ..\run_analysis.py AK1_compare_dianion_to_neutral_pose_families.py
+python ..\run_analysis.py AK1_extract_protonation_state_contacts.py
+python ..\run_analysis.py AK1_ligand_state_figure_BC.R
+python ..\run_analysis.py AK1_protonation_contact_heatmaps.R
+
+OTHER SUPPLIED SOURCES
+The following list includes alternative versions; it is not a required sequence.
+06 Protonation State Sensitivity
+REPRODUCTION COMMANDS
+
+First use the preparation helper described in the root README.txt to create a new working copy. Run commands from that copy's structures/ directory.
+Use the relevant steps below; alternative plotting scripts are separate versions, not a sequence that must all be run. Saved docking outputs are supplied for downstream analysis. New docking searches must write to a separate empty output folder.
+
+python ..\run_analysis.py AK1_analyze_ISO_protonation_sensitivity.py
+python ..\run_analysis.py AK1_compare_dianion_to_neutral_pose_families.py
+python ..\run_analysis.py AK1_compare_monoanion_to_neutral_alternative.py
+python ..\run_analysis.py AK1_draw_ISO_protonation_states.py
+python ..\run_analysis.py AK1_extract_protonation_state_contacts.py
+python ..\run_analysis.py AK1_generate_ISO_protonation_states.py
+python ..\run_analysis.py AK1_ligand_state_figure_BC.R
+python ..\run_analysis.py AK1_panel_state_overlay_dianion.pml
+python ..\run_analysis.py AK1_panel_state_overlay_monoanion.pml
+python ..\run_analysis.py AK1_protonation_contact_heatmaps.R
+python ..\run_analysis.py AK1_state_overlay_dianion_v2.pml
+python ..\run_analysis.py AK1_state_overlay_monoanion_v2.pml
+python ..\run_analysis.py inspect_ISO_current_state.py
+python ..\run_analysis.py --allow-docking run_AK1_ISO_protonation_sensitivity.bat
+
+The preparation helper uses the portable execution sources listed in README.txt. Run the same script filenames from the independent structures/ directory. To repeat a docking search, prepare that working copy with --fresh-docking.

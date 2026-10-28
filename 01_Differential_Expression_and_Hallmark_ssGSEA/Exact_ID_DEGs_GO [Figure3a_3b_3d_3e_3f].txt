@@ -1,0 +1,980 @@
+# ============================================================================
+# EXACT-ID DEG AND DISEASE-SIGNATURE ANALYSES
+# ============================================================================
+#
+# This analysis examines how free isorhamnetin (Free ISO) and EV-associated
+# isorhamnetin (EXO-ISO) affect the FFA-associated transcriptional response in
+# HepG2 cells. The 4 groups are NC (non-steatotic control), Ctrl (FFA alone),
+# Free ISO (FFA plus free isorhamnetin) and EXO-ISO (FFA plus EV-associated ISO).
+# Each group has three biological microarray samples.
+#
+# WHAT THE ANALYSIS DOES?
+# We first define the FFA-associated disease signature by comparing Ctrl with NC.
+# We then ask which of those features change in the opposite direction
+# after either treatment and which treatment-responsive features fall outside
+# that signature. Finally, we examine restoration toward NC, summarize changes
+# in 4 GO-annotated biological categories, and assess sampling sensitivity.
+#
+# DATA AND SELECTION CRITERIA
+# The analysis uses 21448 Clariom S transcript cluster features. All tables
+# are aligned by their exact transcript-cluster IDs, not by gene symbols.
+# Differential expression is defined using nominal TAC p < 0.05 and the
+# absolute value of the TAC-reported linear fold change >= 1.50.
+#
+# REQUIRED INPUT FILES
+# Place all 10 source files directly in the Input_Source_Files folder:
+# The 8 original TAC expression and contrast files:
+#   All Expressions.txt
+#   All Expressions of Groups.txt
+#   Ctr Vs NC ALL.txt
+#   EXO-ISO Vs Ctrl ALL.txt
+#   EXO-ISO Vs FREE ISO ALL.txt
+#   Ctr Vs FREE ISO ALL.txt
+#   EXO-ISO Vs NC ALL.txt
+#   FREE ISO Vs NC ALL.txt
+
+# Also the 2 original GO annotation reference files:
+#   go-basic.obo
+#   HUMAN-uniprot.gaf.gz
+# These are the frozen GO ontology and human GOA snapshots used in the
+# original analysis. 
+# GO membership is reconstructed using 24 fixed GO Biological Process seeds.
+# Current online GO/GOA releases are not downloaded or substituted, since
+# using a different annotation release could change the Figure 3d counts.
+#
+# HOW TO RUN THIS CODE?
+# In R, enter: source(file.choose(), encoding = "UTF-8")
+# Select this code file. R will find the input folder if it is next to the
+# script or in the working directory. Otherwise, R will prompt you to select
+# one of the 8 TAC .txt files. It finds the remaining files in that folder.
+# The 2 frozen GO reference files must be in that same folder. Only base R is required.
+#
+# OUTPUT FILES
+# Results are written to R_Exact_ID_DEGs_and_Disease_Signatures beside Input_Source_Files.
+# Summary and evidence tables:
+#   00_Tac_Source_Audit.csv
+#   01_Panel_A_Reversal_Counts.csv
+#   02_Panel_B_Outside_Signature.csv
+#   GO_Annotation_Results/03_Feature_Category_Membership_ALL_21448.csv
+#   GO_Annotation_Results/07_Mapping_QC_Summary.csv
+#   03_Panel_D_Four_GO_Categories.csv
+#   04_GO_Pooled_Supplementary.csv
+#   05_Restoration_Summary.csv
+#   06_Restoration_GeneLevel_1211.csv
+#   07_Exact_Label_Permutations.csv
+#   08_Exploratory_Bootstrap_Intervals.csv
+#   09_Replicate_Level_Sensitivity.csv
+#   10_All_Features_Full_Audit_21448.csv
+#   11_Source_File_Checksums.csv
+#   12_R_Session_Info.txt
+#   README_Run_Manifest.txt
+# Plots are saved in Figures as PNG, PDF and TIFF:
+#   Figure3a_Opposite_Direction
+#   Figure3b_Outside_Disease_Signature
+#   Figure3d_GO_Directional_Two_Comparisons
+#   Figure3d_Supplement_Pooled_GO
+#   Figure3e_Restoration_Distributions
+#   Figure3f_Disease_Axis_Regression
+# Figure 3c (Hallmark ssGSEA) is produced by a separate analysis.
+#
+
+# ============================================================================
+
+options(stringsAsFactors = FALSE)
+P_CUTOFF <- 0.05
+FC_CUTOFF <- 1.5
+BOOTSTRAPS <- 1000L
+SEED <- 20261018L
+RED <- "#EF513D"
+BLUE <- "#56BBD3"
+
+# 1. Locate the input data.
+# The 8 TAC exports must be read together because the analysis compares
+# the same transcript clusters across several contrasts. If R cannot find
+# the input folder automatically, a file chooser lets the reader point to
+# the data without changing the script.
+files <- c(
+  samples    = "All Expressions.txt",
+  means      = "All Expressions of Groups.txt",
+  Ctrl_NC    = "Ctr Vs NC ALL.txt",
+  EXO_Ctrl   = "EXO-ISO Vs Ctrl ALL.txt",
+  EXO_Free   = "EXO-ISO Vs FREE ISO ALL.txt",
+  Free_Ctrl  = "Ctr Vs FREE ISO ALL.txt",
+  EXO_NC     = "EXO-ISO Vs NC ALL.txt",
+  Free_NC    = "FREE ISO Vs NC ALL.txt"
+)
+
+find_tac_directory <- function(required_files) {
+  candidates <- c(file.path(getwd(), "Input_Source_Files"), getwd())
+  script_paths <- vapply(sys.frames(), function(f) {
+    if (is.null(f$ofile)) NA_character_ else as.character(f$ofile)[1L]
+  }, character(1))
+  script_paths <- script_paths[!is.na(script_paths) & nzchar(script_paths)]
+  if (length(script_paths)) {
+    dirs <- unique(dirname(normalizePath(script_paths, mustWork = FALSE)))
+    candidates <- c(candidates, file.path(dirs, "Input_Source_Files"), dirs)
+  }
+  for (candidate in unique(candidates)) {
+    if (dir.exists(candidate) &&
+        all(file.exists(file.path(candidate, required_files)))) {
+      return(normalizePath(candidate, mustWork = TRUE))
+    }
+  }
+  if (!interactive()) {
+    stop("Cannot locate TAC inputs: place all eight TAC exports in ",
+         "Input_Source_Files/ beside the script.", call. = FALSE)
+  }
+  message("Select any one of the eight original TAC .txt files; R will use its folder.")
+  selected <- file.choose()
+  if (!(basename(selected) %in% required_files)) {
+    stop("The selected file is not one of the eight required TAC exports: ",
+         basename(selected), call. = FALSE)
+  }
+  candidate <- dirname(normalizePath(selected, mustWork = TRUE))
+  missing <- required_files[!file.exists(file.path(candidate, required_files))]
+  if (length(missing)) {
+    stop("Missing TAC input files in the selected folder:\n  - ",
+         paste(missing, collapse = "\n  - "), call. = FALSE)
+  }
+  candidate
+}
+
+input_dir <- find_tac_directory(files)
+# The original GO ontology and annotation releases are part of the input.
+# Missing references are reported immediately rather than replaced with different
+# GO releases that might produce different biological classifications.
+go_reference_files <- c("go-basic.obo", "HUMAN-uniprot.gaf.gz")
+missing_go <- go_reference_files[
+  !file.exists(file.path(input_dir, go_reference_files))
+]
+if (length(missing_go)) {
+  stop("Missing original GO reference file(s) in Input_Source_Files: ",
+       paste(missing_go, collapse = ", "),
+       ". Copy the two datasets directly into the TAC input folder.",
+       call. = FALSE)
+}
+output_dir <- if (basename(input_dir) == "Input_Source_Files") {
+  file.path(dirname(input_dir), "R_Exact_ID_DEGs_and_Disease_Signatures")
+} else {
+  file.path(input_dir, "R_Exact_ID_DEGs_and_Disease_Signatures")
+}
+dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+fig_dir <- file.path(output_dir, "Figures")
+dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
+message("Input data: ", input_dir)
+message("Analysis outputs: ", output_dir)
+
+# TAC exports contain a short metadata preamble before the tabular header.
+# Locate the ID header and preserve the original column names during import.
+# I made the analysis stop if a missing or duplicated transcript ID appeared and do not let
+# rows from different contrasts to be matched incorrectly.
+read_tac <- function(path) {
+  lines <- readLines(path, n = 12L, warn = FALSE, encoding = "UTF-8")
+  h <- grep("^ID\\t", lines)[1]
+  if (is.na(h)) stop("TAC column header not found in: ", path)
+  x <- read.delim(path, skip = h - 1L, header = TRUE, quote = "",
+                  check.names = FALSE, fileEncoding = "UTF-8-BOM")
+  if (!"ID" %in% names(x) || anyNA(x$ID) || anyDuplicated(x$ID)) {
+    stop("Invalid or duplicate transcript-cluster IDs in: ", path)
+  }
+  x
+}
+TAC <- lapply(file.path(input_dir, files), read_tac)
+names(TAC) <- names(files)
+M <- TAC$means
+ids <- M$ID
+stopifnot(length(ids) == 21448L, !anyDuplicated(ids))
+for (nm in names(TAC)) {
+  ord <- match(ids, TAC[[nm]]$ID)
+  if (anyNA(ord) || length(ord) != nrow(TAC[[nm]])) {
+    stop("Feature set differs in: ", nm)
+  }
+  TAC[[nm]] <- TAC[[nm]][ord, , drop = FALSE]
+  stopifnot(identical(TAC[[nm]]$ID, ids))
+}
+mu <- list(
+  Ctrl = as.numeric(M[["Control Avg (log2)"]]),
+  EXO  = as.numeric(M[["EXO-ISO Avg (log2)"]]),
+  Free = as.numeric(M[["Free ISO Avg (log2)"]]),
+  NC   = as.numeric(M[["NC Avg (log2)"]])
+)
+stopifnot(all(vapply(mu, function(v) all(is.finite(v)), logical(1))))
+
+# 2. Define differential-expression sets for all 6 comparisons.
+# For each contrast, apply the same nominal p-value and absolute linear-FC
+# thresholds. Expression directions are calculated from the group means so
+# that a positive effect always means higher expression in the first group.
+# The TAC export named "Ctr Vs FREE ISO ALL.txt" uses Ctrl minus Free ISO.
+# The treatment comparison here is Free ISO minus Ctrl, so its direction is
+# reversed explicitly before comparing treatment effects.
+pairs <- list(
+  Ctrl_NC   = c("Ctrl", "NC"),
+  EXO_Ctrl  = c("EXO", "Ctrl"),
+  EXO_Free  = c("EXO", "Free"),
+  Free_Ctrl = c("Free", "Ctrl"),
+  EXO_NC    = c("EXO", "NC"),
+  Free_NC   = c("Free", "NC")
+)
+contrast <- lapply(names(pairs), function(nm) {
+  src <- TAC[[nm]]
+  p <- as.numeric(src[["P-val"]])
+  fdr <- as.numeric(src[["FDR P-val"]])
+  fc <- as.numeric(src[["Fold Change"]])
+  ab <- pairs[[nm]]
+  effect <- mu[[ab[1]]] - mu[[ab[2]]]
+  list(p = p, fdr = fdr, signed_FC_source = fc,
+       log2_effect = effect,
+       deg = is.finite(p) & p < P_CUTOFF &
+             is.finite(fc) & abs(fc) >= FC_CUTOFF)
+})
+names(contrast) <- names(pairs)
+
+# Check that the group averages agree across the TAC exports. This catches
+# mismatched source files before any intersections or figures are produced.
+for (nm in names(pairs)) {
+  src <- TAC[[nm]]
+  mean_cols <- grep(" Avg \\(log2\\)$", names(src), value = TRUE)
+  stopifnot(length(mean_cols) == 2L)
+  src_group_order <- if (nm == "Free_Ctrl") c("Ctrl", "Free") else pairs[[nm]]
+  for (k in 1:2) {
+    discrepancy <- max(abs(as.numeric(src[[mean_cols[k]]]) -
+                           mu[[src_group_order[k]]]), na.rm = TRUE)
+    if (discrepancy > 0.000001) {
+      stop("TAC mean mismatch in ", nm, " (", mean_cols[k], "): ", discrepancy)
+    }
+  }
+}
+write.csv(data.frame(
+  Comparison = names(contrast),
+  Nominal_DEG_count = vapply(contrast, function(x) sum(x$deg), integer(1)),
+  Source_file = files[names(contrast)]),
+  file.path(output_dir, "00_Tac_Source_Audit.csv"), row.names = FALSE)
+
+# 3. Define the FFA disease signature and classify treatment responses.
+# Ctrl vs NC defines one fixed set of disease-associated features.
+# Figure 3a counts treatment DEGs that move opposite to the FFA effect,
+# separately for disease-up and disease-down features. Figure 3b counts
+# treatment DEGs that do not belong to that fixed disease signature.
+disease <- contrast$Ctrl_NC$deg
+disease_up <- disease & contrast$Ctrl_NC$log2_effect > 0
+disease_down <- disease & contrast$Ctrl_NC$log2_effect < 0
+exo <- contrast$EXO_Ctrl
+free <- contrast$Free_Ctrl
+stopifnot(sum(disease) == 1211L, sum(disease_up) == 588L,
+          sum(disease_down) == 623L)
+
+panel_a <- data.frame(
+  Treatment = c("EXO-ISO", "Free ISO"),
+  Disease_up_reversed = c(
+    sum(disease_up & exo$deg & exo$log2_effect < 0),
+    sum(disease_up & free$deg & free$log2_effect < 0)),
+  Disease_down_reversed = c(
+    sum(disease_down & exo$deg & exo$log2_effect > 0),
+    sum(disease_down & free$deg & free$log2_effect > 0))
+)
+panel_b <- data.frame(
+  Treatment = c("EXO-ISO", "Free ISO"),
+  Outside_disease = c(sum(exo$deg & !disease),
+                      sum(free$deg & !disease)),
+  Inside_disease = c(sum(exo$deg & disease),
+                     sum(free$deg & disease)),
+  Total_treatment_DEGs = c(sum(exo$deg), sum(free$deg))
+)
+write.csv(panel_a, file.path(output_dir, "01_Panel_A_Reversal_Counts.csv"), row.names = FALSE)
+write.csv(panel_b, file.path(output_dir, "02_Panel_B_Outside_Signature.csv"), row.names = FALSE)
+
+# 4. Reconstruct the GO biological categories before calculation.
+# The category membership is assigned independently of which features passed
+# the DEG cutoffs. This prevents treatment-associated changes from determining
+# the biological annotation categories themselves.
+#
+# We use 24 prespecified GO Biological Process roots and descend through is_a
+# and part_of ontology relationships. Each Clariom feature is assigned by its
+# unambiguous gene symbol, while features with multiple symbols are not split
+# into separate genes. The 4 classes can overlap.
+#
+# The original GO ontology and human GOA files are read directly from
+# Input_Source_Files. We use the frozen reference releases rather than
+# downloading current versions, which could change the published counts.
+# Their checksums are recorded in the methods manifest for verification.
+build_go_membership <- function(M, ids, input_dir, output_dir) {
+  options(timeout = max(1800, getOption("timeout")))
+  outdir <- file.path(output_dir, "GO_Annotation_Results")
+  dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
+
+  # The TAC group-mean export contains the original feature IDs and gene
+  # annotations. It replaces the intermediate annotation-only TSV used by
+  # the GO mapping procedure.
+  needed <- c("ID", "Gene Symbol", "Description", "Group")
+  if (!all(needed %in% names(M))) {
+    stop("GO mapping requires TAC columns: ",
+         paste(setdiff(needed, names(M)), collapse = ", "))
+  }
+  expr <- data.frame(
+    ID = as.character(M[["ID"]]),
+    GeneSymbol = as.character(M[["Gene Symbol"]]),
+    Description = as.character(M[["Description"]]),
+    Annotation_Group = as.character(M[["Group"]]),
+    stringsAsFactors = FALSE
+  )
+  stopifnot(nrow(expr) == 21448L,
+            identical(expr$ID, as.character(ids)),
+            !anyNA(expr$ID), !anyDuplicated(expr$ID))
+
+  # The 24 GO Biological Process seed terms are embedded here so the mapping
+  # can be reconstructed easily.
+  # They are the prespecified roots used in the original GO classification.
+  # GO:0006091 is retained for sensitivity only and not for the core C3 counts.
+  seeds <- data.frame(
+    "Category ID" = c("C1", "C1", "C1", "C1", "C1", "C2", "C2", "C2", "C2", "C2", "C3", "C3", "C3", "C3", "C3", "C3", "C3", "C4", "C4", "C4", "C4", "C4", "C4", "C4"),
+    "Category" = c("Cell-cycle / proliferation", "Cell-cycle / proliferation", "Cell-cycle / proliferation", "Cell-cycle / proliferation", "Cell-cycle / proliferation", "Redox / cellular stress", "Redox / cellular stress", "Redox / cellular stress", "Redox / cellular stress", "Redox / cellular stress", "Mitochondrial / bioenergetic", "Mitochondrial / bioenergetic", "Mitochondrial / bioenergetic", "Mitochondrial / bioenergetic", "Mitochondrial / bioenergetic", "Mitochondrial / bioenergetic", "Mitochondrial / bioenergetic", "Autophagy / lysosome", "Autophagy / lysosome", "Autophagy / lysosome", "Autophagy / lysosome", "Autophagy / lysosome", "Autophagy / lysosome", "Autophagy / lysosome"),
+    "Submodule" = c("Cell-cycle regulation", "Cell-cycle regulation", "Proliferation", "Division / DNA replication", "Division / DNA replication", "Oxidative stress", "Oxidative stress", "Redox homeostasis", "ER stress", "Integrated stress", "Mitochondrial organization", "Mitochondrial gene expression", "Mitochondrial translation", "Energy metabolism", "Energy metabolism", "Energy metabolism", "Energy metabolism", "Autophagy", "Autophagy regulation", "Autophagy", "Mitophagy", "Autophagosome", "Lysosomal processes", "Lysosomal processes"),
+    "GO ID" = c("GO:0007049", "GO:0051726", "GO:0008283", "GO:0051301", "GO:0006260", "GO:0006979", "GO:0000302", "GO:0045454", "GO:0034976", "GO:0140467", "GO:0007005", "GO:0140053", "GO:0032543", "GO:0006119", "GO:0006754", "GO:0022900", "GO:0006091", "GO:0006914", "GO:0010506", "GO:0016236", "GO:0000423", "GO:0097352", "GO:0007040", "GO:0007041"),
+    "GO term name" = c("cell cycle", "regulation of cell cycle", "cell population proliferation", "cell division", "DNA replication", "response to oxidative stress", "response to reactive oxygen species", "cell redox homeostasis", "response to endoplasmic reticulum stress", "integrated stress response signaling", "mitochondrion organization", "mitochondrial gene expression", "mitochondrial translation", "oxidative phosphorylation", "ATP biosynthetic process", "electron transport chain", "generation of precursor metabolites and energy", "autophagy", "regulation of autophagy", "macroautophagy", "mitophagy", "autophagosome maturation", "lysosome organization", "lysosomal transport"),
+    "Inclusion status" = c("Core", "Core", "Core", "Core", "Core", "Core", "Core", "Core", "Core", "Core", "Core", "Core", "Core", "Core", "Core", "Core", "Broad / sensitivity", "Core", "Core", "Core / overlaps GO:0006914", "Core", "Core", "Core", "Core"),
+    check.names = FALSE, stringsAsFactors = FALSE
+  )
+  stopifnot(length(unique(seeds[["GO ID"]])) == 24L)
+  seeds$Sensitivity <- grepl("broad|sensitivity", seeds[["Inclusion status"]],
+                             ignore.case = TRUE)
+  seed_keys <- setNames(seeds[["Category ID"]], seeds[["GO ID"]])
+  seed_sens <- setNames(seeds$Sensitivity, seeds[["GO ID"]])
+  write.csv(seeds, file.path(outdir, "00_Fixed_GO_Seeds.csv"),
+            row.names = FALSE, na = "")
+  # This read the original GO ontology and human GOA snapshots.
+  # Place these 2 files directly beside the 8 original TAC exports.
+  # The download-source text notes are optional and are not read by R.
+  obo <- file.path(input_dir, "go-basic.obo")
+  gaf <- file.path(input_dir, "HUMAN-uniprot.gaf.gz")
+  for (reference in c(obo, gaf)) {
+    if (!file.exists(reference) || is.na(file.info(reference)$size) ||
+        file.info(reference)$size <= 1000) {
+      stop("Missing or incomplete GO reference: ", reference,
+           ". Supply the original file in Input_Source_Files.")
+    }
+  }
+  message("GO ontology reference: ", normalizePath(obo))
+  message("Human GOA annotation reference: ", normalizePath(gaf))
+
+  # Parse GO basic OBO, using ONLY is_a and part_of relationships.
+  lines <- readLines(obo, warn=FALSE, encoding="UTF-8")
+  header_date <- grep("^(data-version|date):", lines, value=TRUE)
+  go_parents <- new.env(hash=TRUE, parent=emptyenv())
+  go_names <- new.env(hash=TRUE, parent=emptyenv())
+  go_namespaces <- new.env(hash=TRUE, parent=emptyenv())
+  go_alts <- new.env(hash=TRUE, parent=emptyenv())
+  term_on <- FALSE; term_id <- NULL; term_name <- ""; ns <- ""; parents <- character(); alts <- character(); obsolete <- FALSE
+  flush_term <- function() {
+    if (term_on && !is.null(term_id) && !obsolete) {
+      assign(term_id, unique(parents), envir=go_parents)
+      assign(term_id, term_name, envir=go_names)
+      assign(term_id, ns, envir=go_namespaces)
+      for (alt in alts) assign(alt, term_id, envir=go_alts)
+    }
+  }
+  for (ln in lines) {
+    if (ln == "[Term]") {
+      flush_term(); term_on <- TRUE; term_id <- NULL; term_name <- ""; ns <- ""
+      parents <- character(); alts <- character(); obsolete <- FALSE
+    } else if (startsWith(ln, "[")) {
+      flush_term(); term_on <- FALSE
+    } else if (term_on) {
+      if (startsWith(ln,"id: ")) term_id <- sub("^id: ","",ln)
+      if (startsWith(ln,"name: ")) term_name <- sub("^name: ","",ln)
+      if (startsWith(ln,"namespace: ")) ns <- sub("^namespace: ","",ln)
+      if (startsWith(ln,"is_a: ")) parents <- c(parents, sub("^is_a: (GO:[0-9]{7}).*","\\1",ln))
+      if (startsWith(ln,"relationship: part_of ")) parents <- c(parents, sub("^relationship: part_of (GO:[0-9]{7}).*","\\1",ln))
+      if (startsWith(ln,"alt_id: ")) alts <- c(alts, sub("^alt_id: ","",ln))
+      if (ln == "is_obsolete: true") obsolete <- TRUE
+    }
+  }
+  flush_term()
+
+  missing_roots <- seeds$`GO ID`[!vapply(seeds$`GO ID`, exists, logical(1), envir=go_names, inherits=FALSE)]
+  if (length(missing_roots)) stop("Missing/obsolete GO seed term(s): ", paste(missing_roots, collapse=", "))
+  wrong_namespace <- seeds$`GO ID`[vapply(seeds$`GO ID`, function(x) get(x,envir=go_namespaces) != "biological_process", logical(1))]
+  if (length(wrong_namespace)) stop("Seed(s) not in GO Biological Process: ", paste(wrong_namespace, collapse=", "))
+  seeds$`Ontology label at execution` <- vapply(seeds$`GO ID`, get, character(1), envir=go_names)
+  seeds$`Label changed since Step 1` <- tolower(seeds$`Ontology label at execution`) != tolower(seeds$`GO term name`)
+  write.csv(seeds, file.path(outdir,"01_Seed_Validation.csv"), row.names=FALSE, na="")
+
+  # Build child edges, traverse down from each seed. This propagates GOA
+  # annotation via only is_a / part_of, NOT the 'regulates' relations.
+  children <- new.env(hash=TRUE, parent=emptyenv())
+  for (term in ls(go_parents)) {
+    for (par in get(term, envir=go_parents)) {
+      old <- if (exists(par,envir=children,inherits=FALSE)) get(par,envir=children) else character()
+      assign(par, c(old, term), envir=children)
+    }
+  }
+  term_roots <- new.env(hash=TRUE, parent=emptyenv())
+  for (seed in unique(seeds$`GO ID`)) {
+    queue <- seed; cursor <- 1L; seen <- new.env(hash=TRUE,parent=emptyenv())
+    while (cursor <= length(queue)) {
+      term <- queue[[cursor]]; cursor <- cursor+1L
+      if (exists(term,envir=seen,inherits=FALSE)) next
+      assign(term,TRUE,envir=seen)
+      roots <- if (exists(term,envir=term_roots,inherits=FALSE)) get(term,envir=term_roots) else character()
+      assign(term,unique(c(roots,seed)),envir=term_roots)
+      if (exists(term,envir=children,inherits=FALSE)) queue <- c(queue, get(term,envir=children))
+    }
+  }
+
+  # This to stream GAF (not a DEG-enriched gene list) and collect provenance.
+  # GAF 2.x columns: 3 symbol, 4 qualifier, 5 GO, 7 evidence, 9 aspect, 11 synonyms, 13 taxon.
+  # Negated annotations and ND (No biological Data) are excluded.
+  sym <- toupper(trimws(as.character(expr$GeneSymbol)))
+  single <- nzchar(sym) & !grepl(";|///",sym)
+  single_symbols <- unique(sym[single]); single_set <- new.env(hash=TRUE,parent=emptyenv())
+  for (s in single_symbols) assign(s,TRUE,envir=single_set)
+  all_gaf_syms <- new.env(hash=TRUE,parent=emptyenv())
+  longpath <- file.path(outdir,"02_GO_Annotation_Evidence_LONG.tsv")
+  outcon <- file(longpath,open="wt",encoding="UTF-8")
+  writeLines("GAF_symbol\tSource_GO_ID\tSource_GO_name\tEvidence_code\tSeed_GO_ID\tCategory_ID\tSensitivity",outcon)
+  con <- gzfile(gaf,open="rt")
+  n_total <- 0L; n_bp <- 0L; n_matched <- 0L
+  repeat {
+    chunk <- readLines(con, n=25000, warn=FALSE)
+    if (!length(chunk)) break
+    chunk <- chunk[!startsWith(chunk,"!")]
+    n_total <- n_total + length(chunk)
+    spl <- strsplit(chunk, "\t", fixed=TRUE)
+    out <- character()
+    for (cols in spl) {
+      if (length(cols)<13L || cols[[9]]!="P" || grepl("(^|\\|)NOT(\\||$)",cols[[4]]) || cols[[7]]=="ND" ||
+          !grepl("taxon:9606",cols[[13]],fixed=TRUE)) next
+      n_bp <- n_bp+1L
+      gene <- toupper(trimws(cols[[3]]))
+      if (nzchar(gene)) assign(gene,TRUE,envir=all_gaf_syms)
+      if (!exists(gene,envir=single_set,inherits=FALSE)) next
+      go <- cols[[5]]
+      if (exists(go,envir=go_alts,inherits=FALSE)) go <- get(go,envir=go_alts)
+      if (!exists(go,envir=term_roots,inherits=FALSE)) next
+      roots <- get(go,envir=term_roots)
+      n_matched <- n_matched + 1L
+      nm <- if (exists(go,envir=go_names,inherits=FALSE)) get(go,envir=go_names) else ""
+      for (root in roots) out <- c(out,paste(gene,go,nm,cols[[7]],root,seed_keys[[root]],seed_sens[[root]],sep="\t"))
+    }
+    if (length(out)) writeLines(out,outcon)
+    message("GAF records processed: ",n_total)
+  }
+  close(con);close(outcon)
+
+  # This to assign feature IDs using exact unambiguous symbols and don't explode multi-label features.
+  evidence <- unique(read.delim(longpath,check.names=FALSE,stringsAsFactors=FALSE,quote=""))
+  base <- expr[c("ID","GeneSymbol","Description","Annotation_Group")]
+  base$GeneSymbol_normalized <- sym
+  base$MultiSymbol <- !single
+  base$GOA_symbol_present <- vapply(sym,function(s) exists(s,envir=all_gaf_syms,inherits=FALSE),logical(1))
+  base$Status <- ifelse(base$MultiSymbol,"MULTI_SYMBOL_REVIEW",
+                        ifelse(!base$GOA_symbol_present,"NOT_IN_GOA_HUMAN",
+                               "GOA_PRESENT_NO_SELECTED_CATEGORY"))
+  base$C1 <- FALSE; base$C2 <- FALSE; base$C3 <- FALSE; base$C4 <- FALSE
+  base$C3_broad_only_sensitivity <- FALSE
+  if (nrow(evidence)) {
+    core <- evidence[evidence$Sensitivity=="FALSE",]
+    for (id in c("C1","C2","C3","C4")) {
+      wanted <- unique(core$GAF_symbol[core$Category_ID==id])
+      base[[id]] <- !base$MultiSymbol & (base$GeneSymbol_normalized %in% wanted)
+    }
+    broad <- unique(evidence$GAF_symbol[evidence$Category_ID=="C3" & evidence$Sensitivity=="TRUE"])
+    base$C3_broad_only_sensitivity <- !base$MultiSymbol & !base$C3 & (base$GeneSymbol_normalized %in% broad)
+  }
+  hascategory <- base$C1 | base$C2 | base$C3 | base$C4
+  base$Status[hascategory] <- "MAPPED_CORE_CATEGORY"
+  base$Category_count <- rowSums(base[c("C1","C2","C3","C4")])
+  write.csv(base,file.path(outdir,"03_Feature_Category_Membership_ALL_21448.csv"),row.names=FALSE,na="")
+
+  # When the published GO membership file is available, compare its 4 core
+  # classifications with the newly reconstructed ones. It is not used as input.
+  reference_file <- file.path(input_dir, "03_Feature_Category_Membership_ALL_21448.csv")
+  if (file.exists(reference_file)) {
+    reference <- read.csv(reference_file, check.names = FALSE,
+                          fileEncoding = "UTF-8-BOM")
+    matching_ids <- match(base$ID, reference$ID)
+    if (anyNA(matching_ids) || nrow(reference) != nrow(base)) {
+      stop("GO membership has different transcript-cluster IDs")
+    }
+    differences <- vapply(c("C1", "C2", "C3", "C4"), function(category) {
+      sum(as.logical(base[[category]]) !=
+            as.logical(reference[[category]][matching_ids]), na.rm = TRUE)
+    }, integer(1))
+    if (any(differences)) {
+      stop("Regenerated GO membership differs from the published input: ",
+           paste(names(differences), differences, sep = "=", collapse = ", "),
+           ". Check that the original GO ontology and GAF snapshots are used.")
+    }
+    message("GO category membership matches the provided reference table")
+  }
+
+
+  if (nrow(evidence)) {
+    mapped <- merge(base[!base$MultiSymbol,c("ID","GeneSymbol","Annotation_Group","GeneSymbol_normalized")],
+                    evidence,by.x="GeneSymbol_normalized",by.y="GAF_symbol",all=FALSE,sort=FALSE)
+    names(mapped)[names(mapped)=="GeneSymbol_normalized"] <- "Matched_symbol"
+    write.csv(mapped,file.path(outdir,"04_Feature_GO_Evidence_Long.csv"),row.names=FALSE,na="")
+    gene <- unique(mapped[c("Matched_symbol","Category_ID","Seed_GO_ID","Sensitivity")])
+    write.csv(gene,file.path(outdir,"05_Gene_GO_Seed_Category_Membership.csv"),row.names=FALSE,na="")
+  }
+
+  # The 1042 multi-symbol features are not automatically split into independent genes.
+  write.csv(base[base$MultiSymbol,],file.path(outdir,"06_Multisymbol_Features_FOR_REVIEW.csv"),row.names=FALSE,na="")
+  qc <- data.frame(Metric=c("Clariom transcript clusters","Unique transcript cluster IDs","Single-symbol features","Multi-symbol features",
+                             "GOA direct-symbol matches (single-symbol)","Core category mapped features","C1 cell cycle","C2 redox/stress",
+                             "C3 mitochondria/energy","C4 autophagy/lysosome","C3 broad-only sensitivity features","GAF human BP records scanned","GAF BP records mapping to category"),
+                   Value=c(nrow(base),length(unique(base$ID)),sum(!base$MultiSymbol),sum(base$MultiSymbol),
+                           sum(!base$MultiSymbol & base$GOA_symbol_present),sum(hascategory),sum(base$C1),sum(base$C2),sum(base$C3),sum(base$C4),sum(base$C3_broad_only_sensitivity),n_bp,n_matched))
+  write.csv(qc,file.path(outdir,"07_Mapping_QC_Summary.csv"),row.names=FALSE)
+  manifest <- c(paste0("Analysis date: ",Sys.Date()),
+    paste0("Expression source: ", normalizePath(file.path(input_dir, "All Expressions of Groups.txt"))),
+    paste0("Expression MD5: ", unname(tools::md5sum(file.path(input_dir, "All Expressions of Groups.txt")))),
+    "GO seeds: 24 fixed GO Biological Process roots embedded in this script.",
+    paste0("Embedded GO seeds MD5: ", unname(tools::md5sum(file.path(outdir, "00_Fixed_GO_Seeds.csv")))),
+    paste0("go-basic.obo MD5: ",unname(tools::md5sum(obo))),
+    paste0("GO human GAF MD5: ",unname(tools::md5sum(gaf))),
+    paste0("GO ontology header: ",paste(header_date,collapse="; ")),
+    "Ontology relationships for descendant propagation: is_a and part_of only.",
+    "GO aspect: P (Biological Process); qualifiers including NOT excluded; evidence ND excluded.",
+    "Gene matching: exact case-normalized single GeneSymbol to GAF gene symbols.",
+    "Ambiguous multi-symbol microarray features retained and excluded from primary category membership.",
+    "GOA does not comprehensively cover every noncoding RNA or legacy microarray annotation.",
+    "C3 broad energy seed GO:0006091 reserved for sensitivity, not counted in C3 core.",
+    "GO membership may occur in multiple categories; total across columns is not a unique total.",
+    "NO statistical contrasts, DEG lists, ssGSEA scores, or ORA enrichments used to select membership.")
+  writeLines(manifest,file.path(outdir,"08_Source_And_Methods_Manifest.txt"))
+  writeLines(capture.output(sessionInfo()),file.path(outdir,"09_R_Session_Info.txt"))
+  print(qc,row.names=FALSE)
+
+  file.path(outdir, "03_Feature_Category_Membership_ALL_21448.csv")
+
+}
+
+# 5. Count the direction of DEGs within the 4 annotated GO categories.
+# The pooled redox, mitochondrial and autophagy row counts unique IDs, not
+# the sum of category counts, because features can have multiple assignments.
+go_file <- build_go_membership(M, ids, input_dir, output_dir)
+GO <- read.csv(go_file, check.names = FALSE, fileEncoding = "UTF-8-BOM")
+go_ord <- match(ids, GO$ID)
+if (anyNA(go_ord) || nrow(GO) != length(ids)) {
+  stop("GO membership does not match the 21,448 TAC feature IDs")
+}
+GO <- GO[go_ord, , drop = FALSE]
+stopifnot(identical(GO$ID, ids))
+cat_names <- c(C1 = "Cell cycle and proliferation",
+               C2 = "Redox and cellular stress",
+               C3 = "Mitochondrial and bioenergetic processes",
+               C4 = "Autophagy and lysosomal processes")
+cat_mask <- lapply(names(cat_names), function(code) {
+  z <- as.logical(GO[[code]])
+  z[is.na(z)] <- FALSE
+  z
+})
+names(cat_mask) <- names(cat_names)
+
+# The directional counts are made separately for each contrast. For the
+# pooled category, combine membership first so overlapping IDs are counted
+# once rather than added across the 3 constituent categories.
+conditions <- list(
+  "EXO-ISO vs free ISO" = contrast$EXO_Free$deg,
+  "EXO-ISO vs Ctrl" = exo$deg,
+  "Free ISO vs Ctrl" = free$deg,
+  "EXO-concordant" = exo$deg & contrast$EXO_Free$deg &
+    sign(exo$log2_effect) == sign(contrast$EXO_Free$log2_effect)
+)
+condition_effects <- list(
+  "EXO-ISO vs free ISO" = contrast$EXO_Free$log2_effect,
+  "EXO-ISO vs Ctrl" = exo$log2_effect,
+  "Free ISO vs Ctrl" = free$log2_effect,
+  "EXO-concordant" = exo$log2_effect
+)
+make_go_count <- function(mask, label) {
+  do.call(rbind, lapply(names(conditions), function(nm) {
+    chosen <- mask & conditions[[nm]]
+    eff <- condition_effects[[nm]]
+    data.frame(Category = label, Comparison = nm,
+               Up = sum(chosen & eff > 0),
+               Down = sum(chosen & eff < 0),
+               GO_universe_features = sum(mask))
+  }))
+}
+go_counts <- do.call(rbind, Map(make_go_count, cat_mask, unname(cat_names)))
+pooled_mask <- cat_mask$C2 | cat_mask$C3 | cat_mask$C4
+pooled_counts <- make_go_count(pooled_mask,
+                   "Redox, mitochondrial and autophagy (unique union)")
+write.csv(go_counts, file.path(output_dir, "03_Panel_D_Four_GO_Categories.csv"),
+          row.names = FALSE)
+write.csv(pooled_counts, file.path(output_dir, "04_GO_Pooled_Supplementary.csv"),
+          row.names = FALSE)
+
+# 6. Measure how closely treatment expression resembles the NC state.
+# Every feature in the fixed 1211-ID disease signature is included, whether
+# or not it qualifies as a treatment DEG. For each transcript cluster:
+#   Restoration = 1 - |Treatment - NC| / |Ctrl - NC|.
+# A score of 1 means the treatment matches NC, 0 means no improvement in
+# absolute distance from NC and a negative score means movement farther away.
+# Disease-axis attenuation is 1 - beta, where beta is the through-origin
+# regression slope of (Treatment - NC) on (Ctrl - NC). 
+idx <- which(disease)
+dx <- mu$Ctrl[idx] - mu$NC[idx]
+stopifnot(length(dx) == 1211L, all(abs(dx) > 0.1))
+restoration <- function(treatment_means) {
+  dy <- treatment_means[idx] - mu$NC[idx]
+  score <- 1 - abs(dy) / abs(dx)
+  beta <- sum(dx * dy) / sum(dx * dx)
+  signed <- (treatment_means[idx] - mu$Ctrl[idx]) /
+            (mu$NC[idx] - mu$Ctrl[idx])
+  list(score = score, signed = signed, dx = dx, dy = dy,
+       beta = beta, attenuation = 1 - beta,
+       fraction_closer = mean(score > 0),
+       residual = sqrt(sum((dy - beta * dx)^2) / sum(dx^2)),
+       distance = sqrt(sum(dy^2) / sum(dx^2)))
+}
+rf <- restoration(mu$Free)
+re <- restoration(mu$EXO)
+summary_restoration <- data.frame(
+  Treatment = c("Free ISO", "EXO-ISO"),
+  N = length(idx),
+  Median_restoration = c(median(rf$score), median(re$score)),
+  Fraction_closer_NC = c(rf$fraction_closer, re$fraction_closer),
+  Disease_axis_attenuation = c(rf$attenuation, re$attenuation),
+  Disease_axis_beta = c(rf$beta, re$beta),
+  Residual_perpendicular = c(rf$residual, re$residual),
+  Remaining_distance_to_NC = c(rf$distance, re$distance),
+  Signed_index_overshoots = c(mean(rf$signed > 1), mean(re$signed > 1))
+)
+write.csv(summary_restoration, file.path(output_dir, "05_Restoration_Summary.csv"),
+          row.names = FALSE)
+write.csv(data.frame(
+  ID = ids[idx], GeneSymbol = M$`Gene Symbol`[idx],
+  Ctrl_minus_NC = dx,
+  Free_minus_NC = rf$dy, EXO_minus_NC = re$dy,
+  Free_restoration = rf$score, EXO_restoration = re$score,
+  Free_signed_index = rf$signed, EXO_signed_index = re$signed),
+  file.path(output_dir, "06_Restoration_GeneLevel_1211.csv"), row.names = FALSE)
+
+# 7. Check the sensitivity of the treatment comparison to the 3 arrays
+# per group. Primary descriptive scores use TAC group means. The permutation
+# and bootstrap calculations use the individual biological-array values,
+# because TAC group estimates need not equal arithmetic replicate averages.
+# The disease-signature feature set is kept fixed throughout these checks.
+S <- TAC$samples
+sample_names <- list(
+  Ctrl = paste0("Ctr ", 1:3, " Avg (log2)"),
+  EXO = paste0("EXO ISO ", 1:3, " Avg (log2)"),
+  Free = paste0("Free ISO ", 1:3, " Avg (log2)"),
+  NC = paste0("NC ", 1:3, " Avg (log2)"))
+sm <- lapply(sample_names, function(columns) {
+  x <- as.matrix(S[, columns, drop = FALSE])
+  storage.mode(x) <- "double"
+  x[idx, , drop = FALSE]
+})
+mean_sample <- lapply(sm, rowMeans)
+# Exclude near-zero Ctrl-to-NC differences in resampled values to avoid
+# unstable ratios in the replicate-level restoration calculation.
+score_from_samples <- function(T, C, N) {
+  ok <- is.finite(T + C + N) & abs(C - N) >= 0.1
+  median(1 - abs(T[ok] - N[ok]) / abs(C[ok] - N[ok]))
+}
+obs_sample <- c(
+  Free = score_from_samples(mean_sample$Free, mean_sample$Ctrl, mean_sample$NC),
+  EXO = score_from_samples(mean_sample$EXO, mean_sample$Ctrl, mean_sample$NC))
+
+# Reassign the 6 treatment arrays to groups of 3 in every possible
+# way (20 allocations). NC and Ctrl arrays stay unchanged. The statistic
+# compares the median restoration of EXO-ISO with that of Free ISO, with only
+# 20 allocations, the resulting permutation p-value has coarse resolution.
+six <- cbind(sm$EXO, sm$Free)
+alloc <- combn(6, 3)
+perm_stats <- apply(alloc, 2, function(j) {
+  tEXO <- rowMeans(six[, j, drop = FALSE])
+  tFree <- rowMeans(six[, setdiff(1:6, j), drop = FALSE])
+  score_from_samples(tEXO, mean_sample$Ctrl, mean_sample$NC) -
+    score_from_samples(tFree, mean_sample$Ctrl, mean_sample$NC)
+})
+observed <- obs_sample["EXO"] - obs_sample["Free"]
+p_perm <- mean(abs(perm_stats) >= abs(observed) - 1e-10)
+write.csv(data.frame(Assignment = seq_along(perm_stats),
+                     EXO_minus_Free = perm_stats),
+          file.path(output_dir, "07_Exact_Label_Permutations.csv"), row.names = FALSE)
+
+# Resample 3 arrays with replacement within each experimental group.
+# Repeat 1000 times, always evaluating the original disease-signature IDs.
+set.seed(SEED)
+bs <- matrix(NA_real_, nrow = BOOTSTRAPS, ncol = 4,
+             dimnames = list(NULL, c("Free_median", "EXO_median",
+                                     "Free_attenuation", "EXO_attenuation")))
+for (i in seq_len(BOOTSTRAPS)) {
+  rep_means <- lapply(sm, function(mat) {
+    rowMeans(mat[, sample.int(3, 3, replace = TRUE), drop = FALSE])
+  })
+  x <- rep_means$Ctrl - rep_means$NC
+  ok <- abs(x) >= 0.1 & is.finite(x)
+  for (g in c("Free", "EXO")) {
+    y <- rep_means[[g]] - rep_means$NC
+    bs[i, paste0(g, "_median")] <- median(1 - abs(y[ok]) / abs(x[ok]))
+    bs[i, paste0(g, "_attenuation")] <- 1 - sum(x[ok] * y[ok]) / sum(x[ok]^2)
+  }
+}
+quant <- t(apply(bs, 2, quantile, probs = c(0.025, 0.975), na.rm = TRUE))
+write.csv(data.frame(Statistic = rownames(quant), Lo95 = quant[, 1],
+                     Hi95 = quant[, 2]),
+          file.path(output_dir, "08_Exploratory_Bootstrap_Intervals.csv"), row.names = FALSE)
+write.csv(data.frame(
+  Metric = c("Free_sample_median_restoration", "EXO_sample_median_restoration",
+             "EXO_minus_Free_observed", "Exact_permutation_p_two_sided",
+             "Number_of_permutations"),
+  Value = c(obs_sample, observed, p_perm, length(perm_stats))),
+  file.path(output_dir, "09_Replicate_Level_Sensitivity.csv"), row.names = FALSE)
+
+# 8. Save the complete per-feature audit table.
+# It contains the original transcript IDs, selected contrasts, nominal
+# p-values, differential-expression flags and GO category assignments.
+# Retaining all 21448 rows and makes the reported intersections traceable.
+write.csv(data.frame(
+  ID = ids, GeneSymbol = M$`Gene Symbol`,
+  Disease_signature = disease,
+  Ctrl_vs_NC_log2_effect = contrast$Ctrl_NC$log2_effect,
+  Ctrl_vs_NC_p = contrast$Ctrl_NC$p,
+  Ctrl_vs_NC_source_FC = contrast$Ctrl_NC$signed_FC_source,
+  EXO_vs_Ctrl_log2_effect = exo$log2_effect,
+  EXO_vs_Ctrl_p = exo$p, EXO_vs_Ctrl_DEG = exo$deg,
+  Free_vs_Ctrl_log2_effect = free$log2_effect,
+  Free_vs_Ctrl_p = free$p, Free_vs_Ctrl_DEG = free$deg,
+  EXO_vs_Free_log2_effect = contrast$EXO_Free$log2_effect,
+  EXO_vs_Free_p = contrast$EXO_Free$p,
+  EXO_vs_Free_DEG = contrast$EXO_Free$deg,
+  C1 = cat_mask$C1, C2 = cat_mask$C2,
+  C3 = cat_mask$C3, C4 = cat_mask$C4),
+  file.path(output_dir, "10_All_Features_Full_Audit_21448.csv"), row.names = FALSE)
+
+# 9. Draw the figures from the calculated tables and scores.
+# Each plot is exported as a high-resolution PNG, a vector PDF and a TIFF.
+# The drawing functions do not recalculate or change the DEG selections.
+save_plot <- function(stem, width, height, draw) {
+  png(file.path(fig_dir, paste0(stem, ".png")), width = width,
+      height = height, units = "in", res = 300, bg = "white")
+  draw(); dev.off()
+  pdf(file.path(fig_dir, paste0(stem, ".pdf")), width = width,
+      height = height, useDingbats = FALSE)
+  draw(); dev.off()
+  tiff(file.path(fig_dir, paste0(stem, ".tiff")), width = width,
+       height = height, units = "in", res = 300,
+       compression = "lzw", bg = "white")
+  draw(); dev.off()
+}
+
+plot_a <- function() {
+  vals <- rbind(panel_a$Disease_up_reversed, panel_a$Disease_down_reversed)
+  par(mar = c(5, 5, 3.3, 1), las = 1, cex.axis = 0.9)
+  z <- barplot(vals, beside = TRUE, col = c(RED, BLUE),
+               names.arg = panel_a$Treatment, border = "#444444",
+               ylim = c(0, max(vals) * 1.28), ylab = "Transcript clusters",
+               main = "Opposite-direction changes in disease signature")
+  text(z, c(vals), labels = c(vals), pos = 3, cex = 0.9)
+  legend("topright", legend = c("Disease-up reversed", "Disease-down reversed"),
+         fill = c(RED, BLUE), bty = "n", cex = 0.83)
+}
+plot_b <- function() {
+  par(mar = c(5, 5, 3.3, 1), las = 1, cex.axis = 0.9)
+  z <- barplot(panel_b$Outside_disease, names.arg = panel_b$Treatment,
+               col = c(RED, BLUE), border = "#444444",
+               ylim = c(0, max(panel_b$Outside_disease) * 1.25),
+               main = "Treatment DEGs outside disease signature",
+               ylab = "Transcript clusters")
+  text(z, panel_b$Outside_disease, labels = panel_b$Outside_disease,
+       pos = 3, cex = 0.95)
+}
+# This refers to the the figure annotations on the paper but it can be applied 
+# to any set of genes with some changes.
+# Figure 3d compares EXO-ISO vs Ctrl and Free ISO vs Ctrl as 2
+# vertically stacked panels. Each displays the 4 GO categories and a
+# shaded pooled row. Blue bars extend left for downregulated features,
+# red bars extend right for upregulated features. Numbers beside the bars
+# are transcript-cluster counts. The pooled row overlaps with the individual
+# categories and must not be interpreted as a fifth independent pathway.
+plot_go <- function(rows, heading = NULL) {
+  # This separate plot is retained for the supplementary pooled-union display.
+  xx <- rows$Up
+  dd <- rows$Down
+  maxnum <- max(xx, dd)
+  limit <- maxnum * 1.38 + 2
+  y <- rev(seq_len(nrow(rows)))
+  par(las = 1)
+  plot(NA, xlim = c(-limit, limit), ylim = c(0.5, nrow(rows) + 0.5),
+       axes = FALSE, xlab = "", ylab = "", main = heading,
+       cex.main = 0.91)
+  axis(2, at = y, labels = rows$Comparison, tick = FALSE,
+       cex.axis = 0.77, las = 1)
+  abline(v = 0, col = "#555555", lwd = 1.1)
+  rect(-dd, y - 0.24, 0, y + 0.24, col = BLUE,
+       border = "#565656", lwd = 0.55)
+  rect(0, y - 0.24, xx, y + 0.24, col = RED,
+       border = "#565656", lwd = 0.55)
+  offset <- max(1, maxnum * 0.04)
+  text(-dd - offset, y, labels = dd, adj = 1, cex = 0.78)
+  text(xx + offset, y, labels = xx, adj = 0, cex = 0.78)
+}
+
+# Use the GO count tables calculated above to draw Figure 3d. The displayed
+# comparisons are those against the FFA-treated control, the direct EXO-ISO
+# vs Free ISO comparison remains in the output tables for reference.
+draw_fig3d_comparison <- function(comparison) {
+  ordered_labels <- unname(cat_names)
+  raw_counts <- go_counts[go_counts$Comparison == comparison, , drop = FALSE]
+  raw_counts <- raw_counts[match(ordered_labels, raw_counts$Category), , drop = FALSE]
+  extra <- pooled_counts[pooled_counts$Comparison == comparison, , drop = FALSE]
+  if (nrow(raw_counts) != 4L || anyNA(raw_counts$Up) ||
+      nrow(extra) != 1L || anyNA(extra$Up)) {
+    stop("GO category counts incomplete for comparison: ", comparison)
+  }
+  displayed <- rbind(raw_counts, extra)
+  labels <- c("Cell cycle and proliferation", "Redox and cellular stress",
+              "Mitochondrial and bioenergetic",
+              "Autophagy and lysosomal processes",
+              "Pooled redox + mitochondria + autophagy\n(unique union; overlaps rows above)")
+  ys <- 5:1
+  # A shared count scale permits direct comparison of treatment-associated
+  # up/down GO-category features without rescaling each treatment panel.
+  xlim <- c(-160, 160)
+  plot.new()
+  plot.window(xlim = xlim, ylim = c(0.45, 5.65), xaxs = "i", yaxs = "i")
+  # Highlight the overlapping pooled union to distinguish it from the 4
+  # individually annotated categories.
+  rect(xlim[1], 0.59, xlim[2], 1.41, col = "#F3F3F3", border = NA)
+  abline(v = 0, col = "#666666", lwd = 0.9)
+  for (i in seq_len(5L)) {
+    y <- ys[i]
+    rect(-displayed$Down[i], y - 0.24, 0, y + 0.24,
+         col = BLUE, border = NA)
+    rect(0, y - 0.24, displayed$Up[i], y + 0.24,
+         col = RED, border = NA)
+    text(-displayed$Down[i] - 2.7, y, displayed$Down[i], adj = 1,
+         cex = 0.83)
+    text(displayed$Up[i] + 2.7, y, displayed$Up[i], adj = 0,
+         cex = 0.83)
+  }
+  axis(2, at = ys, labels = labels, las = 1, tick = FALSE,
+       cex.axis = 0.74, line = -0.3)
+  ticks <- seq(-150, 150, by = 50)
+  axis(1, at = ticks, labels = abs(ticks), cex.axis = 0.84,
+       col = "#777777", col.axis = "#333333")
+  title(main = comparison, font.main = 2, cex.main = 1.13, line = 0.85)
+  title(xlab = "Number of transcript-cluster features", line = 2.5,
+        cex.lab = 0.9)
+}
+
+plot_d <- function() {
+  old <- par(no.readonly = TRUE)
+  on.exit(par(old))
+  par(mfrow = c(2, 1), mar = c(4.1, 17, 3.0, 1.5),
+      oma = c(0.4, 0.3, 0.5, 0.1), family = "sans", bg = "white")
+  draw_fig3d_comparison("EXO-ISO vs Ctrl")
+  draw_fig3d_comparison("Free ISO vs Ctrl")
+}
+
+plot_pooled <- function() {
+  par(mar = c(3, 11, 4, 2))
+  plot_go(pooled_counts,
+          "Supplementary: redox + mitochondrial + autophagy (unique union)")
+}
+plot_axis_regression <- function() {
+  par(mfrow = c(1, 2), mar = c(5, 4.7, 3.5, 1.4), oma = c(0, 0, 1.3, 0))
+  rng <- range(c(dx, rf$dy, re$dy))
+  rng <- rng + c(-0.3, 0.3)
+  for (name in c("Free", "EXO")) {
+    dat <- if (name == "Free") rf else re
+    col <- if (name == "Free") BLUE else RED
+    title <- if (name == "Free") "Free ISO" else "EXO-ISO"
+    plot(dx, dat$dy, pch = 16, cex = 0.38,
+         col = adjustcolor(col, alpha.f = 0.26), xlim = rng, ylim = rng,
+         xlab = "Ctrl - NC (log2 expression)",
+         ylab = paste0(title, " - NC (log2 expression)"),
+         main = sprintf("%s: %.1f%% axis attenuation",
+                        title, dat$attenuation * 100), asp = 1)
+    abline(0, 1, col = "#999999", lty = 2, lwd = 1)
+    abline(0, dat$beta, col = col, lwd = 2)
+    abline(h = 0, v = 0, col = "#E6E6E6", lwd = 0.6)
+  }
+  mtext("Remaining disease-associated expression after treatment",
+        side = 3, outer = TRUE, line = 0.1, font = 2)
+}
+# Figure 3e shows the restoration-score distributions for both treatments
+# over exactly the same 1211 disease-associated features. Dashed reference
+# lines mark no restoration (score 0) and the NC value (score 1), while
+# colored lines indicate the median restoration score for each treatment.
+plot_restoration_histograms <- function() {
+  scores_exo <- re$score[is.finite(re$score)]
+  scores_free <- rf$score[is.finite(rf$score)]
+  if (length(scores_exo) != 1211L || length(scores_free) != 1211L) {
+    stop("Restoration-score histogram requires 1,211 finite scores per treatment.")
+  }
+  lower <- floor(min(c(scores_exo, scores_free)) / 0.075) * 0.075
+  breaks <- seq(lower, 1.125, by = 0.075)
+  if (tail(breaks, 1) < 1.01) breaks <- c(breaks, tail(breaks, 1) + 0.075)
+  h_exo <- hist(scores_exo, breaks = breaks, plot = FALSE)
+  h_free <- hist(scores_free, breaks = breaks, plot = FALSE)
+  ymax <- max(c(h_exo$density, h_free$density)) * 1.12
+  par(mar = c(5.6, 5.5, 3.6, 1.3), las = 1)
+  plot(NA, xlim = c(-2.1, 1.1), ylim = c(0, ymax),
+       xlab = "NC-centered restoration score",
+       ylab = "Density of transcript-cluster features",
+       main = "Disease-associated transcriptome: NC-centered restoration",
+       xaxt = "n")
+  axis(1, at = seq(-2, 1, by = 0.5))
+  abline(h = pretty(c(0, ymax), n = 5), col = "#EEEEEE", lwd = 0.7)
+  for (i in seq_along(h_exo$density)) {
+    rect(h_exo$breaks[i], 0, h_exo$breaks[i + 1], h_exo$density[i],
+         col = adjustcolor(RED, alpha.f = 0.34), border = NA)
+    rect(h_free$breaks[i], 0, h_free$breaks[i + 1], h_free$density[i],
+         col = adjustcolor(BLUE, alpha.f = 0.34), border = NA)
+  }
+  abline(v = 0, lty = 2, lwd = 1.2, col = "#555555")
+  abline(v = 1, lty = 3, lwd = 1.2, col = "#444444")
+  abline(v = median(scores_exo), col = RED, lwd = 2.3)
+  abline(v = median(scores_free), col = BLUE, lwd = 2.3)
+  legend("topleft", legend = c(
+    sprintf("EXO-ISO (median %.2f)", median(scores_exo)),
+    sprintf("Free ISO (median %.2f)", median(scores_free))),
+    fill = c(adjustcolor(RED, alpha.f = 0.34),
+             adjustcolor(BLUE, alpha.f = 0.34)), border = NA, bty = "n")
+}
+
+save_plot("Figure3a_Opposite_Direction", 8.3, 5.7, plot_a)
+save_plot("Figure3b_Outside_Disease_Signature", 8.3, 5.7, plot_b)
+save_plot("Figure3d_GO_Directional_Two_Comparisons", 11.5, 11.1, plot_d)
+save_plot("Figure3d_Supplement_Pooled_GO", 9.4, 4.8, plot_pooled)
+# Figure 3f displays disease-axis regression; Figure 3e above displays the
+# distribution of NC-centered restoration scores.
+save_plot("Figure3e_Restoration_Distributions", 11.2, 6.2,
+          plot_restoration_histograms)
+save_plot("Figure3f_Disease_Axis_Regression", 13.4, 6.1,
+          plot_axis_regression)
+
+# I added these lines so it record the run settings, source checksums and R session details so that
+# another reader can verify which inputs and parameters generated the output anytime.
+writeLines(c(
+  "Exact-ID DEG, GO-category, and disease-restoration analyses.",
+  paste("Input directory:", input_dir),
+  paste("GO membership:", go_file),
+  paste("Nominal p cutoff:", P_CUTOFF),
+  paste("Absolute signed linear FC cutoff:", FC_CUTOFF),
+  paste("Microarray transcript cluster universe:", length(ids)),
+  paste("Disease signature:", sum(disease)),
+  paste("GO categories: four core classes; pooled class is supplementary."),
+  paste("Biological replicates per group: 3; 20 treatment-label permutations."),
+  paste("Permutation two-sided p:", format(p_perm, digits = 4)),
+  "GO overlaps allowed across categories; exact transcript-ID matching.",
+  "Exploratory nominal-p DEG counts; NOT FDR-significant gene claims.",
+  "Bootstrap refers to sample arithmetic means, not TAC group mean estimates."
+), file.path(output_dir, "README_Run_Manifest.txt"))
+write.csv(data.frame(File = files, MD5 = unname(tools::md5sum(file.path(input_dir, files)))),
+          file.path(output_dir, "11_Source_File_Checksums.csv"), row.names = FALSE)
+capture.output(sessionInfo(), file = file.path(output_dir, "12_R_Session_Info.txt"))
+
+cat("\n========================================\n")
+cat("DEG AND DISEASE-SIGNATURE ANALYSIS COMPLETED\n")
+print(panel_a); print(panel_b); print(go_counts)
+print(summary_restoration)
+cat("Exact sample-label permutation p = ", p_perm, "\n")
+cat("All results saved here:\n", normalizePath(output_dir), "\n")
+if (.Platform$OS.type == "windows") shell.exec(normalizePath(output_dir))

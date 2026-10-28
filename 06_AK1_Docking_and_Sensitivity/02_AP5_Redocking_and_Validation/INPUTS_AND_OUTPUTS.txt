@@ -1,0 +1,69 @@
+02 AP5 Redocking and Validation
+INPUTS AND OUTPUTS
+
+Paths below use the original project layout. The preparation helper reconstructs these locations from the chapter folders.
+
+AK1_AP5_vs_ISO_score_comparison.R
+Inputs:
+  ../Workbooks/02_AP5_vs_ISO_10seed_score_comparison.xlsx
+  results/AK1_AP5_vs_ISO_scores/AK1_AP5_vs_ISO_all_seed_scores.csv
+  results/AK1_AP5_vs_ISO_scores/AK1_AP5_vs_ISO_seedwise_comparison.csv
+  results/AK1_AP5_vs_ISO_scores/AK1_AP5_vs_ISO_summary_statistics.csv
+Outputs:
+  results/AK1_AP5_vs_ISO_scores/AK1_AP5_vs_ISO_10seed_score_comparison_V3.png
+Other file references in the original source:
+  ../Workbooks/02_AP5_vs_ISO_10seed_score_comparison.xlsx
+  results/AK1_AP5_vs_ISO_scores/AK1_AP5_vs_ISO_10seed_score_comparison_V3.pdf
+  results/AK1_AP5_vs_ISO_scores/AK1_AP5_vs_ISO_10seed_score_comparison_V3.png
+  results/AK1_AP5_vs_ISO_scores/AK1_AP5_vs_ISO_all_seed_scores.csv
+  results/AK1_AP5_vs_ISO_scores/AK1_AP5_vs_ISO_seedwise_comparison.csv
+  results/AK1_AP5_vs_ISO_scores/AK1_AP5_vs_ISO_summary_statistics.csv
+
+AK1_panelC_AP5_redocking.pml
+Inputs:
+  docking/AK1_AP5_redock_bestpose.sdf
+  ligand/AK1_native_AP5_chainA.pdb
+  receptors/AK1_chainA_FIXED.pdb
+Outputs:
+  results/AK1_panelC/AK1_panelC_AP5_redocking_validation.png
+Other file references in the original source:
+  docking/AK1_AP5_redock_bestpose.sdf
+  ligand/AK1_native_AP5_chainA.pdb
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_panelC/AK1_panelC_AP5_redocking_validation.png
+
+annotate_AK1_panelC.py
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_panelC/AK1_panelC_AP5_redocking_validation.png
+  results/AK1_panelC/AK1_panelC_AP5_redocking_validation_LEGEND.png
+
+calc_AP5_RMSD.py
+Inputs:
+  ligand/AK1_native_AP5_chainA.pdb
+Outputs:
+  [console output]
+Other file references in the original source:
+  docking/AK1_AP5_redock_seed1001.sdf
+  ligand/AK1_native_AP5_chainA.pdb
+  ligand/AP5_ideal.sdf
+
+run_AK1_AP5_10seeds.bat
+Inputs:
+  ligand/AP5.pdbqt
+  receptors/AK1.pdbqt
+Outputs:
+  docking/AK1_AP5_seed1001.pdbqt
+  docking/AK1_AP5_seed10101.pdbqt
+  docking/AK1_AP5_seed2002.pdbqt
+  docking/AK1_AP5_seed3003.pdbqt
+  docking/AK1_AP5_seed4004.pdbqt
+  docking/AK1_AP5_seed5005.pdbqt
+  docking/AK1_AP5_seed6006.pdbqt
+  docking/AK1_AP5_seed7007.pdbqt
+  docking/AK1_AP5_seed8008.pdbqt
+  docking/AK1_AP5_seed9009.pdbqt
+Other file references in the original source:
+  ligand/AP5.pdbqt
+  receptors/AK1.pdbqt

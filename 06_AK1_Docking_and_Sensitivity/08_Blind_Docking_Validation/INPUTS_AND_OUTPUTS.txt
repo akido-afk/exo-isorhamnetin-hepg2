@@ -1,0 +1,117 @@
+08 Blind Docking Validation
+INPUTS AND OUTPUTS
+
+Paths below use the original project layout. The preparation helper reconstructs these locations from the chapter folders.
+
+AK1_analyze_blind_10seed_full.py
+Inputs:
+  docking/AK1_ISO_BLIND_seed1001.pdbqt
+  docking/AK1_ISO_BLIND_seed10101.pdbqt
+  docking/AK1_ISO_BLIND_seed2002.pdbqt
+  docking/AK1_ISO_BLIND_seed3003.pdbqt
+  docking/AK1_ISO_BLIND_seed4004.pdbqt
+  docking/AK1_ISO_BLIND_seed5005.pdbqt
+  docking/AK1_ISO_BLIND_seed6006.pdbqt
+  docking/AK1_ISO_BLIND_seed7007.pdbqt
+  docking/AK1_ISO_BLIND_seed8008.pdbqt
+  docking/AK1_ISO_BLIND_seed9009.pdbqt
+  docking/AK1_ISO_seed1001.pdbqt
+  docking/AK1_ISO_seed10101.pdbqt
+  docking/AK1_ISO_seed2002.pdbqt
+  docking/AK1_ISO_seed3003.pdbqt
+  docking/AK1_ISO_seed4004.pdbqt
+  docking/AK1_ISO_seed5005.pdbqt
+  docking/AK1_ISO_seed6006.pdbqt
+  docking/AK1_ISO_seed7007.pdbqt
+  docking/AK1_ISO_seed8008.pdbqt
+  docking/AK1_ISO_seed9009.pdbqt
+  ligand/AK1_native_AP5_chainA.pdb
+Outputs:
+  results/AK1_blind_docking/full_10seed_analysis_v1/AK1_BLIND_10SEED_COMPREHENSIVE_ANALYSIS.xlsx
+  results/AK1_blind_docking/full_10seed_analysis_v1/AK1_BLIND_all_poses.csv
+  results/AK1_blind_docking/full_10seed_analysis_v1/AK1_BLIND_overall_summary.csv
+  results/AK1_blind_docking/full_10seed_analysis_v1/AK1_BLIND_seed_summary.csv
+Other file references in the original source:
+  ligand/AK1_native_AP5_chainA.pdb
+  results/AK1_blind_docking/full_10seed_analysis_v1/AK1_BLIND_10SEED_COMPREHENSIVE_ANALYSIS.xlsx
+  results/AK1_blind_docking/full_10seed_analysis_v1/AK1_BLIND_all_poses.csv
+  results/AK1_blind_docking/full_10seed_analysis_v1/AK1_BLIND_overall_summary.csv
+  results/AK1_blind_docking/full_10seed_analysis_v1/AK1_BLIND_seed_summary.csv
+
+AK1_analyze_blind_pilot.py
+Inputs:
+  docking/AK1_ISO_BLIND_seed1001.pdbqt
+  docking/AK1_ISO_seed1001.pdbqt
+  docking/AK1_ISO_seed10101.pdbqt
+  docking/AK1_ISO_seed2002.pdbqt
+  docking/AK1_ISO_seed3003.pdbqt
+  docking/AK1_ISO_seed4004.pdbqt
+  docking/AK1_ISO_seed5005.pdbqt
+  docking/AK1_ISO_seed6006.pdbqt
+  docking/AK1_ISO_seed7007.pdbqt
+  docking/AK1_ISO_seed8008.pdbqt
+  docking/AK1_ISO_seed9009.pdbqt
+  ligand/AK1_native_AP5_chainA.pdb
+Outputs:
+  results/AK1_blind_docking/pilot_seed1001/AK1_BLIND_seed1001_PILOT_ANALYSIS.xlsx
+  results/AK1_blind_docking/pilot_seed1001/AK1_BLIND_seed1001_all20_modes_analysis.csv
+Other file references in the original source:
+  docking/AK1_ISO_BLIND_seed1001.pdbqt
+  ligand/AK1_native_AP5_chainA.pdb
+  results/AK1_blind_docking/pilot_seed1001/AK1_BLIND_seed1001_PILOT_ANALYSIS.xlsx
+  results/AK1_blind_docking/pilot_seed1001/AK1_BLIND_seed1001_all20_modes_analysis.csv
+
+AK1_calculate_blind_docking_box.py
+Inputs:
+  receptors/AK1_chainA_FIXED.pdb
+Outputs:
+  results/AK1_blind_docking/AK1_blind_box.txt
+Other file references in the original source:
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_blind_docking/AK1_blind_box.txt
+
+AK1_plot_blind_validation.R
+Inputs:
+  results/AK1_blind_docking/full_10seed_analysis_v1/AK1_BLIND_all_poses.csv
+  results/AK1_blind_docking/full_10seed_analysis_v1/AK1_BLIND_overall_summary.csv
+  results/AK1_blind_docking/full_10seed_analysis_v1/AK1_BLIND_seed_summary.csv
+  results/AK1_blind_docking/full_10seed_analysis_v1/figures_v1/AK1_BLIND_VALIDATION_FIGURE_DATA.xlsx
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_ensemble_seed_results.csv
+Outputs:
+  results/AK1_blind_docking/full_10seed_analysis_v1/figures_v1/AK1_blind_panelA_mode1_RMSD.png
+  results/AK1_blind_docking/full_10seed_analysis_v1/figures_v1/AK1_blind_panelB_targeted_vs_blind_scores.png
+  results/AK1_blind_docking/full_10seed_analysis_v1/figures_v1/AK1_blind_panelC_recovery_frequency.png
+Other file references in the original source:
+  results/AK1_blind_docking/full_10seed_analysis_v1/AK1_BLIND_all_poses.csv
+  results/AK1_blind_docking/full_10seed_analysis_v1/AK1_BLIND_overall_summary.csv
+  results/AK1_blind_docking/full_10seed_analysis_v1/AK1_BLIND_seed_summary.csv
+  results/AK1_blind_docking/full_10seed_analysis_v1/figures_v1/AK1_BLIND_VALIDATION_ABC.pdf
+  results/AK1_blind_docking/full_10seed_analysis_v1/figures_v1/AK1_BLIND_VALIDATION_ABC.png
+  results/AK1_blind_docking/full_10seed_analysis_v1/figures_v1/AK1_BLIND_VALIDATION_FIGURE_DATA.xlsx
+  results/AK1_blind_docking/full_10seed_analysis_v1/figures_v1/AK1_blind_panelA_mode1_RMSD.pdf
+  results/AK1_blind_docking/full_10seed_analysis_v1/figures_v1/AK1_blind_panelA_mode1_RMSD.png
+  results/AK1_blind_docking/full_10seed_analysis_v1/figures_v1/AK1_blind_panelB_targeted_vs_blind_scores.pdf
+  results/AK1_blind_docking/full_10seed_analysis_v1/figures_v1/AK1_blind_panelB_targeted_vs_blind_scores.png
+  results/AK1_blind_docking/full_10seed_analysis_v1/figures_v1/AK1_blind_panelC_recovery_frequency.pdf
+  results/AK1_blind_docking/full_10seed_analysis_v1/figures_v1/AK1_blind_panelC_recovery_frequency.png
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_ensemble_seed_results.csv
+
+AK1_run_blind_remaining9.bat
+Inputs:
+  ligand/isorhamnetin.pdbqt
+  receptors/AK1.pdbqt
+  results/AK1_blind_docking/AK1_blind_box.txt
+Outputs:
+  docking/AK1_ISO_BLIND_seed10101.pdbqt
+  docking/AK1_ISO_BLIND_seed2002.pdbqt
+  docking/AK1_ISO_BLIND_seed3003.pdbqt
+  docking/AK1_ISO_BLIND_seed4004.pdbqt
+  docking/AK1_ISO_BLIND_seed5005.pdbqt
+  docking/AK1_ISO_BLIND_seed6006.pdbqt
+  docking/AK1_ISO_BLIND_seed7007.pdbqt
+  docking/AK1_ISO_BLIND_seed8008.pdbqt
+  docking/AK1_ISO_BLIND_seed9009.pdbqt
+Other file references in the original source:
+  ligand/isorhamnetin.pdbqt
+  receptors/AK1.pdbqt
+  results/AK1_blind_docking/AK1_blind_box.txt

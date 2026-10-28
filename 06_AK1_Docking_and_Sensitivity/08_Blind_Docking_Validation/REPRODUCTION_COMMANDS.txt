@@ -1,0 +1,33 @@
+08 Blind Docking Validation
+RECOMMENDED REPRODUCTION STEPS
+
+Run these commands from the working project's structures/ directory after completing the setup in the docking README. The optional new-search sections run new docking calculations.
+
+BLIND-DOCKING BOX
+python ..\run_analysis.py AK1_calculate_blind_docking_box.py
+
+OPTIONAL NEW SEARCH (prepare with --fresh-docking)
+Run the seed1001 pilot before the remaining-nine batch:
+set "VINA=..\software\vina_win.exe"
+"%VINA%" --receptor "..\receptors\AK1.pdbqt" --ligand "..\ligand\isorhamnetin.pdbqt" --center_x 19.739 --center_y 45.925 --center_z 1.072 --size_x 57.316 --size_y 53.181 --size_z 53.673 --exhaustiveness 128 --num_modes 20 --energy_range 10 --seed 1001 --out "..\docking\AK1_ISO_BLIND_seed1001.pdbqt"
+python ..\run_analysis.py --allow-docking AK1_run_blind_remaining9.bat
+
+ANALYSIS
+Targeted chapter 03 reference poses are required for comparison.
+python ..\run_analysis.py AK1_analyze_blind_pilot.py
+python ..\run_analysis.py AK1_analyze_blind_10seed_full.py
+python ..\run_analysis.py AK1_plot_blind_validation.R
+
+OTHER SUPPLIED SOURCES
+The following list includes alternative versions; it is not a required sequence.
+08 Blind Docking Validation
+REPRODUCTION COMMANDS
+
+First use the preparation helper described in the root README.txt to create a new working copy. Run commands from that copy's structures/ directory.
+Use the relevant steps below; alternative plotting scripts are separate versions, not a sequence that must all be run. Saved docking outputs are supplied for downstream analysis. New docking searches must write to a separate empty output folder.
+
+python ..\run_analysis.py AK1_analyze_blind_10seed_full.py
+python ..\run_analysis.py AK1_analyze_blind_pilot.py
+python ..\run_analysis.py AK1_calculate_blind_docking_box.py
+python ..\run_analysis.py AK1_plot_blind_validation.R
+python ..\run_analysis.py --allow-docking AK1_run_blind_remaining9.bat

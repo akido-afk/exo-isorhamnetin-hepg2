@@ -1,0 +1,887 @@
+# ============================================================================
+# AK-FAMILY EXPRESSION AND KEA3 CONVERGENCE — FIGURE 6a–d
+# ============================================================================
+# This script combines the 12-sample AK-family expression score, the directional
+# KEA3 results from Supplementary Figure S9, and the 6 AK-neighbourhood KEA3
+# queries generated from the AK-score correlation analysis.
+# It also performs the specified limma treatment comparisons for Figure 6d.
+#
+# HOW TO RUN THIS CODE?
+# In R or RStudio, enter: source(file.choose(), encoding = "UTF-8")
+# Select this TXT, then choose All Expressions.txt from Input_Source_Files.
+# Please run scripts 01, 02, 03 and 04 beforehand. The 8 additional inputs are read
+# from the same directory without further file-selection windows.
+#
+# REQUIRED INPUTS
+# All Expressions.txt, KEA3_FC1p30_integrated_all.csv,
+# S9_recomputed_all_kinase_priority_scores.csv, and the 6 AKscore KEA3 JSONs.
+#
+# OUTPUTS
+# Figure 6a–d panels, expression/correlation tables, convergence tables,
+# statistical contrasts, file checksums and the R session record.
+# ============================================================================
+
+run_figure6_fc1p30 <- function(expression_file = NULL,
+                               integrated_file = NULL,
+                               priority_file = NULL,
+                               ak_json_files = NULL,
+                               output_dir = NULL) {
+  required_packages <- c("jsonlite", "dplyr", "ggplot2", "patchwork", "openxlsx",
+                         "ggrepel", "AnnotationDbi", "org.Hs.eg.db", "limma")
+  missing_packages <- required_packages[!vapply(required_packages,
+                                                 requireNamespace, logical(1), quietly = TRUE)]
+  if (length(missing_packages)) {
+    stop("Required R packages missing: ", paste(missing_packages, collapse = ", "),
+         ". Install CRAN packages with install.packages() and Bioconductor ",
+         "packages with BiocManager::install().")
+  }
+  suppressPackageStartupMessages({
+    library(dplyr)
+    library(ggplot2)
+    library(patchwork)
+  })
+
+  # All 9 files are located relative to All Expressions.txt.
+  if (is.null(expression_file)) {
+    message("Choose All Expressions.txt from Input_Source_Files.")
+    expression_file <- normalizePath(file.choose(), winslash="/", mustWork=TRUE)
+  }
+  expression_file <- normalizePath(expression_file,winslash="/",mustWork=TRUE)
+  if (basename(expression_file)!="All Expressions.txt") stop("Choose All Expressions.txt.")
+  input_dir <- dirname(expression_file)
+  if (is.null(integrated_file))
+    integrated_file <- file.path(input_dir,"KEA3_FC1p30_integrated_all.csv")
+  if (is.null(priority_file))
+    priority_file <- file.path(input_dir,"S9_recomputed_all_kinase_priority_scores.csv")
+  ak_queries <- unlist(lapply(c("POS","NEG"), function(d)
+    paste0("AKscore_",d,"_top",c(100,150,200))),use.names=FALSE)
+  if (is.null(ak_json_files))
+    ak_json_files <- setNames(file.path(input_dir,paste0(ak_queries,".json")),ak_queries)
+  required_files <- c(expression_file,integrated_file,priority_file,unname(ak_json_files))
+  missing_files <- required_files[!file.exists(required_files)]
+  if (length(missing_files)) stop("Run scripts 01, 02, 03 and 04 before Figure 6. Missing input files:\n",
+                                  paste(missing_files,collapse="\n"))
+  integrated_file <- normalizePath(integrated_file,winslash="/",mustWork=TRUE)
+  priority_file <- normalizePath(priority_file,winslash="/",mustWork=TRUE)
+  if (basename(integrated_file)!="KEA3_FC1p30_integrated_all.csv")
+    stop("Expected KEA3_FC1p30_integrated_all.csv")
+  if (basename(priority_file)!="S9_recomputed_all_kinase_priority_scores.csv")
+    stop("Expected S9_recomputed_all_kinase_priority_scores.csv")
+  if (is.null(names(ak_json_files)) ||
+      !setequal(names(ak_json_files), ak_queries) ||
+      length(ak_json_files) != length(ak_queries)) {
+    stop("AK-neighbourhood JSON selections must contain exactly these six named queries: ",
+         paste(ak_queries, collapse = ", "))
+  }
+  ak_json_files <- vapply(ak_json_files[ak_queries], normalizePath,
+                          character(1), winslash = "/", mustWork = TRUE)
+  if (anyDuplicated(ak_json_files)) stop("Each of the six AK JSON files must be distinct")
+  # Validate each KEA3 response using the Query Name stored in its payload.
+  for (q in ak_queries) {
+    raw <- tryCatch(jsonlite::fromJSON(ak_json_files[[q]], simplifyVector = TRUE),
+                    error = function(e) stop("Unreadable AK KEA3 JSON for ", q,
+                                              ": ", conditionMessage(e)))
+    for (key in c("Integrated--meanRank", "Integrated--topRank")) {
+      tab <- raw[[key]]
+      if (!is.data.frame(tab) || nrow(tab) < 50L ||
+          !"Query Name" %in% names(tab) ||
+          !identical(unique(as.character(tab[["Query Name"]])), q)) {
+        stop("AK JSON content does NOT match the requested ", q,
+             ".\nChosen file: ", ak_json_files[[q]],
+             "\nCheck the internal 'Query Name' and select the correct file.")
+      }
+    }
+  }
+  message("All 9 required Figure 6 input files have been checked.")
+
+  if (is.null(output_dir))
+    output_dir <- file.path(dirname(priority_file), "Figure6_FC1p30_Results")
+  dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+  output_dir <- normalizePath(output_dir, winslash = "/", mustWork = TRUE)
+  message("Results directory: ", output_dir)
+
+  save_csv <- function(x, name) {
+    utils::write.csv(x, file.path(output_dir, name), row.names = FALSE, na = "")
+  }
+  get_num <- function(x) suppressWarnings(as.numeric(as.character(x)))
+  blank_zero <- function(x) { x[is.na(x)] <- 0L; x }
+
+  # ---------- Twelve-array expression matrix ---------------------
+  header_lines <- readLines(expression_file, n = 15L, warn = FALSE, encoding = "UTF-8")
+  header_line <- which(grepl("^ID\\t", header_lines))[1]
+  if (is.na(header_line)) stop("Cannot find the TAC expression header beginning with ID.")
+  tac <- utils::read.delim(expression_file, skip = header_line - 1L,
+                           sep = "\t", header = TRUE, quote = "", comment.char = "",
+                           check.names = FALSE, stringsAsFactors = FALSE,
+                           fileEncoding = "UTF-8")
+  if (!"Gene Symbol" %in% names(tac)) stop("TAC file is missing Gene Symbol.")
+
+  samples <- unlist(lapply(list(
+    NC = "NC", Ctrl = "Ctr", FreeISO = "Free ISO", EXOISO = "EXO ISO"),
+    function(prefix) sprintf("%s %s Avg (log2)", prefix, 1:3)), use.names = FALSE)
+  if (!all(samples %in% names(tac))) {
+    stop("Missing TAC sample columns: ", paste(setdiff(samples, names(tac)), collapse = ", "))
+  }
+  expr_features <- as.matrix(tac[, samples, drop = FALSE])
+  storage.mode(expr_features) <- "numeric"
+  if (any(!is.finite(expr_features))) stop("Non-finite measurements found in TAC expression matrix.")
+  colnames(expr_features) <- c(paste0("NC_", 1:3), paste0("Ctrl_", 1:3),
+                                paste0("FreeISO_", 1:3), paste0("EXOISO_", 1:3))
+  sample_names <- colnames(expr_features)
+  group_names <- rep(c("NC", "Ctrl", "FreeISO", "EXOISO"), each = 3L)
+
+  # If a symbol occurs on several TAC features, average its log2 expression
+  # values within each sample. Keep only valid annotated gene symbols.
+  feature_sums <- new.env(hash = TRUE, parent = emptyenv())
+  feature_counts <- new.env(hash = TRUE, parent = emptyenv())
+  for (i in seq_len(nrow(tac))) {
+    genes <- unique(toupper(trimws(strsplit(as.character(tac[["Gene Symbol"]][i]),
+                                          "///|//|;|,")[[1]])))
+    genes <- genes[!is.na(genes) & nzchar(genes) & !genes %in% c("---", "NA", "-")]
+    for (gene in genes) {
+      if (exists(gene, envir = feature_sums, inherits = FALSE)) {
+        assign(gene, get(gene, envir = feature_sums, inherits = FALSE) +
+               expr_features[i, ], envir = feature_sums)
+        assign(gene, get(gene, envir = feature_counts, inherits = FALSE) + 1L,
+               envir = feature_counts)
+      } else {
+        assign(gene, expr_features[i, ], envir = feature_sums)
+        assign(gene, 1L, envir = feature_counts)
+      }
+    }
+  }
+  all_symbols <- sort(ls(feature_sums))
+  expr_gene <- t(vapply(all_symbols, function(g) {
+    get(g, envir = feature_sums) / get(g, envir = feature_counts)
+  }, numeric(12)))
+  rownames(expr_gene) <- all_symbols
+  colnames(expr_gene) <- sample_names
+  expr_gene <- expr_gene[apply(expr_gene, 1, stats::sd) > 0, , drop = FALSE]
+
+  # 8 AK-family members annotated to GO:0004017 and present on the array.
+  ak_genes <- c("AK1", "AK2", "AK3", "AK4", "AK5", "AK7", "AK8", "AK9")
+  if (!all(ak_genes %in% rownames(expr_gene))) {
+    stop("Missing AK-family genes: ", paste(setdiff(ak_genes, rownames(expr_gene)), collapse = ", "))
+  }
+  ak_z <- t(scale(t(expr_gene[ak_genes, , drop = FALSE]), center = TRUE, scale = TRUE))
+  if (any(!is.finite(ak_z))) stop("Invalid AK-gene Z scores.")
+  ak_score <- colMeans(ak_z)
+  ak_samples <- data.frame(Sample = sample_names, Group = group_names,
+                           AK_GO0004017_score = as.numeric(ak_score))
+  ak_means <- ak_samples %>% group_by(Group) %>%
+    summarise(N_biological = n(), Mean_AK_family_score = mean(AK_GO0004017_score),
+              .groups = "drop")
+  ak_means$Group <- factor(ak_means$Group,
+                           levels = c("NC", "Ctrl", "FreeISO", "EXOISO"))
+  save_csv(ak_samples, "Figure6a_AK_scores_per_biological_sample.csv")
+  save_csv(ak_means, "Figure6a_AK_group_means_FC1p30.csv")
+
+  # ---------- Kinase transcript correlations -------------------------------
+  # Spearman p uses the standard t approximation with 12 independent arrays,
+  # consistent with cor.test(method = "spearman", exact = FALSE). There are
+  # 3 biological samples per treatment group. No technical wells enter.
+  score_resid <- ak_score - ave(ak_score, group_names)
+  all_correlations <- lapply(seq_len(nrow(expr_gene)), function(i) {
+    x <- as.numeric(expr_gene[i, ])
+    rho <- suppressWarnings(stats::cor(x, ak_score, method = "spearman"))
+    p <- if (is.finite(rho)) {
+      if (abs(rho) == 1) 0 else {
+        t_value <- rho * sqrt(10 / (1 - rho^2))
+        2 * stats::pt(-abs(t_value), df = 10)
+      }
+    } else NA_real_
+    group_resid <- x - ave(x, group_names)
+    group_r <- suppressWarnings(stats::cor(group_resid, score_resid))
+    group_p <- if (is.finite(group_r)) {
+      if (abs(group_r) == 1) 0 else {
+        2 * stats::pt(-abs(group_r * sqrt(10 / (1 - group_r^2))), df = 10)
+      }
+    } else NA_real_
+    data.frame(Kinase_symbol = rownames(expr_gene)[i],
+               Spearman_rho = rho, Spearman_p = p,
+               Pearson_r = suppressWarnings(stats::cor(x, ak_score)),
+               Group_adjusted_r = group_r, Group_adjusted_p = group_p)
+  })
+  cor_table <- dplyr::bind_rows(all_correlations)
+  cor_table$Spearman_FDR_all_tested_genes <- stats::p.adjust(cor_table$Spearman_p, method = "BH")
+  save_csv(cor_table, "Figure6c_all_gene_correlations.csv")
+
+  # Generate the 6 gene lists used for the AK-neighbourhood
+  # sensitivity analysis. The saved KEA3 responses are fixed reference data.
+  # Tthe lists document the correlation-based gene selection.
+  query_output_dir <- file.path(output_dir, "AK_neighbourhood_query_lists")
+  dir.create(query_output_dir, recursive = TRUE, showWarnings = FALSE)
+  AK_ranked <- cor_table %>%
+    filter(is.finite(Spearman_rho),
+           !Kinase_symbol %in% c(ak_genes, "CMPK2"))
+  save_csv(AK_ranked %>% arrange(desc(Spearman_rho), Kinase_symbol),
+           "Figure6_AK_neighbourhood_gene_correlations.csv")
+  for (n in c(100L, 150L, 200L)) {
+    pos <- AK_ranked %>% arrange(desc(Spearman_rho), Kinase_symbol) %>%
+      slice_head(n = n) %>% pull(Kinase_symbol)
+    neg <- AK_ranked %>% arrange(Spearman_rho, Kinase_symbol) %>%
+      slice_head(n = n) %>% pull(Kinase_symbol)
+    writeLines(pos, file.path(query_output_dir, paste0("AKscore_POS_top", n, ".txt")))
+    writeLines(neg, file.path(query_output_dir, paste0("AKscore_NEG_top", n, ".txt")))
+  }
+
+  # ---------- Read KEA3 integrated rankings -------------------------------
+  # KEA3 provides 2 integrated summaries. A kinase enters the top 50 if
+  # either method ranks it in its first 50 rows. Each query counts only once.
+  # The positional top-50 rule reproduces the S8–S9 integration convention.
+  read_integrated <- function(json_file, query_name, canonicalize = FALSE) {
+    if (!file.exists(json_file)) {
+      stop("Missing KEA3 response: ", json_file)
+    }
+    if (file.info(json_file)$size < 1000) {
+      stop("KEA3 response appears empty or truncated: ", json_file)
+    }
+    obj <- tryCatch(
+      jsonlite::fromJSON(paste(readLines(json_file, warn = FALSE, encoding = "UTF-8"),
+                                collapse = "\n"), simplifyVector = TRUE),
+      error = function(e) stop("Cannot read KEA3 JSON ", basename(json_file), ": ", conditionMessage(e))
+    )
+    out <- list()
+    for (method in c("Integrated--meanRank", "Integrated--topRank")) {
+      x <- obj[[method]]
+      if (is.null(x) || !is.data.frame(x) || nrow(x) < 50L) {
+        stop("Missing complete KEA3 integrated table in: ", json_file, " / ", method)
+      }
+      if (!all(c("TF", "Rank") %in% names(x))) stop("Invalid KEA3 fields: ", json_file)
+      if ("Query Name" %in% names(x) &&
+          any(as.character(x[["Query Name"]]) != query_name)) {
+        stop("KEA3 query identity mismatch in ", json_file)
+      }
+      genes <- toupper(trimws(as.character(x$TF)))
+      if (canonicalize) {
+        alias <- c(PKCA="PRKCA", PKCB="PRKCB", PKCD="PRKCD", PKCE="PRKCE",
+                   PKCG="PRKCG", PKCH="PRKCH", PKCI="PRKCI", PKCQ="PRKCQ", PKCZ="PRKCZ")
+        matches <- genes %in% names(alias)
+        genes[matches] <- unname(alias[genes[matches]])
+      }
+      tab <- data.frame(Query_Name = query_name,
+                        Integrated_Result_Type = if (method == "Integrated--meanRank")
+                          "MeanRank" else "TopRank_integrated_scaled",
+                        Kinase_symbol = genes, Kinase_API = as.character(x$TF),
+                        Rank = get_num(x$Rank), Position = seq_len(nrow(x)))
+      if (any(!is.finite(tab$Rank)) || any(!nzchar(tab$Kinase_symbol))) {
+        stop("Invalid ranks/symbols in KEA3 response: ", json_file)
+      }
+      out[[method]] <- tab
+    }
+    dplyr::bind_rows(out)
+  }
+
+  # AK neighbourhood: 6 query-specific KEA3 responses, validated by query name.
+  ak_ranks <- dplyr::bind_rows(lapply(ak_queries, function(q) {
+    read_integrated(ak_json_files[[q]], q)
+  }))
+  # Use first 50 rows in each integrated method (the same rule used in S9).
+  ak_ranks$In_top50 <- ak_ranks$Position <= 50L
+  boundary_audit <- ak_ranks %>% group_by(Query_Name, Integrated_Result_Type) %>%
+    summarise(N_records = n(), N_position_top50 = sum(Position <= 50L),
+              N_numeric_rank_le_50 = sum(Rank <= 50), .groups = "drop")
+  save_csv(boundary_audit, "Figure6b_AK_KEA3_top50_boundary_audit.csv")
+  ak_hit_rows <- ak_ranks[ak_ranks$In_top50, c("Kinase_symbol", "Query_Name"), drop = FALSE]
+  ak_hit_rows <- unique(ak_hit_rows)
+  ak_hit_rows$Direction <- ifelse(grepl("_POS_", ak_hit_rows$Query_Name), "POS", "NEG")
+  ak_counts <- ak_hit_rows %>% group_by(Kinase_symbol) %>% summarise(
+    Positive_stability = n_distinct(Query_Name[Direction == "POS"]),
+    Negative_stability = n_distinct(Query_Name[Direction == "NEG"]),
+    AK_queries = paste(sort(unique(Query_Name)), collapse = "; "),
+    .groups = "drop") %>%
+    mutate(AK_stability = pmax(Positive_stability, Negative_stability))
+  save_csv(ak_ranks, "Figure6b_AK_neighbourhood_all_integrated_ranks.csv")
+  save_csv(ak_counts, "Figure6b_AK_neighbourhood_stability.csv")
+
+  # ----------- Read GO-based S8-S9 GLOBAL KEA3 results ---------
+  # The S8-S9 workflow supplies 12 FC1p30 KEA3 query results.
+  comparisons <- c("Control_vs_NC", "FreeISO_vs_Control", "EXOISO_vs_Control",
+                   "EXOISO_vs_FreeISO", "EXOISO_vs_NC", "FreeISO_vs_NC")
+  global_queries <- unlist(lapply(comparisons, function(comp) {
+    paste0(comp, "_", c("UP", "DOWN"), "_FC1p30")
+  }), use.names = FALSE)
+  global_ranks <- utils::read.csv(integrated_file, check.names = FALSE,
+                                   stringsAsFactors = FALSE)
+  expected_columns <- c("Query_Name", "Kinase_symbol", "Kinase_API",
+                        "Rank", "Integrated_Result_Type")
+  if (!all(expected_columns %in% names(global_ranks))) {
+    stop("FC1p30 integrated KEA3 CSV lacks: ",
+         paste(setdiff(expected_columns, names(global_ranks)), collapse = ", "))
+  }
+  allowed_methods <- c("MeanRank", "TopRank_integrated_scaled")
+  if (!setequal(unique(global_ranks$Query_Name), global_queries) ||
+      !setequal(unique(global_ranks$Integrated_Result_Type), allowed_methods)) {
+    stop("The integrated KEA3 table does not describe exactly 12 FC1p30 queries / 2 methods.")
+  }
+  global_ranks$Kinase_symbol <- toupper(trimws(global_ranks$Kinase_symbol))
+  global_ranks$Rank <- get_num(global_ranks$Rank)
+  if (any(!is.finite(global_ranks$Rank)) ||
+      anyNA(global_ranks$Kinase_symbol) ||
+      any(!nzchar(global_ranks$Kinase_symbol))) {
+    stop("Missing/invalid gene symbols or ranks in integrated KEA3 file")
+  }
+  # Original S9 uses top 50 per method in retained API table ORDER,
+  # not 'numeric Rank <= 50', which differs for ties and occasional rank gaps.
+  global_ranks <- global_ranks %>%
+    group_by(Query_Name, Integrated_Result_Type) %>%
+    mutate(Position = row_number()) %>% ungroup()
+  global_table_audit <- global_ranks %>%
+    group_by(Query_Name, Integrated_Result_Type) %>%
+    summarise(N_records = n(), Min_rank = min(Rank),
+              Top50_last_rank = Rank[50L], .groups = "drop")
+  if (nrow(global_table_audit) != 24L || any(global_table_audit$N_records < 50L))
+    stop("Some KEA3 global integrated query/method tables contain fewer than 50 rows")
+  save_csv(global_table_audit, "Figure6b_FC1p30_global_KEA3_table_audit.csv")
+  save_csv(global_ranks, "Figure6b_FC1p30_global_KEA3_integrated_ranks.csv")
+  source_file_map <- data.frame(
+    Source = c("All Expressions", "Global KEA3 integrated", "GO S9 priority",
+               rep("AK-neighbourhood raw KEA3", length(ak_queries))),
+    Query_Name = c("12 samples", "12 FC1p30 directional lists", "GO S9 analysis", ak_queries),
+    File = c(expression_file, integrated_file, priority_file, unname(ak_json_files)),
+    MD5 = unname(tools::md5sum(c(expression_file, integrated_file,
+                                  priority_file, unname(ak_json_files)))),
+    stringsAsFactors = FALSE)
+  save_csv(source_file_map, "Figure6_FC1p30_GO_input_source_audit.csv")
+
+  # 2 KEA3 summaries can identify the same kinase within one query. Do not
+  # count it twice. The EXO-ISO component comprises the 3 contrasts with
+  # EXOISO in the name, each with separate UP and DOWN directions (6 queries).
+  global_hit_rows <- global_ranks %>%
+    filter(Position <= 50L) %>% distinct(Kinase_symbol, Query_Name)
+  global_counts <- global_hit_rows %>% group_by(Kinase_symbol) %>% summarise(
+    N_queries_top50 = n_distinct(Query_Name),
+    N_EXOISO_queries_top50 = n_distinct(Query_Name[grepl("^EXOISO_", Query_Name)]),
+    Queries_EXOISO = paste(sort(Query_Name[grepl("^EXOISO_", Query_Name)]),
+                           collapse = "; "),
+    Queries_all = paste(sort(Query_Name), collapse = "; "),
+    .groups = "drop")
+  save_csv(global_counts, "Figure6b_FC1p30_global_recurrence.csv")
+
+  # The S9 priority table is used only as a numerical consistency
+  # check and to supply bubble sizes; Figure 6 candidates are not selected
+  # from that table's tier labels or priority threshold.
+  priority <- utils::read.csv(priority_file, check.names = FALSE)
+  if (!all(c("Kinase_symbol", "N_EXOISO_queries_top50", "Priority_score") %in%
+           names(priority))) stop("S9 priority table is missing required columns.")
+  priority$Kinase_symbol <- toupper(trimws(as.character(priority$Kinase_symbol)))
+  priority$N_EXOISO_queries_top50 <- get_num(priority$N_EXOISO_queries_top50)
+  priority$Priority_score <- get_num(priority$Priority_score)
+  priority_check <- priority %>%
+    left_join(global_counts %>% select(Kinase_symbol, N_EXOISO_queries_top50),
+              by = "Kinase_symbol", suffix = c("_S9", "_Figure6")) %>%
+    mutate(N_EXOISO_queries_top50_Figure6 =
+             blank_zero(N_EXOISO_queries_top50_Figure6))
+  if (any(priority_check$N_EXOISO_queries_top50_S9 !=
+          priority_check$N_EXOISO_queries_top50_Figure6)) {
+    mismatch <- priority_check %>% filter(N_EXOISO_queries_top50_S9 !=
+                                          N_EXOISO_queries_top50_Figure6)
+    save_csv(mismatch, "Figure6_S9_count_discrepancies.csv")
+    stop("Calculated global KEA3 hits disagree with S9. See Figure6_S9_count_discrepancies.csv")
+  }
+
+  # ---------- 3 independent converging evidence layers ----------------
+  # Global support: kinase in >= 2 of the 6 EXO-ISO directional KEA3 lists.
+  # AK support: kinase in top 50 in >= 2 nested neighbourhood sizes on
+  #             either the positive or negative AK-associated side.
+  # Transcript support: |Spearman rho| >= 0.60 and nominal p < 0.05.
+  # These rules are independent of S9 tiering and the new linear FC cutoff.
+  all_kinases <- data.frame(Kinase_symbol = sort(unique(c(
+    ak_counts$Kinase_symbol, global_counts$Kinase_symbol))))
+
+  # KEA3 sometimes uses older kinase aliases rather than approved gene
+  # symbols. Match directly wherever possible; otherwise resolve the label
+  # with org.Hs.eg.db. Ambiguous aliases are not assigned a transcript score.
+  # This is the alias-resolution rule used in the original R analysis.
+  mea <- rownames(expr_gene)
+  non_direct <- setdiff(all_kinases$Kinase_symbol, mea)
+  annot <- if (length(non_direct)) {
+    tryCatch(
+      suppressMessages(AnnotationDbi::select(org.Hs.eg.db::org.Hs.eg.db,
+        keys = non_direct, keytype = "ALIAS", columns = "SYMBOL")),
+      error = function(e) {
+        warning("Alias lookup returned no results: ", conditionMessage(e))
+        data.frame(ALIAS = character(), SYMBOL = character())
+      }
+    )
+  } else data.frame(ALIAS = character(), SYMBOL = character())
+
+  map_label <- function(label) {
+    if (label %in% mea) {
+      return(data.frame(Kinase_symbol = label, Expression_symbol = label,
+                        Mapping_status = "Direct"))
+    }
+    candidates <- unique(toupper(na.omit(annot$SYMBOL[annot$ALIAS == label])))
+    candidates <- intersect(candidates, mea)
+    if (length(candidates) == 1L) {
+      return(data.frame(Kinase_symbol = label, Expression_symbol = candidates,
+                        Mapping_status = "Alias_to_expression"))
+    }
+    if (length(candidates) > 1L) {
+      return(data.frame(Kinase_symbol = label, Expression_symbol = NA_character_,
+                        Mapping_status = paste("Ambiguous", paste(candidates, collapse = ";"))))
+    }
+    data.frame(Kinase_symbol = label, Expression_symbol = NA_character_,
+               Mapping_status = "Unresolved")
+  }
+  alias_map <- dplyr::bind_rows(lapply(all_kinases$Kinase_symbol, map_label))
+  save_csv(alias_map, "Figure6_KEA3_expression_symbol_alias_map.csv")
+  cor_link <- cor_table %>% rename(Expression_symbol = Kinase_symbol)
+
+  # S9's GO-derived labels are metadata for the convergence table, not
+  # candidate-selection thresholds or evidence of catalytic kinase activity.
+  go_columns <- intersect(c("Biological_axis", "GO_MF_role", "GO_MF_ID", "GO_BP_ID"),
+                          names(priority))
+  priority_go <- priority %>%
+    select(Kinase_symbol, all_of(go_columns)) %>%
+    rename_with(~paste0("S9_", .x), all_of(go_columns))
+
+  convergence <- all_kinases %>%
+    left_join(global_counts, by = "Kinase_symbol") %>%
+    left_join(ak_counts, by = "Kinase_symbol") %>%
+    left_join(alias_map, by = "Kinase_symbol") %>%
+    left_join(cor_link, by = "Expression_symbol") %>%
+    left_join(priority %>% select(Kinase_symbol, Priority_score), by = "Kinase_symbol") %>%
+    left_join(priority_go, by = "Kinase_symbol") %>%
+    mutate(across(c(N_queries_top50, N_EXOISO_queries_top50,
+                    Positive_stability, Negative_stability, AK_stability), blank_zero),
+           Global_KEA3_support = N_EXOISO_queries_top50 >= 2L,
+           AK_neighbourhood_support = AK_stability >= 2L,
+           Transcript_support = !is.na(Spearman_rho) & !is.na(Spearman_p) &
+             abs(Spearman_rho) >= 0.60 & Spearman_p < 0.05,
+           Evidence_class = case_when(
+             Global_KEA3_support & AK_neighbourhood_support & Transcript_support ~ "Triple convergence",
+             Global_KEA3_support & AK_neighbourhood_support ~ "Global + AK-associated",
+             AK_neighbourhood_support & Transcript_support ~ "AK-associated + transcript",
+             AK_neighbourhood_support ~ "AK-associated only",
+             Global_KEA3_support & Transcript_support ~ "Global + transcript",
+             Global_KEA3_support ~ "Global only",
+             Transcript_support ~ "Transcript only",
+             TRUE ~ "Limited")) %>%
+    arrange(desc(Evidence_class == "Triple convergence"),
+            desc(N_EXOISO_queries_top50), desc(AK_stability), Kinase_symbol)
+  triple <- convergence %>% filter(Evidence_class == "Triple convergence")
+  save_csv(convergence, "Figure6b_FC1p30_all_convergence_evidence.csv")
+  save_csv(triple, "Figure6b_FC1p30_triple_convergence_candidates.csv")
+
+  # ---------- Figure 6a: 4 group means, no error bars -------------------
+  p_a <- ggplot(ak_means, aes(x = Group, y = Mean_AK_family_score, fill = Group)) +
+    geom_hline(yintercept = 0, linewidth = 0.35, colour = "#505050") +
+    geom_col(width = 0.67, colour = "#2E3135", linewidth = 0.4) +
+    geom_text(aes(label = sprintf("%.2f", Mean_AK_family_score),
+                  vjust = ifelse(Mean_AK_family_score >= 0, -0.4, 1.4)),
+              size = 3.5) +
+    scale_fill_manual(values = c(NC = "#9A9B9D", Ctrl = "#E69C37",
+                                 FreeISO = "#F3C45E", EXOISO = "#32879B"), guide = "none") +
+    scale_x_discrete(labels = c(NC = "NC", Ctrl = "Ctrl", FreeISO = "Free ISO", EXOISO = "EXO-ISO")) +
+    coord_cartesian(ylim = c(-0.8, 0.6), clip = "off") +
+    labs(title = "a  AK-family expression score", x = NULL,
+         y = "Mean standardized expression (Z)") +
+    theme_classic(base_size = 11) +
+    theme(plot.title = element_text(face = "bold", size = 12), axis.text.x = element_text(size = 9))
+
+  # ---------- Figure 6b: KEA3 convergence -------------------------------
+  # To prevent hundreds of overlapping points, show each triple candidate
+  # and the highest-ranked representative within other occupied grid cells.
+  # The accompanying full CSV retains every kinase and its evidence class.
+  evidence_colors <- c("Triple convergence" = "#15834A",
+    "Global + AK-associated" = "#79B88D",
+    "AK-associated + transcript" = "#EA9561",
+    "AK-associated only" = "#E1AF81", "Global + transcript" = "#3C86B8",
+    "Global only" = "#8DC0D9", "Transcript only" = "#9B7ABB", "Limited" = "#BFC1C5")
+  evidence_levels <- names(evidence_colors)
+  plot_pool <- convergence %>%
+    mutate(Score_for_plot = ifelse(is.finite(Priority_score), Priority_score, 0),
+           Priority_for_sort = match(Evidence_class, evidence_levels)) %>%
+    group_by(N_EXOISO_queries_top50, AK_stability) %>%
+    arrange(Priority_for_sort, desc(Score_for_plot), Kinase_symbol, .by_group = TRUE) %>%
+    mutate(Keep = row_number() == 1L | Evidence_class == "Triple convergence") %>%
+    ungroup() %>% filter(Keep) %>%
+    group_by(N_EXOISO_queries_top50, AK_stability) %>%
+    mutate(point_offset = (row_number() - (n() + 1) / 2) * 0.12) %>% ungroup()
+  plot_pool$Evidence_class <- factor(plot_pool$Evidence_class, levels = evidence_levels)
+  p_b <- ggplot(plot_pool, aes(x = N_EXOISO_queries_top50 + point_offset,
+                               y = AK_stability)) +
+    geom_point(aes(fill = Evidence_class, size = Score_for_plot),
+               shape = 21, colour = "#252525", stroke = 0.5, alpha = 0.98) +
+    ggrepel::geom_text_repel(
+      data = plot_pool %>% filter(Evidence_class == "Triple convergence"),
+      aes(label = Kinase_symbol), size = 2.8, fontface = "bold",
+      box.padding = 0.35, point.padding = 0.2, seed = 11,
+      max.overlaps = Inf, min.segment.length = 0,
+      segment.colour = "#777777") +
+    scale_fill_manual(values = evidence_colors, drop = TRUE, name = "Evidence") +
+    scale_size_continuous(range = c(2.5, 9), name = "S9 priority score") +
+    scale_x_continuous(breaks = 0:6, limits = c(-0.35, 6.35)) +
+    scale_y_continuous(breaks = 0:3, limits = c(-0.35, 3.5)) +
+    labs(title = "b  KEA3 kinase convergence (FC >= 1.30)",
+         x = "EXO-ISO directional KEA3 top-50 hits (0–6)",
+         y = "AK-neighbourhood stability (0–3)") +
+    theme_classic(base_size = 10) +
+    theme(plot.title = element_text(face = "bold", size = 12),
+          legend.position = "right", legend.title = element_text(size = 8),
+          legend.text = element_text(size = 7), axis.title = element_text(size = 9))
+
+  # ---------- Figure 6c: transcriptional association ----------------------
+  # The original 15 Figure 6c kinases are retained. Newly qualifying triple
+  # candidates are included so the displayed evidence covers every relevant
+  # fixed list. Every selected gene and its criterion is written to CSV.
+  original_15 <- c("GSK3A", "MARK3", "TLK1", "EPHA5", "MTOR", "PLK1",
+                   "EIF2AK2", "CHEK2", "LCK", "ITK", "GRK5", "MAP3K3",
+                   "BTK", "PIK3CG", "PRKCQ")
+  display_symbols <- unique(c(original_15, triple$Kinase_symbol))
+  panel_c <- convergence %>% filter(Kinase_symbol %in% display_symbols,
+                                     is.finite(Spearman_rho)) %>%
+    mutate(Origin = ifelse(Kinase_symbol %in% original_15,
+                            "Original Figure 6c", "New FC1.3 triple-convergence candidate"),
+           Significance = case_when(Spearman_p < 0.001 ~ "***",
+                                    Spearman_p < 0.01 ~ "**",
+                                    Spearman_p < 0.05 ~ "*", TRUE ~ ""))
+  panel_c$Kinase_symbol <- factor(panel_c$Kinase_symbol,
+                                   levels = rev(display_symbols))
+  save_csv(panel_c, "Figure6c_FC1p30_displayed_kinases.csv")
+
+  # Export a single workbook with the same substantive data sections as the
+  # Figure 6 analysis, alongside the individual machine-readable CSVs.
+  openxlsx::write.xlsx(list(
+    AK_sample_scores = ak_samples,
+    AK_group_means = ak_means,
+    AK_neighbourhood_stability = ak_counts,
+    Global_KEA3_recurrence = global_counts,
+    Complete_convergence = convergence,
+    Triple_convergence = triple,
+    Nominal_correlations = cor_table,
+    Alias_mapping = alias_map,
+    Panel_C_data = panel_c,
+    KEA3_input_file_map = source_file_map
+  ), file = file.path(output_dir, "Figure6_FC1p30_results.xlsx"),
+  overwrite = TRUE)
+  p_c <- ggplot(panel_c, aes(y = Kinase_symbol, x = Spearman_rho)) +
+    geom_vline(xintercept = c(-0.60, 0.60), linetype = 2,
+               colour = "#909090", linewidth = 0.45) +
+    geom_vline(xintercept = 0, colour = "#4B4B4B", linewidth = 0.45) +
+    geom_segment(aes(x = 0, xend = Spearman_rho, yend = Kinase_symbol),
+                 colour = "#6A6A6A", linewidth = 0.5) +
+    geom_point(aes(fill = Evidence_class), shape = 21,
+               size = 3.5, stroke = 0.5, colour = "#202020") +
+    geom_text(aes(x = ifelse(Spearman_rho < 0, Spearman_rho - 0.07,
+                            Spearman_rho + 0.07), label = Significance,
+                  hjust = ifelse(Spearman_rho < 0, 1, 0)), size = 3.3) +
+    scale_fill_manual(values = evidence_colors, name = "Evidence", drop = TRUE) +
+    scale_x_continuous(limits = c(-1.17, 1.17), breaks = seq(-1, 1, 0.5)) +
+    labs(title = "c  Signaling-candidate transcripts correlated with AK score",
+         x = "Spearman rho across twelve biological samples", y = NULL) +
+    theme_classic(base_size = 10) +
+    theme(plot.title = element_text(face = "bold", size = 12),
+          legend.position = "none", axis.title.x = element_text(size = 10),
+          axis.text.y = element_text(size = 9))
+
+  combined <- (p_a | p_b) / p_c + patchwork::plot_layout(heights = c(1.05, 1.3))
+
+  # Export vector figures and medium-resolution PNG to reduce Windows graphics
+  # device memory requirements. The original numerical source data are saved.
+  write_plot <- function(plot, name, width, height) {
+    path <- file.path(output_dir, name)
+    ggplot2::ggsave(paste0(path, ".pdf"), plot, width = width,
+                    height = height, units = "in", bg = "white")
+    device <- if (requireNamespace("ragg", quietly = TRUE)) ragg::agg_png else "png"
+    ggplot2::ggsave(paste0(path, ".png"), plot, device = device,
+                    width = width, height = height, units = "in",
+                    dpi = 300, bg = "white", limitsize = FALSE)
+  }
+  write_plot(p_a, "Figure6a_AK_group_means_FC1p30", 6.7, 4.2)
+  write_plot(p_b, "Figure6b_KEA3_convergence_FC1p30", 9.4, 5.4)
+  write_plot(p_c, "Figure6c_transcript_associations_FC1p30", 9.5, 6.6)
+  # Retain the original 3-panel figure alongside the expanded version.
+  write_plot(combined, "Figure6_combined_ABC_FC1p30", 15.2, 11.3)
+
+  # ---------- Figure 6d: treatment contrasts in convergent kinases ---------
+  # Candidate genes come directly from Figure 6b. No names or candidate count
+  # are specified here: the same convergence criteria determine the panel.
+  selected <- triple %>%
+    select(Kinase_symbol, Expression_symbol, Mapping_status,
+           N_EXOISO_queries_top50, AK_stability, Spearman_rho, Spearman_p,
+           Evidence_class) %>%
+    distinct(Kinase_symbol, .keep_all = TRUE)
+  if (!nrow(selected)) {
+    stop("Figure 6b identified no triple-convergence candidates for Figure 6d.")
+  }
+  if (anyNA(selected$Expression_symbol) ||
+      any(!nzchar(selected$Expression_symbol))) {
+    stop("Selected kinases lack an unambiguous expression mapping: ",
+         paste(selected$Kinase_symbol[is.na(selected$Expression_symbol) |
+               !nzchar(ifelse(is.na(selected$Expression_symbol), "",
+                              selected$Expression_symbol))], collapse = ", "))
+  }
+  if (anyDuplicated(selected$Expression_symbol)) {
+    stop("Multiple selected kinase labels map to the same expression gene. ",
+         "Resolve these aliases before fitting Figure 6d.")
+  }
+  if (!all(selected$Expression_symbol %in% rownames(expr_gene))) {
+    stop("Missing selected expression genes: ",
+         paste(setdiff(selected$Expression_symbol, rownames(expr_gene)),
+               collapse = ", "))
+  }
+  save_csv(selected, "Figure6d_FC1p30_selected_triple_convergence.csv")
+
+  # The Figure 6 expression matrix already averages the log2 measurements of
+  # all TAC features assigned to each gene within each biological sample.
+  # Record those source features, including multiply annotated transcript IDs.
+  annotated_symbols <- strsplit(toupper(as.character(tac[["Gene Symbol"]])),
+                                 "///|//|;|,")
+  feature_map <- dplyr::bind_rows(lapply(seq_len(nrow(selected)), function(i) {
+    symbol <- selected$Expression_symbol[i]
+    matches <- which(vapply(annotated_symbols, function(x) {
+      symbol %in% trimws(x)
+    }, logical(1)))
+    if (!length(matches)) stop("No TAC features mapped to ", symbol)
+    data.frame(Kinase_symbol = selected$Kinase_symbol[i],
+               Expression_symbol = symbol,
+               Number_of_TAC_features = length(matches),
+               TAC_feature_IDs = paste(tac$ID[matches], collapse = "; "),
+               Aggregation = "Mean log2 expression across annotated TAC features",
+               stringsAsFactors = FALSE)
+  }))
+  save_csv(feature_map, "Figure6d_FC1p30_TAC_feature_mapping.csv")
+
+  # Fit all measured genes to estimate moderated variances from the full array.
+  # The display is restricted only after the 3 contrasts are fitted.
+  # Each of NC, Ctrl, FreeISO and EXOISO contributes 3 biological samples.
+  treatment <- factor(group_names, levels = c("NC", "Ctrl", "FreeISO", "EXOISO"))
+  if (!identical(as.integer(table(treatment)), rep(3L, 4L))) {
+    stop("Figure 6d requires three biological samples in each treatment group.")
+  }
+  design_d <- stats::model.matrix(~ 0 + treatment)
+  colnames(design_d) <- levels(treatment)
+  contrast_d <- limma::makeContrasts(
+    EXOISO_vs_Ctrl = EXOISO - Ctrl,
+    FreeISO_vs_Ctrl = FreeISO - Ctrl,
+    EXOISO_vs_FreeISO = EXOISO - FreeISO,
+    levels = design_d
+  )
+  fit_d <- limma::lmFit(expr_gene, design_d)
+  fit_d <- limma::contrasts.fit(fit_d, contrast_d)
+  fit_d <- limma::eBayes(fit_d)
+
+  # Report all selected kinases in every contrast, irrespective of their
+  # treatment p-values or fold changes. BH adjustment covers all tested genes
+  # separately within each contrast; nominal p-values remain exploratory.
+  contrast_labels <- c(EXOISO_vs_Ctrl = "EXO-ISO vs Ctrl",
+                       FreeISO_vs_Ctrl = "Free ISO vs Ctrl",
+                       EXOISO_vs_FreeISO = "EXO-ISO vs Free ISO")
+  panel_d <- dplyr::bind_rows(lapply(colnames(contrast_d), function(contrast_name) {
+    result <- limma::topTable(fit_d, coef = contrast_name, number = Inf,
+                              adjust.method = "BH", sort.by = "none",
+                              confint = 0.95)
+    result$Expression_symbol <- rownames(result)
+    ix <- match(selected$Expression_symbol, result$Expression_symbol)
+    if (anyNA(ix)) stop("Incomplete limma results for contrast ", contrast_name)
+    data.frame(Kinase_symbol = selected$Kinase_symbol,
+               Expression_symbol = selected$Expression_symbol,
+               Evidence_class = selected$Evidence_class,
+               Contrast = contrast_name,
+               Contrast_label = unname(contrast_labels[contrast_name]),
+               log2FC = result$logFC[ix],
+               CI95_lower = result$CI.L[ix],
+               CI95_upper = result$CI.R[ix],
+               Moderated_t = result$t[ix],
+               P_value = result$P.Value[ix],
+               BH_FDR_all_tested_genes = result$adj.P.Val[ix],
+               Mean_log2_expression = result$AveExpr[ix],
+               stringsAsFactors = FALSE)
+  }))
+  panel_d$Linear_FC = ifelse(panel_d$log2FC >= 0,
+                             2^panel_d$log2FC, -2^(-panel_d$log2FC))
+  panel_d$Direction <- ifelse(panel_d$log2FC >= 0,
+                               "Higher in first group", "Lower in first group")
+  panel_d$P_label <- ifelse(panel_d$P_value < 0.001, "p<0.001",
+                             sprintf("p=%.3f", panel_d$P_value))
+  save_csv(panel_d, "Figure6d_FC1p30_limma_treatment_contrasts.csv")
+
+  # The coefficients must agree with the observed between-group mean
+  # differences. This check also verifies contrast signs and sample ordering.
+  group_means_d <- dplyr::bind_rows(lapply(levels(treatment), function(grp) {
+    data.frame(Kinase_symbol = selected$Kinase_symbol,
+               Expression_symbol = selected$Expression_symbol,
+               Group = grp,
+               Mean_log2_expression = rowMeans(
+                 expr_gene[selected$Expression_symbol, treatment == grp,
+                           drop = FALSE]),
+               stringsAsFactors = FALSE)
+  }))
+  save_csv(group_means_d, "Figure6d_FC1p30_mean_expression_by_group.csv")
+  group_mean_matrix <- sapply(levels(treatment), function(grp) {
+    rowMeans(expr_gene[selected$Expression_symbol, treatment == grp,
+                       drop = FALSE])
+  })
+  rownames(group_mean_matrix) <- selected$Kinase_symbol
+  expected_d <- cbind(EXOISO_vs_Ctrl = group_mean_matrix[, "EXOISO"] -
+                       group_mean_matrix[, "Ctrl"],
+                      FreeISO_vs_Ctrl = group_mean_matrix[, "FreeISO"] -
+                       group_mean_matrix[, "Ctrl"],
+                      EXOISO_vs_FreeISO = group_mean_matrix[, "EXOISO"] -
+                       group_mean_matrix[, "FreeISO"])
+  for (contrast_name in colnames(contrast_d)) {
+    check_rows <- panel_d[panel_d$Contrast == contrast_name, ]
+    observed <- check_rows$log2FC
+    expected <- expected_d[check_rows$Kinase_symbol, contrast_name]
+    if (!isTRUE(all.equal(unname(observed), unname(expected),
+                          tolerance = 1e-8))) {
+      stop("Figure 6d limma contrasts do not match group means: ", contrast_name)
+    }
+  }
+
+  # Panel 6d is rendered as a heatmap for easier visual comparison across the
+  # 3 direct treatment contrasts. Genes are ordered by the EXO-ISO vs Ctrl
+  # log2 fold change, from most upregulated to most downregulated.
+  order_exo_ctrl <- panel_d %>%
+    filter(Contrast == "EXOISO_vs_Ctrl") %>%
+    arrange(desc(log2FC), Kinase_symbol) %>%
+    pull(Kinase_symbol)
+  panel_d$Kinase_symbol <- factor(panel_d$Kinase_symbol,
+                                  levels = rev(order_exo_ctrl))
+  panel_d$Contrast_label <- factor(panel_d$Contrast_label,
+                                   levels = unname(contrast_labels))
+  panel_d$P_stars <- dplyr::case_when(
+    panel_d$P_value < 0.001 ~ "***",
+    panel_d$P_value < 0.01 ~ "**",
+    panel_d$P_value < 0.05 ~ "*",
+    TRUE ~ ""
+  )
+  panel_d$P_compact <- ifelse(panel_d$P_value < 0.001, "<0.001",
+                              sprintf("=%.3f", panel_d$P_value))
+  panel_d$Tile_label_effect <- sprintf("%+.2f", panel_d$log2FC)
+  panel_d$Tile_label_p <- ifelse(nzchar(panel_d$P_stars),
+                                 paste0("p", panel_d$P_compact, " ", panel_d$P_stars),
+                                 paste0("p", panel_d$P_compact))
+
+  fill_limit <- max(0.5, abs(panel_d$log2FC), na.rm = TRUE)
+  fill_limit <- max(fill_limit, 1.0)
+
+  p_d <- ggplot(panel_d, aes(x = Contrast_label, y = Kinase_symbol, fill = log2FC)) +
+    geom_tile(colour = "white", linewidth = 2.2) +
+    geom_text(aes(label = Tile_label_effect),
+              size = 5.2, fontface = "bold", colour = "#1F1F1F", vjust = -0.2) +
+    geom_text(aes(label = Tile_label_p),
+              size = 2.8, colour = "#1F1F1F", vjust = 1.45) +
+    scale_fill_gradient2(low = "#2A69AC", mid = "#F3F3F3", high = "#B40426",
+                         midpoint = 0, limits = c(-fill_limit, fill_limit),
+                         name = "log2 fold change") +
+    labs(title = paste0("d  Direct treatment effects in ", nrow(selected),
+                        " triple-convergence candidates"),
+         x = NULL, y = NULL,
+         caption = paste(
+           "Each tile shows limma log2FC; below it, the nominal p-value and significance stars",
+           "(* p<0.05, ** p<0.01, *** p<0.001). Genes are ordered by EXO-ISO vs Ctrl",
+           "from most upregulated to most downregulated."
+         )) +
+    theme_minimal(base_size = 10) +
+    theme(plot.title = element_text(face = "bold", size = 12),
+          axis.text.x = element_text(size = 9, face = "bold"),
+          axis.text.y = element_text(size = 10),
+          panel.grid = element_blank(),
+          legend.position = "right",
+          legend.title = element_text(size = 9),
+          legend.text = element_text(size = 8),
+          plot.caption = element_text(size = 8, hjust = 0))
+
+  write_plot(p_d, "Figure6d_FC1p30_treatment_contrasts", 10.8,
+             max(4.9, 2.3 + nrow(selected) * 0.46))
+
+  # ---------- Complete Figure 6: panels a, b, c and d ----------------------
+  # Place the 2 summary plots together at the top, followed by the full-width
+  # correlation plot and treatment-effect heatmap. This keeps gene names and
+  # numerical heatmap labels legible at publication size.
+  top_row <- (p_a | p_b) +
+    patchwork::plot_layout(widths = c(0.42, 0.58))
+
+  height_top <- 5.0
+  height_c <- max(6.6, 2.4 + nrow(panel_c) * 0.26)
+  height_d <- max(5.6, 2.4 + nrow(selected) * 0.38)
+  combined_width <- 16.5
+  combined_height <- height_top + height_c + height_d + 1.0
+
+  combined_abcd <- (top_row / p_c / p_d) +
+    patchwork::plot_layout(heights = c(height_top, height_c, height_d))
+
+  # PDF preserves vector text and graphics and PNG is provided for convenient
+  # inspection and use in presentations. The combined filename
+  # for compatibility with existing figure inventories.
+  combined_name <- "Figure6_ABCD_FC1p30_all_panels"
+  write_plot(combined_abcd, combined_name, combined_width, combined_height)
+  for (extension in c("pdf", "png")) {
+    original <- file.path(output_dir, paste0(combined_name, ".", extension))
+    additional_plot <- file.path(output_dir, paste0("Figure6_combined_FC1p30.", extension))
+    if (!file.copy(original, additional_plot, overwrite = TRUE)) {
+      stop("Could not save the combined figure as ", additional_plot)
+    }
+  }
+  message("Complete Figure 6 (a-d): ",
+          file.path(output_dir, paste0(combined_name, ".pdf")))
+  message("Complete Figure 6 (a-d): ",
+          file.path(output_dir, paste0(combined_name, ".png")))
+  if (interactive()) print(combined_abcd)
+
+  openxlsx::write.xlsx(list(
+    Selected_candidates = selected,
+    TAC_feature_mapping = feature_map,
+    Mean_expression = group_means_d,
+    Limma_treatment_contrasts = panel_d %>% mutate(Kinase_symbol = as.character(Kinase_symbol),
+                                                   Contrast_label = as.character(Contrast_label))
+  ), file = file.path(output_dir, "Figure6d_FC1p30_results.xlsx"),
+  overwrite = TRUE)
+
+  # Record exact input checksums and the R package versions used in
+  # this run. KEA3 results are externally generated predictions, not evidence
+  # of direct kinase activity or physical protein interaction.
+  input_files <- unique(c(expression_file, integrated_file, priority_file,
+                          unname(ak_json_files)))
+  checksums <- data.frame(File = normalizePath(input_files, mustWork = TRUE),
+                          MD5 = unname(tools::md5sum(input_files)))
+  save_csv(checksums, "Figure6_FC1p30_input_checksums.csv")
+  writeLines(capture.output(sessionInfo()), file.path(output_dir, "sessionInfo.txt"))
+  writeLines(c(
+    "DEG cutoff: linear absolute FC >= 1.30; nominal p < 0.05; calculated upstream by S8–S9.",
+    "Global KEA3: precomputed 12-query FC1p30 integrated KEA3 table from the GO-classified S8-S9 analysis.",
+    "Global KEA3: the S8-S9 analysis supplies the integrated 12-query KEA3 table.",
+    "S9: priority scores and functional labels from the GO-based S8-S9 analysis; scores are visualization metadata, not triple-convergence selectors.",
+    "Global kinase hit: top 50 in either integrated KEA3 method within one query.",
+    "AK neighbourhood: 6 KEA3 responses verified by Query Name, top100/150/200 POS/NEG.",
+    "AK-neighbourhood top50: first 50 records in either integrated ranking method; cutoff boundary audit exported.",
+    "AK neighbourhood uses saved KEA3 JSON responses checked against their internal query names.",
+    "AK stability: max(positive hit count, negative hit count), from 0 to 3.",
+    "Global evidence: top 50 in at least 2 EXO-ISO directional queries.",
+    "AK neighbourhood evidence: stability >= 2.",
+    "Transcript support: |Spearman rho| >= 0.60 and nominal p < 0.05 across 12 independent biological samples.",
+    "KEA3 labels mapped to expression symbols using unambiguous org.Hs.eg.db aliases; see mapping CSV.",
+    "Figure 6a: mean only, without SD, SEM or individual sample points.",
+    "Panel 6c: original fifteen genes plus any newly qualifying triple-convergence kinase.",
+    "Panel 6d: all Figure 6b triple-convergence candidates selected automatically, no fixed gene list.",
+    "Panel 6d: three limma treatment contrasts using the 12 biological samples (n=3/group).",
+    "Panel 6d: gene-wise limma models fitted on all expressed genes; BH FDR per contrast across all tested genes.",
+    "Panel 6d: figure rendered as a heatmap of limma log2 fold changes across the three contrasts.",
+    "Panel 6d: genes ordered by EXO-ISO vs Ctrl from most upregulated to most downregulated.",
+    "Panel 6d: full source feature mappings, 95% moderated CIs and nominal p-values are exported.",
+    "Panel 6d: exploratory follow-up in the discovery samples, not independent validation.",
+    "Complete Figure 6: panel a and b in the upper row, panel c and d at full width below.",
+    "Complete figure exported in vector PDF and 300 dpi PNG formats.",
+    "Gene-level correlations across the same 12 samples may be treatment-group driven; no independent validation or mechanistic claim.",
+    "GO-derived annotation labels are provided for interpretation; e.g., annotation of kinase-like domains is not proof of catalytic activity.",
+    "All candidate classifications are exploratory and not proof of kinase mechanism."
+  ), file.path(output_dir, "METHODS_AND_THRESHOLDS.txt"))
+
+  cat("\nFigure 6 completed in R (FC >= 1.30; panels a-d).\n")
+  cat("Figure files and numerical tables: ", output_dir, "\n", sep = "")
+  cat("AK family means:\n")
+  print(ak_means)
+  cat("Triple-convergence candidates (", nrow(triple), "):\n", sep = "")
+  print(triple %>% select(Kinase_symbol, N_EXOISO_queries_top50,
+                          AK_stability, Spearman_rho, Spearman_p))
+
+  invisible(list(output_dir = output_dir, triples = triple, panel_d = panel_d,
+                 combined_figure = combined_abcd))
+}
+
+# All calculations run inside one function. If any input is missing or a check
+# fails, execution stops without producing an incomplete convergence figure.
+figure6_result <- run_figure6_fc1p30()

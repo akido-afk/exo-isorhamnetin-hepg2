@@ -1,0 +1,10 @@
+Residue,Chain,Protein atom,Protein role,ISO atom,ISO atom index,ISO role,Distance (A),Contact type
+LYS21,A,NZ,donor,O6,19,acceptor/donor,2.819,Candidate H-bond
+MET61,A,O,acceptor,O3,11,acceptor/donor,2.961,Candidate H-bond
+ARG97,A,NH2,donor,O5,17,acceptor,3.121,Candidate H-bond
+ARG132,A,NH1,donor,O1,2,acceptor,3.153,Candidate H-bond
+ARG97,A,NH1,donor,O4,14,acceptor/donor,3.233,Candidate H-bond
+ARG97,A,NH2,donor,O4,14,acceptor/donor,3.33,Candidate H-bond
+ARG138,A,NH2,donor,O2,7,polar atom,3.396,Polar proximity
+ARG97,A,NH1,donor,O5,17,acceptor,3.418,Candidate H-bond
+ARG149,A,O,acceptor,O4,14,acceptor/donor,3.5,Candidate H-bond

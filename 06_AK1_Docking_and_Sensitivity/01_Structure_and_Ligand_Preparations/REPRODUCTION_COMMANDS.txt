@@ -1,0 +1,25 @@
+01 Structure and Ligand Preparation
+REPRODUCTION COMMANDS
+
+First use the preparation helper described in the root README.txt to create a new working copy. Run commands from that copy's structures/ directory.
+Use the relevant steps below; alternative plotting scripts are separate versions, not a sequence that must all be run. Saved docking outputs are supplied for downstream analysis. New docking searches must write to a separate empty output folder.
+
+STRUCTURE AND LIGAND PREPARATION 
+The source 1Z83 structure and ligand SDF are already included. To regenerate prepared inputs, perform these steps only in an independent working copy.
+
+python -c "p='AK1_1Z83.pdb'; x=open(p).readlines(); open(r'..\receptors\AK1_chainA.pdb','w').writelines([l for l in x if l.startswith('ATOM') and len(l)>21 and l[21]=='A']+['TER\n','END\n'])"
+python -c "p='AK1_1Z83.pdb'; x=open(p).readlines(); open(r'..\ligand\AK1_native_AP5_chainA.pdb','w').writelines([l for l in x if l.startswith('HETATM') and l[17:20].strip()=='AP5' and len(l)>21 and l[21]=='A']+['END\n'])"
+python ..\run_analysis.py fix_AK1.py
+python "%CONDA_PREFIX%\Lib\site-packages\meeko\cli\mk_prepare_receptor.py" --read_pdb "..\receptors\AK1_chainA_FIXED.pdb" -o "..\receptors\AK1" -p
+python "%CONDA_PREFIX%\Lib\site-packages\meeko\cli\mk_prepare_ligand.py" -i "..\ligand\isorhamnetin_3D.sdf" -o "..\ligand\isorhamnetin.pdbqt"
+python ..\run_analysis.py make_AK1_box.py
+
+The Meeko commands assume an activated conda environment containing Meeko 0.8.0 and the other preparation requirements listed in the root README.
+
+OTHER SUPPLIED SCRIPTS
+
+python ..\run_analysis.py AK1_dominant_representative.py
+python ..\run_analysis.py AK1_final_representative.pml
+python ..\run_analysis.py AK1_repr9009_static.pml
+python ..\run_analysis.py fix_AK1.py
+python ..\run_analysis.py make_AK1_box.py

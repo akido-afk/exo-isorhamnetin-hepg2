@@ -1,0 +1,36 @@
+02 AP5 Redocking and Validation
+RECOMMENDED REPRODUCTION STEPS
+
+Run these commands from the working project's structures/ directory after completing the setup in the docking README. The optional new-search sections run new docking calculations.
+
+AP5 POSE VALIDATION
+Use the saved AP5 SDF and native AP5 inputs to calculate RMSDs:
+python ..\run_analysis.py calc_AP5_RMSD.py
+
+OPTIONAL COMPLETE AP5 REDOCKING
+Prepare the working copy with --fresh-docking before these commands. Activate the docking conda environment and work from structures/.
+python "%CONDA_PREFIX%\Lib\site-packages\meeko\cli\mk_prepare_ligand.py" -i "..\ligand\AP5_ideal.sdf" -o "..\ligand\AP5.pdbqt"
+set "VINA=..\software\vina_win.exe"
+"%VINA%" --receptor "..\receptors\AK1.pdbqt" --ligand "..\ligand\AP5.pdbqt" --center_x 25.044 --center_y 44.571 --center_z -3.708 --size_x 23.687 --size_y 23.364 --size_z 30.062 --exhaustiveness 16 --num_modes 10 --seed 1001 --out "..\docking\AK1_AP5_redock_seed1001.pdbqt"
+python "%CONDA_PREFIX%\Lib\site-packages\meeko\cli\mk_export.py" "..\docking\AK1_AP5_redock_seed1001.pdbqt" -s "..\docking\AK1_AP5_redock_seed1001.sdf"
+python ..\run_analysis.py calc_AP5_RMSD.py
+
+The separate AP5 ten-seed score-context searches use:
+python ..\run_analysis.py --allow-docking run_AK1_AP5_10seeds.bat
+python ..\run_analysis.py AK1_AP5_vs_ISO_score_comparison.R
+
+OTHER SUPPLIED SOURCES
+The following list includes alternative versions; it is not a required sequence.
+02 AP5 Redocking and Validation
+REPRODUCTION COMMANDS
+
+First use the preparation helper described in the root README.txt to create a new working copy. Run commands from that copy's structures/ directory.
+Use the relevant steps below; alternative plotting scripts are separate versions, not a sequence that must all be run. Saved docking outputs are supplied for downstream analysis. New docking searches must write to a separate empty output folder.
+
+python ..\run_analysis.py AK1_AP5_vs_ISO_score_comparison.R
+python ..\run_analysis.py AK1_panelC_AP5_redocking.pml
+python ..\run_analysis.py annotate_AK1_panelC.py
+python ..\run_analysis.py calc_AP5_RMSD.py
+python ..\run_analysis.py --allow-docking run_AK1_AP5_10seeds.bat
+
+The preparation helper uses the portable execution sources listed in README.txt. Run the same script filenames from the independent structures/ directory. To repeat a docking search, prepare that working copy with --fresh-docking.

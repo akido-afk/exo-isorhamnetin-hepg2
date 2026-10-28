@@ -1,0 +1,680 @@
+03 ISO Targeted Docking and Convergence
+INPUTS AND OUTPUTS
+
+Paths below use the original project layout. The preparation helper reconstructs these locations from the chapter folders.
+
+AK1_cluster_poses.py
+Inputs:
+  results/AK1_ISO_pose_RMSD_matrix.csv
+Outputs:
+  [console output]
+Other file references in the original source:
+  results/AK1_ISO_pose_RMSD_matrix.csv
+
+AK1_cluster_scores.py
+Inputs:
+  docking/AK1_ISO_seed1001.pdbqt
+  docking/AK1_ISO_seed10101.pdbqt
+  docking/AK1_ISO_seed2002.pdbqt
+  docking/AK1_ISO_seed3003.pdbqt
+  docking/AK1_ISO_seed4004.pdbqt
+  docking/AK1_ISO_seed5005.pdbqt
+  docking/AK1_ISO_seed6006.pdbqt
+  docking/AK1_ISO_seed7007.pdbqt
+  docking/AK1_ISO_seed8008.pdbqt
+  docking/AK1_ISO_seed9009.pdbqt
+Outputs:
+  [console output]
+Other file references in the original source:
+
+AK1_panelD_multiseed.R
+Inputs:
+Outputs:
+Other file references in the original source:
+  ../Workbooks/03_ISO_Full_DOCKING_RESULTS.xlsx
+  results/AK1_panelD/AK1_panelD_multiseed_reproducibility.pdf
+  results/AK1_panelD/AK1_panelD_multiseed_reproducibility.png
+
+AK1_panelD_multiseed_v2.R
+Inputs:
+  ../Workbooks/03_ISO_Full_DOCKING_RESULTS.xlsx
+Outputs:
+  results/AK1_panelD/AK1_panelD_multiseed_reproducibility_V2.png
+Other file references in the original source:
+  ../Workbooks/03_ISO_Full_DOCKING_RESULTS.xlsx
+  results/AK1_panelD/AK1_panelD_multiseed_reproducibility_V2.pdf
+  results/AK1_panelD/AK1_panelD_multiseed_reproducibility_V2.png
+
+AK1_panelE_RMSD_heatmap.R
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_ISO_pose_RMSD_matrix.csv
+  results/AK1_panelE/AK1_panelE_pose_RMSD_heatmap.pdf
+  results/AK1_panelE/AK1_panelE_pose_RMSD_heatmap.png
+
+AK1_panelE_RMSD_heatmap_explained.R
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_ISO_pose_RMSD_matrix.csv
+  results/AK1_panelE/AK1_panelE_pose_RMSD_heatmap_EXPLAINED.pdf
+  results/AK1_panelE/AK1_panelE_pose_RMSD_heatmap_EXPLAINED.png
+
+AK1_panelE_clean_for_paper.R
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_ISO_pose_RMSD_matrix.csv
+  results/AK1_panelE/AK1_panelE_pose_RMSD_heatmap_CLEAN.pdf
+  results/AK1_panelE/AK1_panelE_pose_RMSD_heatmap_CLEAN.png
+
+AK1_panelE_clean_v2.R
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_ISO_pose_RMSD_matrix.csv
+  results/AK1_panelE_clean_v2.png
+
+AK1_panelE_heatmap_clean.R
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_panelE_pose_RMSD_heatmap_clean.png
+
+AK1_panelE_paper_final.R
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_panelE_pose_RMSD_heatmap_clean.png
+
+AK1_pose_convergence.py
+Inputs:
+  docking/AK1_ISO_seed1001.pdbqt
+  docking/AK1_ISO_seed10101.pdbqt
+  docking/AK1_ISO_seed2002.pdbqt
+  docking/AK1_ISO_seed3003.pdbqt
+  docking/AK1_ISO_seed4004.pdbqt
+  docking/AK1_ISO_seed5005.pdbqt
+  docking/AK1_ISO_seed6006.pdbqt
+  docking/AK1_ISO_seed7007.pdbqt
+  docking/AK1_ISO_seed8008.pdbqt
+  docking/AK1_ISO_seed9009.pdbqt
+Outputs:
+  results/AK1_ISO_pose_RMSD_matrix.csv
+Other file references in the original source:
+  results/AK1_ISO_pose_RMSD_matrix.csv
+
+AK1_rotate_ISO_orange.pml
+Inputs:
+Outputs:
+Other file references in the original source:
+  ligand/AK1_native_AP5_chainA.pdb
+  receptors/AK1_chainA_FIXED.pdb
+
+AK1_rotate_orange_same_style.pml
+Inputs:
+  docking/AK1_AP5_redock_bestpose.sdf
+  docking/AK1_ISO_bestpose.sdf
+  receptors/AK1_chainA_FIXED.pdb
+Outputs:
+  results/AK1_rotate_ISO_orange/frames/frame_0001.png
+  results/AK1_rotate_ISO_orange/frames/frame_0002.png
+  results/AK1_rotate_ISO_orange/frames/frame_0003.png
+  results/AK1_rotate_ISO_orange/frames/frame_0004.png
+  results/AK1_rotate_ISO_orange/frames/frame_0005.png
+  results/AK1_rotate_ISO_orange/frames/frame_0006.png
+  results/AK1_rotate_ISO_orange/frames/frame_0007.png
+  results/AK1_rotate_ISO_orange/frames/frame_0008.png
+  results/AK1_rotate_ISO_orange/frames/frame_0009.png
+  results/AK1_rotate_ISO_orange/frames/frame_0010.png
+  results/AK1_rotate_ISO_orange/frames/frame_0011.png
+  results/AK1_rotate_ISO_orange/frames/frame_0012.png
+  results/AK1_rotate_ISO_orange/frames/frame_0013.png
+  results/AK1_rotate_ISO_orange/frames/frame_0014.png
+  results/AK1_rotate_ISO_orange/frames/frame_0015.png
+  results/AK1_rotate_ISO_orange/frames/frame_0016.png
+  results/AK1_rotate_ISO_orange/frames/frame_0017.png
+  results/AK1_rotate_ISO_orange/frames/frame_0018.png
+  results/AK1_rotate_ISO_orange/frames/frame_0019.png
+  results/AK1_rotate_ISO_orange/frames/frame_0020.png
+  results/AK1_rotate_ISO_orange/frames/frame_0021.png
+  results/AK1_rotate_ISO_orange/frames/frame_0022.png
+  results/AK1_rotate_ISO_orange/frames/frame_0023.png
+  results/AK1_rotate_ISO_orange/frames/frame_0024.png
+  results/AK1_rotate_ISO_orange/frames/frame_0025.png
+  results/AK1_rotate_ISO_orange/frames/frame_0026.png
+  results/AK1_rotate_ISO_orange/frames/frame_0027.png
+  results/AK1_rotate_ISO_orange/frames/frame_0028.png
+  results/AK1_rotate_ISO_orange/frames/frame_0029.png
+  results/AK1_rotate_ISO_orange/frames/frame_0030.png
+  results/AK1_rotate_ISO_orange/frames/frame_0031.png
+  results/AK1_rotate_ISO_orange/frames/frame_0032.png
+  results/AK1_rotate_ISO_orange/frames/frame_0033.png
+  results/AK1_rotate_ISO_orange/frames/frame_0034.png
+  results/AK1_rotate_ISO_orange/frames/frame_0035.png
+  results/AK1_rotate_ISO_orange/frames/frame_0036.png
+  results/AK1_rotate_ISO_orange/frames/frame_0037.png
+  results/AK1_rotate_ISO_orange/frames/frame_0038.png
+  results/AK1_rotate_ISO_orange/frames/frame_0039.png
+  results/AK1_rotate_ISO_orange/frames/frame_0040.png
+  results/AK1_rotate_ISO_orange/frames/frame_0041.png
+  results/AK1_rotate_ISO_orange/frames/frame_0042.png
+  results/AK1_rotate_ISO_orange/frames/frame_0043.png
+  results/AK1_rotate_ISO_orange/frames/frame_0044.png
+  results/AK1_rotate_ISO_orange/frames/frame_0045.png
+  results/AK1_rotate_ISO_orange/frames/frame_0046.png
+  results/AK1_rotate_ISO_orange/frames/frame_0047.png
+  results/AK1_rotate_ISO_orange/frames/frame_0048.png
+  results/AK1_rotate_ISO_orange/frames/frame_0049.png
+  results/AK1_rotate_ISO_orange/frames/frame_0050.png
+  results/AK1_rotate_ISO_orange/frames/frame_0051.png
+  results/AK1_rotate_ISO_orange/frames/frame_0052.png
+  results/AK1_rotate_ISO_orange/frames/frame_0053.png
+  results/AK1_rotate_ISO_orange/frames/frame_0054.png
+  results/AK1_rotate_ISO_orange/frames/frame_0055.png
+  results/AK1_rotate_ISO_orange/frames/frame_0056.png
+  results/AK1_rotate_ISO_orange/frames/frame_0057.png
+  results/AK1_rotate_ISO_orange/frames/frame_0058.png
+  results/AK1_rotate_ISO_orange/frames/frame_0059.png
+  results/AK1_rotate_ISO_orange/frames/frame_0060.png
+  results/AK1_rotate_ISO_orange/frames/frame_0061.png
+  results/AK1_rotate_ISO_orange/frames/frame_0062.png
+  results/AK1_rotate_ISO_orange/frames/frame_0063.png
+  results/AK1_rotate_ISO_orange/frames/frame_0064.png
+  results/AK1_rotate_ISO_orange/frames/frame_0065.png
+  results/AK1_rotate_ISO_orange/frames/frame_0066.png
+  results/AK1_rotate_ISO_orange/frames/frame_0067.png
+  results/AK1_rotate_ISO_orange/frames/frame_0068.png
+  results/AK1_rotate_ISO_orange/frames/frame_0069.png
+  results/AK1_rotate_ISO_orange/frames/frame_0070.png
+  results/AK1_rotate_ISO_orange/frames/frame_0071.png
+  results/AK1_rotate_ISO_orange/frames/frame_0072.png
+  results/AK1_rotate_ISO_orange/frames/frame_0073.png
+  results/AK1_rotate_ISO_orange/frames/frame_0074.png
+  results/AK1_rotate_ISO_orange/frames/frame_0075.png
+  results/AK1_rotate_ISO_orange/frames/frame_0076.png
+  results/AK1_rotate_ISO_orange/frames/frame_0077.png
+  results/AK1_rotate_ISO_orange/frames/frame_0078.png
+  results/AK1_rotate_ISO_orange/frames/frame_0079.png
+  results/AK1_rotate_ISO_orange/frames/frame_0080.png
+  results/AK1_rotate_ISO_orange/frames/frame_0081.png
+  results/AK1_rotate_ISO_orange/frames/frame_0082.png
+  results/AK1_rotate_ISO_orange/frames/frame_0083.png
+  results/AK1_rotate_ISO_orange/frames/frame_0084.png
+  results/AK1_rotate_ISO_orange/frames/frame_0085.png
+  results/AK1_rotate_ISO_orange/frames/frame_0086.png
+  results/AK1_rotate_ISO_orange/frames/frame_0087.png
+  results/AK1_rotate_ISO_orange/frames/frame_0088.png
+  results/AK1_rotate_ISO_orange/frames/frame_0089.png
+  results/AK1_rotate_ISO_orange/frames/frame_0090.png
+  results/AK1_rotate_ISO_orange/frames/frame_0091.png
+  results/AK1_rotate_ISO_orange/frames/frame_0092.png
+  results/AK1_rotate_ISO_orange/frames/frame_0093.png
+  results/AK1_rotate_ISO_orange/frames/frame_0094.png
+  results/AK1_rotate_ISO_orange/frames/frame_0095.png
+  results/AK1_rotate_ISO_orange/frames/frame_0096.png
+  results/AK1_rotate_ISO_orange/frames/frame_0097.png
+  results/AK1_rotate_ISO_orange/frames/frame_0098.png
+  results/AK1_rotate_ISO_orange/frames/frame_0099.png
+  results/AK1_rotate_ISO_orange/frames/frame_0100.png
+  results/AK1_rotate_ISO_orange/frames/frame_0101.png
+  results/AK1_rotate_ISO_orange/frames/frame_0102.png
+  results/AK1_rotate_ISO_orange/frames/frame_0103.png
+  results/AK1_rotate_ISO_orange/frames/frame_0104.png
+  results/AK1_rotate_ISO_orange/frames/frame_0105.png
+  results/AK1_rotate_ISO_orange/frames/frame_0106.png
+  results/AK1_rotate_ISO_orange/frames/frame_0107.png
+  results/AK1_rotate_ISO_orange/frames/frame_0108.png
+  results/AK1_rotate_ISO_orange/frames/frame_0109.png
+  results/AK1_rotate_ISO_orange/frames/frame_0110.png
+  results/AK1_rotate_ISO_orange/frames/frame_0111.png
+  results/AK1_rotate_ISO_orange/frames/frame_0112.png
+  results/AK1_rotate_ISO_orange/frames/frame_0113.png
+  results/AK1_rotate_ISO_orange/frames/frame_0114.png
+  results/AK1_rotate_ISO_orange/frames/frame_0115.png
+  results/AK1_rotate_ISO_orange/frames/frame_0116.png
+  results/AK1_rotate_ISO_orange/frames/frame_0117.png
+  results/AK1_rotate_ISO_orange/frames/frame_0118.png
+  results/AK1_rotate_ISO_orange/frames/frame_0119.png
+  results/AK1_rotate_ISO_orange/frames/frame_0120.png
+Other file references in the original source:
+  docking/AK1_AP5_redock_bestpose.sdf
+  docking/AK1_ISO_bestpose.sdf
+  ligand/AK1_native_AP5_chainA.pdb
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_rotate_ISO_orange/AK1_ISO_AP5_overlay_orange.png
+
+build_AK1_comprehensive_excel.py
+Inputs:
+  docking/AK1_AP5_redock_seed1001.pdbqt
+  docking/AK1_ISO_seed1001.pdbqt
+  docking/AK1_ISO_seed10101.pdbqt
+  docking/AK1_ISO_seed2002.pdbqt
+  docking/AK1_ISO_seed3003.pdbqt
+  docking/AK1_ISO_seed4004.pdbqt
+  docking/AK1_ISO_seed5005.pdbqt
+  docking/AK1_ISO_seed6006.pdbqt
+  docking/AK1_ISO_seed7007.pdbqt
+  docking/AK1_ISO_seed8008.pdbqt
+  docking/AK1_ISO_seed9009.pdbqt
+  results/AK1_ISO_pose_RMSD_matrix.csv
+Outputs:
+  ../Workbooks/03_ISO_Full_DOCKING_RESULTS.xlsx
+Other file references in the original source:
+  docking/AK1_AP5_redock_seed1001.pdbqt
+  ligand/AK1_native_AP5_chainA.pdb
+  ligand/isorhamnetin.pdbqt
+  ligand/isorhamnetin_3D.sdf
+  receptors/AK1.pdbqt
+  receptors/AK1_chainA.pdb
+  receptors/AK1_chainA_FIXED.pdb
+  ../Workbooks/03_ISO_Full_DOCKING_RESULTS.xlsx
+  results/AK1_ISO_pose_RMSD_matrix.csv
+  structures/AK1_1Z83.pdb
+
+build_docking_results.py
+Inputs:
+  docking/AK1_7X7S_model1_most_open_ISO_seed1001.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed10101.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed2002.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed3003.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed4004.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed5005.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed6006.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed7007.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed8008.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed9009.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed1001.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed10101.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed2002.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed3003.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed4004.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed5005.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed6006.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed7007.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed8008.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed9009.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed1001.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed10101.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed2002.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed3003.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed4004.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed5005.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed6006.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed7007.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed8008.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed9009.pdbqt
+  docking/AK1_ISO_seed1001.pdbqt
+  docking/AK1_ISO_seed10101.pdbqt
+  docking/AK1_ISO_seed2002.pdbqt
+  docking/AK1_ISO_seed3003.pdbqt
+  docking/AK1_ISO_seed4004.pdbqt
+  docking/AK1_ISO_seed5005.pdbqt
+  docking/AK1_ISO_seed6006.pdbqt
+  docking/AK1_ISO_seed7007.pdbqt
+  docking/AK1_ISO_seed8008.pdbqt
+  docking/AK1_ISO_seed9009.pdbqt
+  docking/AK1_ZN601_ISO_seed1001.pdbqt
+  docking/AK1_ZN601_ISO_seed10101.pdbqt
+  docking/AK1_ZN601_ISO_seed2002.pdbqt
+  docking/AK1_ZN601_ISO_seed3003.pdbqt
+  docking/AK1_ZN601_ISO_seed4004.pdbqt
+  docking/AK1_ZN601_ISO_seed5005.pdbqt
+  docking/AK1_ZN601_ISO_seed6006.pdbqt
+  docking/AK1_ZN601_ISO_seed7007.pdbqt
+  docking/AK1_ZN601_ISO_seed8008.pdbqt
+  docking/AK1_ZN601_ISO_seed9009.pdbqt
+Outputs:
+  ../Workbooks/03_ISO_AK_Docking_Master_Results.xlsx
+Other file references in the original source:
+  docking/AK1_ISO_seed1001.pdbqt
+  ../Workbooks/03_ISO_AK_Docking_Master_Results.xlsx
+
+extract_AK1_seed9009_best.py
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed9009_allposes.sdf
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_repr9009/AK1_ISO_seed9009_allposes.sdf
+  results/AK1_repr9009/AK1_ISO_seed9009_best.sdf
+
+extract_best_pose.py
+Inputs:
+Outputs:
+Other file references in the original source:
+  docking/AK1_AP5_redock_bestpose.sdf
+  docking/AK1_AP5_redock_seed1001.sdf
+  docking/AK1_ISO_bestpose.sdf
+  docking/AK1_ISO_seed1001.sdf
+
+make_AK1_gif.py
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_ISO_rotation.gif
+
+make_AK1_gif_clean.py
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_ISO_rotation_clean.gif
+
+make_AK1_gif_v2.py
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_rotate_v2.gif
+
+make_AK1_orange_gif_clean.py
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_rotate_ISO_orange/AK1_ISO_orange_rotation_clean.gif
+
+make_AK1_visuals.pml
+Inputs:
+  docking/AK1_AP5_redock_bestpose.sdf
+  docking/AK1_ISO_bestpose.sdf
+  ligand/AK1_native_AP5_chainA.pdb
+  receptors/AK1_chainA_FIXED.pdb
+Outputs:
+  results/AK1_ISO_AP5_overlay.png
+  results/AK1_rotate seed 1001 frames/frame_0001.png
+  results/AK1_rotate seed 1001 frames/frame_0002.png
+  results/AK1_rotate seed 1001 frames/frame_0003.png
+  results/AK1_rotate seed 1001 frames/frame_0004.png
+  results/AK1_rotate seed 1001 frames/frame_0005.png
+  results/AK1_rotate seed 1001 frames/frame_0006.png
+  results/AK1_rotate seed 1001 frames/frame_0007.png
+  results/AK1_rotate seed 1001 frames/frame_0008.png
+  results/AK1_rotate seed 1001 frames/frame_0009.png
+  results/AK1_rotate seed 1001 frames/frame_0010.png
+  results/AK1_rotate seed 1001 frames/frame_0011.png
+  results/AK1_rotate seed 1001 frames/frame_0012.png
+  results/AK1_rotate seed 1001 frames/frame_0013.png
+  results/AK1_rotate seed 1001 frames/frame_0014.png
+  results/AK1_rotate seed 1001 frames/frame_0015.png
+  results/AK1_rotate seed 1001 frames/frame_0016.png
+  results/AK1_rotate seed 1001 frames/frame_0017.png
+  results/AK1_rotate seed 1001 frames/frame_0018.png
+  results/AK1_rotate seed 1001 frames/frame_0019.png
+  results/AK1_rotate seed 1001 frames/frame_0020.png
+  results/AK1_rotate seed 1001 frames/frame_0021.png
+  results/AK1_rotate seed 1001 frames/frame_0022.png
+  results/AK1_rotate seed 1001 frames/frame_0023.png
+  results/AK1_rotate seed 1001 frames/frame_0024.png
+  results/AK1_rotate seed 1001 frames/frame_0025.png
+  results/AK1_rotate seed 1001 frames/frame_0026.png
+  results/AK1_rotate seed 1001 frames/frame_0027.png
+  results/AK1_rotate seed 1001 frames/frame_0028.png
+  results/AK1_rotate seed 1001 frames/frame_0029.png
+  results/AK1_rotate seed 1001 frames/frame_0030.png
+  results/AK1_rotate seed 1001 frames/frame_0031.png
+  results/AK1_rotate seed 1001 frames/frame_0032.png
+  results/AK1_rotate seed 1001 frames/frame_0033.png
+  results/AK1_rotate seed 1001 frames/frame_0034.png
+  results/AK1_rotate seed 1001 frames/frame_0035.png
+  results/AK1_rotate seed 1001 frames/frame_0036.png
+  results/AK1_rotate seed 1001 frames/frame_0037.png
+  results/AK1_rotate seed 1001 frames/frame_0038.png
+  results/AK1_rotate seed 1001 frames/frame_0039.png
+  results/AK1_rotate seed 1001 frames/frame_0040.png
+  results/AK1_rotate seed 1001 frames/frame_0041.png
+  results/AK1_rotate seed 1001 frames/frame_0042.png
+  results/AK1_rotate seed 1001 frames/frame_0043.png
+  results/AK1_rotate seed 1001 frames/frame_0044.png
+  results/AK1_rotate seed 1001 frames/frame_0045.png
+  results/AK1_rotate seed 1001 frames/frame_0046.png
+  results/AK1_rotate seed 1001 frames/frame_0047.png
+  results/AK1_rotate seed 1001 frames/frame_0048.png
+  results/AK1_rotate seed 1001 frames/frame_0049.png
+  results/AK1_rotate seed 1001 frames/frame_0050.png
+  results/AK1_rotate seed 1001 frames/frame_0051.png
+  results/AK1_rotate seed 1001 frames/frame_0052.png
+  results/AK1_rotate seed 1001 frames/frame_0053.png
+  results/AK1_rotate seed 1001 frames/frame_0054.png
+  results/AK1_rotate seed 1001 frames/frame_0055.png
+  results/AK1_rotate seed 1001 frames/frame_0056.png
+  results/AK1_rotate seed 1001 frames/frame_0057.png
+  results/AK1_rotate seed 1001 frames/frame_0058.png
+  results/AK1_rotate seed 1001 frames/frame_0059.png
+  results/AK1_rotate seed 1001 frames/frame_0060.png
+  results/AK1_rotate seed 1001 frames/frame_0061.png
+  results/AK1_rotate seed 1001 frames/frame_0062.png
+  results/AK1_rotate seed 1001 frames/frame_0063.png
+  results/AK1_rotate seed 1001 frames/frame_0064.png
+  results/AK1_rotate seed 1001 frames/frame_0065.png
+  results/AK1_rotate seed 1001 frames/frame_0066.png
+  results/AK1_rotate seed 1001 frames/frame_0067.png
+  results/AK1_rotate seed 1001 frames/frame_0068.png
+  results/AK1_rotate seed 1001 frames/frame_0069.png
+  results/AK1_rotate seed 1001 frames/frame_0070.png
+  results/AK1_rotate seed 1001 frames/frame_0071.png
+  results/AK1_rotate seed 1001 frames/frame_0072.png
+  results/AK1_rotate seed 1001 frames/frame_0073.png
+  results/AK1_rotate seed 1001 frames/frame_0074.png
+  results/AK1_rotate seed 1001 frames/frame_0075.png
+  results/AK1_rotate seed 1001 frames/frame_0076.png
+  results/AK1_rotate seed 1001 frames/frame_0077.png
+  results/AK1_rotate seed 1001 frames/frame_0078.png
+  results/AK1_rotate seed 1001 frames/frame_0079.png
+  results/AK1_rotate seed 1001 frames/frame_0080.png
+  results/AK1_rotate seed 1001 frames/frame_0081.png
+  results/AK1_rotate seed 1001 frames/frame_0082.png
+  results/AK1_rotate seed 1001 frames/frame_0083.png
+  results/AK1_rotate seed 1001 frames/frame_0084.png
+  results/AK1_rotate seed 1001 frames/frame_0085.png
+  results/AK1_rotate seed 1001 frames/frame_0086.png
+  results/AK1_rotate seed 1001 frames/frame_0087.png
+  results/AK1_rotate seed 1001 frames/frame_0088.png
+  results/AK1_rotate seed 1001 frames/frame_0089.png
+  results/AK1_rotate seed 1001 frames/frame_0090.png
+  results/AK1_rotate seed 1001 frames/frame_0091.png
+  results/AK1_rotate seed 1001 frames/frame_0092.png
+  results/AK1_rotate seed 1001 frames/frame_0093.png
+  results/AK1_rotate seed 1001 frames/frame_0094.png
+  results/AK1_rotate seed 1001 frames/frame_0095.png
+  results/AK1_rotate seed 1001 frames/frame_0096.png
+  results/AK1_rotate seed 1001 frames/frame_0097.png
+  results/AK1_rotate seed 1001 frames/frame_0098.png
+  results/AK1_rotate seed 1001 frames/frame_0099.png
+  results/AK1_rotate seed 1001 frames/frame_0100.png
+  results/AK1_rotate seed 1001 frames/frame_0101.png
+  results/AK1_rotate seed 1001 frames/frame_0102.png
+  results/AK1_rotate seed 1001 frames/frame_0103.png
+  results/AK1_rotate seed 1001 frames/frame_0104.png
+  results/AK1_rotate seed 1001 frames/frame_0105.png
+  results/AK1_rotate seed 1001 frames/frame_0106.png
+  results/AK1_rotate seed 1001 frames/frame_0107.png
+  results/AK1_rotate seed 1001 frames/frame_0108.png
+  results/AK1_rotate seed 1001 frames/frame_0109.png
+  results/AK1_rotate seed 1001 frames/frame_0110.png
+  results/AK1_rotate seed 1001 frames/frame_0111.png
+  results/AK1_rotate seed 1001 frames/frame_0112.png
+  results/AK1_rotate seed 1001 frames/frame_0113.png
+  results/AK1_rotate seed 1001 frames/frame_0114.png
+  results/AK1_rotate seed 1001 frames/frame_0115.png
+  results/AK1_rotate seed 1001 frames/frame_0116.png
+  results/AK1_rotate seed 1001 frames/frame_0117.png
+  results/AK1_rotate seed 1001 frames/frame_0118.png
+  results/AK1_rotate seed 1001 frames/frame_0119.png
+  results/AK1_rotate seed 1001 frames/frame_0120.png
+  results/AK1_rotate/frame_0001.png
+  results/AK1_rotate/frame_0002.png
+  results/AK1_rotate/frame_0003.png
+  results/AK1_rotate/frame_0004.png
+  results/AK1_rotate/frame_0005.png
+  results/AK1_rotate/frame_0006.png
+  results/AK1_rotate/frame_0007.png
+  results/AK1_rotate/frame_0008.png
+  results/AK1_rotate/frame_0009.png
+  results/AK1_rotate/frame_0010.png
+  results/AK1_rotate/frame_0011.png
+  results/AK1_rotate/frame_0012.png
+  results/AK1_rotate/frame_0013.png
+  results/AK1_rotate/frame_0014.png
+  results/AK1_rotate/frame_0015.png
+  results/AK1_rotate/frame_0016.png
+  results/AK1_rotate/frame_0017.png
+  results/AK1_rotate/frame_0018.png
+  results/AK1_rotate/frame_0019.png
+  results/AK1_rotate/frame_0020.png
+  results/AK1_rotate/frame_0021.png
+  results/AK1_rotate/frame_0022.png
+  results/AK1_rotate/frame_0023.png
+  results/AK1_rotate/frame_0024.png
+  results/AK1_rotate/frame_0025.png
+  results/AK1_rotate/frame_0026.png
+  results/AK1_rotate/frame_0027.png
+  results/AK1_rotate/frame_0028.png
+  results/AK1_rotate/frame_0029.png
+  results/AK1_rotate/frame_0030.png
+  results/AK1_rotate/frame_0031.png
+  results/AK1_rotate/frame_0032.png
+  results/AK1_rotate/frame_0033.png
+  results/AK1_rotate/frame_0034.png
+  results/AK1_rotate/frame_0035.png
+  results/AK1_rotate/frame_0036.png
+  results/AK1_rotate/frame_0037.png
+  results/AK1_rotate/frame_0038.png
+  results/AK1_rotate/frame_0039.png
+  results/AK1_rotate/frame_0040.png
+  results/AK1_rotate/frame_0041.png
+  results/AK1_rotate/frame_0042.png
+  results/AK1_rotate/frame_0043.png
+  results/AK1_rotate/frame_0044.png
+  results/AK1_rotate/frame_0045.png
+  results/AK1_rotate/frame_0046.png
+  results/AK1_rotate/frame_0047.png
+  results/AK1_rotate/frame_0048.png
+  results/AK1_rotate/frame_0049.png
+  results/AK1_rotate/frame_0050.png
+  results/AK1_rotate/frame_0051.png
+  results/AK1_rotate/frame_0052.png
+  results/AK1_rotate/frame_0053.png
+  results/AK1_rotate/frame_0054.png
+  results/AK1_rotate/frame_0055.png
+  results/AK1_rotate/frame_0056.png
+  results/AK1_rotate/frame_0057.png
+  results/AK1_rotate/frame_0058.png
+  results/AK1_rotate/frame_0059.png
+  results/AK1_rotate/frame_0060.png
+  results/AK1_rotate/frame_0061.png
+  results/AK1_rotate/frame_0062.png
+  results/AK1_rotate/frame_0063.png
+  results/AK1_rotate/frame_0064.png
+  results/AK1_rotate/frame_0065.png
+  results/AK1_rotate/frame_0066.png
+  results/AK1_rotate/frame_0067.png
+  results/AK1_rotate/frame_0068.png
+  results/AK1_rotate/frame_0069.png
+  results/AK1_rotate/frame_0070.png
+  results/AK1_rotate/frame_0071.png
+  results/AK1_rotate/frame_0072.png
+  results/AK1_rotate/frame_0073.png
+  results/AK1_rotate/frame_0074.png
+  results/AK1_rotate/frame_0075.png
+  results/AK1_rotate/frame_0076.png
+  results/AK1_rotate/frame_0077.png
+  results/AK1_rotate/frame_0078.png
+  results/AK1_rotate/frame_0079.png
+  results/AK1_rotate/frame_0080.png
+  results/AK1_rotate/frame_0081.png
+  results/AK1_rotate/frame_0082.png
+  results/AK1_rotate/frame_0083.png
+  results/AK1_rotate/frame_0084.png
+  results/AK1_rotate/frame_0085.png
+  results/AK1_rotate/frame_0086.png
+  results/AK1_rotate/frame_0087.png
+  results/AK1_rotate/frame_0088.png
+  results/AK1_rotate/frame_0089.png
+  results/AK1_rotate/frame_0090.png
+  results/AK1_rotate/frame_0091.png
+  results/AK1_rotate/frame_0092.png
+  results/AK1_rotate/frame_0093.png
+  results/AK1_rotate/frame_0094.png
+  results/AK1_rotate/frame_0095.png
+  results/AK1_rotate/frame_0096.png
+  results/AK1_rotate/frame_0097.png
+  results/AK1_rotate/frame_0098.png
+  results/AK1_rotate/frame_0099.png
+  results/AK1_rotate/frame_0100.png
+  results/AK1_rotate/frame_0101.png
+  results/AK1_rotate/frame_0102.png
+  results/AK1_rotate/frame_0103.png
+  results/AK1_rotate/frame_0104.png
+  results/AK1_rotate/frame_0105.png
+  results/AK1_rotate/frame_0106.png
+  results/AK1_rotate/frame_0107.png
+  results/AK1_rotate/frame_0108.png
+  results/AK1_rotate/frame_0109.png
+  results/AK1_rotate/frame_0110.png
+  results/AK1_rotate/frame_0111.png
+  results/AK1_rotate/frame_0112.png
+  results/AK1_rotate/frame_0113.png
+  results/AK1_rotate/frame_0114.png
+  results/AK1_rotate/frame_0115.png
+  results/AK1_rotate/frame_0116.png
+  results/AK1_rotate/frame_0117.png
+  results/AK1_rotate/frame_0118.png
+  results/AK1_rotate/frame_0119.png
+  results/AK1_rotate/frame_0120.png
+Other file references in the original source:
+  docking/AK1_AP5_redock_bestpose.sdf
+  docking/AK1_ISO_bestpose.sdf
+  ligand/AK1_native_AP5_chainA.pdb
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_ISO_AP5_overlay.png
+
+prepare_AK1_dominant_visuals.py
+Inputs:
+  docking/AK1_ISO_seed1001.pdbqt
+  docking/AK1_ISO_seed10101.pdbqt
+  docking/AK1_ISO_seed2002.pdbqt
+  docking/AK1_ISO_seed3003.pdbqt
+  docking/AK1_ISO_seed4004.pdbqt
+  docking/AK1_ISO_seed5005.pdbqt
+  docking/AK1_ISO_seed7007.pdbqt
+  docking/AK1_ISO_seed9009.pdbqt
+Outputs:
+  results/AK1_final_visuals/poses/AK1_ISO_seed1001_ALL.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed1001_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed10101_ALL.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed10101_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed2002_ALL.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed2002_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed3003_ALL.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed3003_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed4004_ALL.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed4004_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed5005_ALL.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed5005_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed7007_ALL.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed7007_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed9009_ALL.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed9009_best.sdf
+Other file references in the original source:
+
+run_AK1_multiseed.py
+Inputs:
+  ligand/isorhamnetin.pdbqt
+  receptors/AK1.pdbqt
+Outputs:
+  docking/AK1_ISO_seed1001.pdbqt
+  docking/AK1_ISO_seed10101.pdbqt
+  docking/AK1_ISO_seed2002.pdbqt
+  docking/AK1_ISO_seed3003.pdbqt
+  docking/AK1_ISO_seed4004.pdbqt
+  docking/AK1_ISO_seed5005.pdbqt
+  docking/AK1_ISO_seed6006.pdbqt
+  docking/AK1_ISO_seed7007.pdbqt
+  docking/AK1_ISO_seed8008.pdbqt
+  docking/AK1_ISO_seed9009.pdbqt
+Other file references in the original source:
+  ligand/isorhamnetin.pdbqt
+  receptors/AK1.pdbqt

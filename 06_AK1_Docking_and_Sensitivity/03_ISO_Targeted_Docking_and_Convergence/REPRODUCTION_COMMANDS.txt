@@ -1,0 +1,57 @@
+03 ISO Targeted Docking and Convergence
+RECOMMENDED REPRODUCTION STEPS
+
+Run these commands from the working project's structures/ directory after completing the setup in the docking README. The optional new-search sections run new docking calculations.
+
+TARGETED ISO WORKFLOW
+For analysis from saved poses:
+python ..\run_analysis.py AK1_pose_convergence.py
+python ..\run_analysis.py AK1_cluster_poses.py
+python ..\run_analysis.py AK1_dominant_representative.py
+python ..\run_analysis.py build_AK1_comprehensive_excel.py
+
+For a new targeted search, first prepare a copy with --fresh-docking:
+python ..\run_analysis.py --allow-docking run_AK1_multiseed.py
+
+SDF EXPORTS FOR STRUCTURAL FIGURES
+python "%CONDA_PREFIX%\Lib\site-packages\meeko\cli\mk_export.py" "..\docking\AK1_ISO_seed1001.pdbqt" -s "..\docking\AK1_ISO_seed1001.sdf"
+if not exist "..\results\AK1_repr9009" mkdir "..\results\AK1_repr9009"
+python "%CONDA_PREFIX%\Lib\site-packages\meeko\cli\mk_export.py" "..\docking\AK1_ISO_seed9009.pdbqt" -s "..\results\AK1_repr9009\AK1_ISO_seed9009_allposes.sdf"
+python ..\run_analysis.py extract_AK1_seed9009_best.py
+
+Run the desired supplied plotting/PyMOL source after its input files exist.
+
+OTHER SUPPLIED SOURCES
+The following list includes alternative versions; it is not a required sequence.
+03 ISO Targeted Docking and Convergence
+REPRODUCTION COMMANDS
+
+First use the preparation helper described in the root README.txt to create a new working copy. Run commands from that copy's structures/ directory.
+Use the relevant steps below; alternative plotting scripts are separate versions, not a sequence that must all be run. Saved docking outputs are supplied for downstream analysis. New docking searches must write to a separate empty output folder.
+
+python ..\run_analysis.py AK1_cluster_poses.py
+python ..\run_analysis.py AK1_cluster_scores.py
+python ..\run_analysis.py AK1_panelD_multiseed.R
+python ..\run_analysis.py AK1_panelD_multiseed_v2.R
+python ..\run_analysis.py AK1_panelE_clean_for_paper.R
+python ..\run_analysis.py AK1_panelE_clean_v2.R
+python ..\run_analysis.py AK1_panelE_heatmap_clean.R
+python ..\run_analysis.py AK1_panelE_paper_final.R
+python ..\run_analysis.py AK1_panelE_RMSD_heatmap.R
+python ..\run_analysis.py AK1_panelE_RMSD_heatmap_explained.R
+python ..\run_analysis.py AK1_pose_convergence.py
+python ..\run_analysis.py AK1_rotate_ISO_orange.pml
+python ..\run_analysis.py AK1_rotate_orange_same_style.pml
+python ..\run_analysis.py build_AK1_comprehensive_excel.py
+python ..\run_analysis.py build_docking_results.py
+python ..\run_analysis.py extract_AK1_seed9009_best.py
+python ..\run_analysis.py extract_best_pose.py
+python ..\run_analysis.py make_AK1_gif.py
+python ..\run_analysis.py make_AK1_gif_clean.py
+python ..\run_analysis.py make_AK1_gif_v2.py
+python ..\run_analysis.py make_AK1_orange_gif_clean.py
+python ..\run_analysis.py make_AK1_visuals.pml
+python ..\run_analysis.py prepare_AK1_dominant_visuals.py
+python ..\run_analysis.py --allow-docking run_AK1_multiseed.py
+
+The preparation helper uses the portable execution sources listed in README.txt. Run the same script filenames from the independent structures/ directory. To repeat a docking search, prepare that working copy with --fresh-docking.

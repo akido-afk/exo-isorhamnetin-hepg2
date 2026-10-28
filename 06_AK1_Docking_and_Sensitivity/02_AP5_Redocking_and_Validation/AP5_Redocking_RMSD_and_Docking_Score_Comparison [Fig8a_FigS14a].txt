@@ -1,0 +1,3357 @@
+AP5 redocking, crystallographic RMSD calculation and AP5–ISO docking-score comparison
+Figure 8a: AP5 crystallographic redocking. Figure S14a: ISO versus AP5 ten-search docking-score distributions.
+
+COMPLETE ORIGINAL SOURCE CODE
+
+Use the separate executable source files in code/. Each section below contains the complete original source for one file. This TXT is a readable record, not one combined executable script.
+
+================================================================================
+FILE: AK1_AP5_vs_ISO_score_comparison.R
+Executable source: code/AK1_AP5_vs_ISO_score_comparison.R
+================================================================================
+# ============================================================
+
+# AK1 — ISO vs AP5 DOCKING-SCORE CONTEXT
+
+# Publication version V3
+
+#
+
+# 10 independent Vina seeds per ligand.
+
+# ISO dominant and alternative pose families distinguished.
+
+#
+
+# IMPORTANT:
+
+# Vina scores are computational docking scores,
+
+# NOT experimentally measured affinities/free energies.
+
+# ============================================================
+
+
+
+
+
+# ============================================================
+
+# PACKAGES
+
+# ============================================================
+
+
+
+packages <- c(
+
+  "ggplot2",
+
+  "dplyr",
+
+  "openxlsx",
+
+  "patchwork"
+
+)
+
+
+
+for (p in packages) {
+
+
+
+  if (!requireNamespace(p, quietly = TRUE)) {
+
+
+
+    install.packages(
+
+      p,
+
+      repos = "https://cloud.r-project.org"
+
+    )
+
+  }
+
+}
+
+
+
+library(ggplot2)
+
+library(dplyr)
+
+library(openxlsx)
+
+library(patchwork)
+
+
+
+
+
+# ============================================================
+
+# PATHS
+
+# ============================================================
+
+
+
+docking_dir <- "../docking"
+
+
+
+out_dir <- "../results/AK1_AP5_vs_ISO_scores"
+
+
+
+dir.create(
+
+  out_dir,
+
+  recursive = TRUE,
+
+  showWarnings = FALSE
+
+)
+
+
+
+
+
+# ============================================================
+
+# SEEDS
+
+# ============================================================
+
+
+
+seeds <- c(
+
+  1001,
+
+  2002,
+
+  3003,
+
+  4004,
+
+  5005,
+
+  6006,
+
+  7007,
+
+  8008,
+
+  9009,
+
+  10101
+
+)
+
+
+
+
+
+# ============================================================
+
+# ISO CLUSTER MEMBERSHIP
+
+# ============================================================
+
+
+
+iso_dominant <- c(
+
+  1001,
+
+  2002,
+
+  3003,
+
+  4004,
+
+  5005,
+
+  7007,
+
+  9009,
+
+  10101
+
+)
+
+
+
+iso_alternative <- c(
+
+  6006,
+
+  8008
+
+)
+
+
+
+
+
+# ============================================================
+
+# FUNCTION — READ BEST VINA SCORE
+
+# ============================================================
+
+
+
+read_best_vina_score <- function(file) {
+
+
+
+  if (!file.exists(file)) {
+
+
+
+    stop(
+
+      paste(
+
+        "File not found:",
+
+        file
+
+      )
+
+    )
+
+  }
+
+
+
+  lines <- readLines(
+
+    file,
+
+    warn = FALSE
+
+  )
+
+
+
+  result_lines <- grep(
+
+    "^REMARK VINA RESULT:",
+
+    lines,
+
+    value = TRUE
+
+  )
+
+
+
+  if (length(result_lines) == 0) {
+
+
+
+    stop(
+
+      paste(
+
+        "No Vina result found in:",
+
+        file
+
+      )
+
+    )
+
+  }
+
+
+
+  first_line <- result_lines[1]
+
+
+
+  parts <- strsplit(
+
+    trimws(first_line),
+
+    "\\s+"
+
+  )[[1]]
+
+
+
+  as.numeric(
+
+    parts[4]
+
+  )
+
+}
+
+
+
+
+
+# ============================================================
+
+# READ ISO SCORES
+
+# ============================================================
+
+
+
+iso_rows <- data.frame()
+
+
+
+for (seed in seeds) {
+
+
+
+  file <- file.path(
+
+    docking_dir,
+
+    paste0(
+
+      "AK1_ISO_seed",
+
+      seed,
+
+      ".pdbqt"
+
+    )
+
+  )
+
+
+
+  score <- read_best_vina_score(
+
+    file
+
+  )
+
+
+
+  cluster <- ifelse(
+
+    seed %in% iso_dominant,
+
+    "ISO dominant",
+
+    "ISO alternative"
+
+  )
+
+
+
+  iso_rows <- rbind(
+
+    iso_rows,
+
+    data.frame(
+
+      Ligand = "ISO",
+
+      Seed = seed,
+
+      Score = score,
+
+      Group = cluster
+
+    )
+
+  )
+
+}
+
+
+
+
+
+# ============================================================
+
+# READ AP5 SCORES
+
+# ============================================================
+
+
+
+ap5_rows <- data.frame()
+
+
+
+for (seed in seeds) {
+
+
+
+  file <- file.path(
+
+    docking_dir,
+
+    paste0(
+
+      "AK1_AP5_seed",
+
+      seed,
+
+      ".pdbqt"
+
+    )
+
+  )
+
+
+
+  score <- read_best_vina_score(
+
+    file
+
+  )
+
+
+
+  ap5_rows <- rbind(
+
+    ap5_rows,
+
+    data.frame(
+
+      Ligand = "AP5",
+
+      Seed = seed,
+
+      Score = score,
+
+      Group = "AP5 reference"
+
+    )
+
+  )
+
+}
+
+
+
+
+
+# ============================================================
+
+# COMBINE
+
+# ============================================================
+
+
+
+all_scores <- bind_rows(
+
+  iso_rows,
+
+  ap5_rows
+
+)
+
+
+
+all_scores <- all_scores %>%
+
+  mutate(
+
+
+
+    Ligand = factor(
+
+      Ligand,
+
+      levels = c(
+
+        "ISO",
+
+        "AP5"
+
+      )
+
+    ),
+
+
+
+    Group = factor(
+
+      Group,
+
+      levels = c(
+
+        "ISO dominant",
+
+        "ISO alternative",
+
+        "AP5 reference"
+
+      )
+
+    )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# SUMMARY STATISTICS
+
+# ============================================================
+
+
+
+iso_mean <- mean(
+
+  iso_rows$Score
+
+)
+
+
+
+iso_sd <- sd(
+
+  iso_rows$Score
+
+)
+
+
+
+iso_median <- median(
+
+  iso_rows$Score
+
+)
+
+
+
+
+
+iso_dom_scores <- iso_rows$Score[
+
+  iso_rows$Group == "ISO dominant"
+
+]
+
+
+
+iso_alt_scores <- iso_rows$Score[
+
+  iso_rows$Group == "ISO alternative"
+
+]
+
+
+
+
+
+iso_dom_mean <- mean(
+
+  iso_dom_scores
+
+)
+
+
+
+iso_dom_sd <- sd(
+
+  iso_dom_scores
+
+)
+
+
+
+
+
+iso_alt_mean <- mean(
+
+  iso_alt_scores
+
+)
+
+
+
+iso_alt_sd <- sd(
+
+  iso_alt_scores
+
+)
+
+
+
+
+
+ap5_mean <- mean(
+
+  ap5_rows$Score
+
+)
+
+
+
+ap5_sd <- sd(
+
+  ap5_rows$Score
+
+)
+
+
+
+ap5_median <- median(
+
+  ap5_rows$Score
+
+)
+
+
+
+
+
+mean_score_separation <- abs(
+
+  ap5_mean - iso_mean
+
+)
+
+
+
+
+
+# ============================================================
+
+# SUMMARY TABLE
+
+# ============================================================
+
+
+
+summary_complete <- data.frame(
+
+
+
+  Group = c(
+
+    "ISO all 10",
+
+    "ISO dominant 8",
+
+    "ISO alternative 2",
+
+    "AP5 all 10"
+
+  ),
+
+
+
+  n = c(
+
+    10,
+
+    8,
+
+    2,
+
+    10
+
+  ),
+
+
+
+  Mean = c(
+
+    iso_mean,
+
+    iso_dom_mean,
+
+    iso_alt_mean,
+
+    ap5_mean
+
+  ),
+
+
+
+  Median = c(
+
+    iso_median,
+
+    median(iso_dom_scores),
+
+    median(iso_alt_scores),
+
+    ap5_median
+
+  ),
+
+
+
+  SD = c(
+
+    iso_sd,
+
+    iso_dom_sd,
+
+    iso_alt_sd,
+
+    ap5_sd
+
+  ),
+
+
+
+  Best = c(
+
+    min(iso_rows$Score),
+
+    min(iso_dom_scores),
+
+    min(iso_alt_scores),
+
+    min(ap5_rows$Score)
+
+  ),
+
+
+
+  Worst = c(
+
+    max(iso_rows$Score),
+
+    max(iso_dom_scores),
+
+    max(iso_alt_scores),
+
+    max(ap5_rows$Score)
+
+  ),
+
+
+
+  Range = c(
+
+    max(iso_rows$Score) -
+
+      min(iso_rows$Score),
+
+
+
+    max(iso_dom_scores) -
+
+      min(iso_dom_scores),
+
+
+
+    max(iso_alt_scores) -
+
+      min(iso_alt_scores),
+
+
+
+    max(ap5_rows$Score) -
+
+      min(ap5_rows$Score)
+
+  )
+
+)
+
+
+
+
+
+# ============================================================
+
+# SEEDWISE COMPARISON
+
+# ============================================================
+
+
+
+paired <- iso_rows %>%
+
+  select(
+
+    Seed,
+
+    ISO_score = Score,
+
+    ISO_cluster = Group
+
+  ) %>%
+
+  left_join(
+
+    ap5_rows %>%
+
+      select(
+
+        Seed,
+
+        AP5_score = Score
+
+      ),
+
+    by = "Seed"
+
+  ) %>%
+
+  mutate(
+
+    AP5_minus_ISO =
+
+      AP5_score - ISO_score
+
+  )
+
+
+
+
+
+# ============================================================
+
+# SAVE CSV FILES
+
+# ============================================================
+
+
+
+scores_csv <- file.path(
+
+  out_dir,
+
+  "AK1_AP5_vs_ISO_all_seed_scores.csv"
+
+)
+
+
+
+summary_csv <- file.path(
+
+  out_dir,
+
+  "AK1_AP5_vs_ISO_summary_statistics.csv"
+
+)
+
+
+
+paired_csv <- file.path(
+
+  out_dir,
+
+  "AK1_AP5_vs_ISO_seedwise_comparison.csv"
+
+)
+
+
+
+
+
+write.csv(
+
+  all_scores,
+
+  scores_csv,
+
+  row.names = FALSE
+
+)
+
+
+
+write.csv(
+
+  summary_complete,
+
+  summary_csv,
+
+  row.names = FALSE
+
+)
+
+
+
+write.csv(
+
+  paired,
+
+  paired_csv,
+
+  row.names = FALSE
+
+)
+
+
+
+
+
+# ============================================================
+
+# SAVE EXCEL
+
+# ============================================================
+
+
+
+xlsx_file <- file.path(
+
+  out_dir,
+
+  "AK1_AP5_vs_ISO_10seed_score_comparison.xlsx"
+
+)
+
+
+
+wb <- createWorkbook()
+
+
+
+
+
+addWorksheet(
+
+  wb,
+
+  "All_Scores"
+
+)
+
+
+
+writeData(
+
+  wb,
+
+  "All_Scores",
+
+  all_scores
+
+)
+
+
+
+
+
+addWorksheet(
+
+  wb,
+
+  "Summary"
+
+)
+
+
+
+writeData(
+
+  wb,
+
+  "Summary",
+
+  summary_complete
+
+)
+
+
+
+
+
+addWorksheet(
+
+  wb,
+
+  "Seedwise_Comparison"
+
+)
+
+
+
+writeData(
+
+  wb,
+
+  "Seedwise_Comparison",
+
+  paired
+
+)
+
+
+
+
+
+addWorksheet(
+
+  wb,
+
+  "Notes"
+
+)
+
+
+
+
+
+notes <- data.frame(
+
+
+
+  Item = c(
+
+    "Purpose",
+
+    "ISO",
+
+    "AP5",
+
+    "AP5 redocking validation",
+
+    "Score interpretation",
+
+    "Comparison limitation",
+
+    "Next analysis"
+
+  ),
+
+
+
+  Description = c(
+
+
+
+    paste0(
+
+      "Docking-score context for ISO relative to the ",
+
+      "crystallographic AK1 reference ligand AP5."
+
+    ),
+
+
+
+    paste0(
+
+      "Ten independent Zn-free ISO docking searches. ",
+
+      "Eight formed the dominant pose family and two ",
+
+      "formed the alternative family."
+
+    ),
+
+
+
+    paste0(
+
+      "Ten AP5 searches performed using the same AK1 receptor, ",
+
+      "box, exhaustiveness, number of modes, and seed series."
+
+    ),
+
+
+
+    paste0(
+
+      "Previous AP5 redocking RMSD relative to crystallographic ",
+
+      "AP5 = 1.776 A."
+
+    ),
+
+
+
+    paste0(
+
+      "Vina values are computational docking scores and should ",
+
+      "not be interpreted as experimentally measured affinities."
+
+    ),
+
+
+
+    paste0(
+
+      "ISO and AP5 differ markedly in molecular size, charge, ",
+
+      "and chemistry. Raw score differences therefore provide ",
+
+      "scoring context rather than quantitative experimental ",
+
+      "binding-affinity ratios."
+
+    ),
+
+
+
+    paste0(
+
+      "The ten AP5 best poses should next be compared against ",
+
+      "crystallographic AP5 because the AP5 score distribution ",
+
+      "appears to contain more than one score band."
+
+    )
+
+  )
+
+)
+
+
+
+
+
+writeData(
+
+  wb,
+
+  "Notes",
+
+  notes
+
+)
+
+
+
+
+
+setColWidths(
+
+  wb,
+
+  "All_Scores",
+
+  cols = 1:ncol(all_scores),
+
+  widths = "auto"
+
+)
+
+
+
+setColWidths(
+
+  wb,
+
+  "Summary",
+
+  cols = 1:ncol(summary_complete),
+
+  widths = "auto"
+
+)
+
+
+
+setColWidths(
+
+  wb,
+
+  "Seedwise_Comparison",
+
+  cols = 1:ncol(paired),
+
+  widths = "auto"
+
+)
+
+
+
+setColWidths(
+
+  wb,
+
+  "Notes",
+
+  cols = 1,
+
+  widths = 28
+
+)
+
+
+
+setColWidths(
+
+  wb,
+
+  "Notes",
+
+  cols = 2,
+
+  widths = 105
+
+)
+
+
+
+
+
+saveWorkbook(
+
+  wb,
+
+  xlsx_file,
+
+  overwrite = TRUE
+
+)
+
+
+
+
+
+# ============================================================
+
+# MEAN ± SD DATA
+
+# ============================================================
+
+
+
+mean_sd_df <- all_scores %>%
+
+  group_by(
+
+    Ligand
+
+  ) %>%
+
+  summarise(
+
+    Mean = mean(Score),
+
+    SD = sd(Score),
+
+    .groups = "drop"
+
+  )
+
+
+
+
+
+# ============================================================
+
+# FIXED JITTER POSITIONS
+
+#
+
+# Slightly wider than before so the 10 ISO values can be seen.
+
+# ============================================================
+
+
+
+set.seed(1001)
+
+
+
+all_scores <- all_scores %>%
+
+  mutate(
+
+
+
+    x_numeric = case_when(
+
+      Ligand == "ISO" ~ 1,
+
+      Ligand == "AP5" ~ 2
+
+    ),
+
+
+
+    x_jitter =
+
+      x_numeric +
+
+      runif(
+
+        n(),
+
+        min = -0.11,
+
+        max = 0.11
+
+      )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# MAIN FIGURE
+
+# ============================================================
+
+
+
+p <- ggplot() +
+
+
+
+  # ----------------------------------------------------------
+
+  # ISO DOMINANT
+
+  # ----------------------------------------------------------
+
+
+
+  geom_point(
+
+    data = subset(
+
+      all_scores,
+
+      Group == "ISO dominant"
+
+    ),
+
+    aes(
+
+      x = x_jitter,
+
+      y = Score
+
+    ),
+
+    shape = 21,
+
+    size = 3.8,
+
+    stroke = 0.8,
+
+    fill = "#E69F00",
+
+    color = "black"
+
+  ) +
+
+
+
+  # ----------------------------------------------------------
+
+  # ISO ALTERNATIVE
+
+  # ----------------------------------------------------------
+
+
+
+  geom_point(
+
+    data = subset(
+
+      all_scores,
+
+      Group == "ISO alternative"
+
+    ),
+
+    aes(
+
+      x = x_jitter,
+
+      y = Score
+
+    ),
+
+    shape = 24,
+
+    size = 4.0,
+
+    stroke = 0.8,
+
+    fill = "#56B4E9",
+
+    color = "black"
+
+  ) +
+
+
+
+  # ----------------------------------------------------------
+
+  # AP5
+
+  # ----------------------------------------------------------
+
+
+
+  geom_point(
+
+    data = subset(
+
+      all_scores,
+
+      Group == "AP5 reference"
+
+    ),
+
+    aes(
+
+      x = x_jitter,
+
+      y = Score
+
+    ),
+
+    shape = 22,
+
+    size = 3.8,
+
+    stroke = 0.8,
+
+    fill = "#00BFC4",
+
+    color = "black"
+
+  ) +
+
+
+
+  # ----------------------------------------------------------
+
+  # MEAN ± SD
+
+  # ----------------------------------------------------------
+
+
+
+  geom_errorbar(
+
+    data = mean_sd_df,
+
+    aes(
+
+      x = as.numeric(Ligand),
+
+      ymin = Mean - SD,
+
+      ymax = Mean + SD
+
+    ),
+
+    width = 0.19,
+
+    linewidth = 1.0,
+
+    color = "black"
+
+  ) +
+
+
+
+  geom_point(
+
+    data = mean_sd_df,
+
+    aes(
+
+      x = as.numeric(Ligand),
+
+      y = Mean
+
+    ),
+
+    shape = 23,
+
+    size = 5.4,
+
+    stroke = 1.15,
+
+    fill = "white",
+
+    color = "black"
+
+  ) +
+
+
+
+  # ==========================================================
+
+  # ISO SUMMARY
+
+  #
+
+  # MOVED WELL BELOW THE ISO POINT CLOUD.
+
+  # ==========================================================
+
+
+
+  annotate(
+
+    "label",
+
+    x = 1.00,
+
+    y = -9.18,
+
+    label = paste0(
+
+      "ISO\n",
+
+      "all 10: ",
+
+      sprintf("%.3f", iso_mean),
+
+      " ± ",
+
+      sprintf("%.3f", iso_sd),
+
+      "\n",
+
+      "dominant 8: ",
+
+      sprintf("%.3f", iso_dom_mean),
+
+      " ± ",
+
+      sprintf("%.3f", iso_dom_sd)
+
+    ),
+
+    size = 3.65,
+
+    lineheight = 1.05,
+
+    fill = "white",
+
+    label.size = 0.3
+
+  ) +
+
+
+
+  # ==========================================================
+
+  # AP5 SUMMARY
+
+  #
+
+  # MOVED BELOW THE AP5 DISTRIBUTION.
+
+  # ==========================================================
+
+
+
+  annotate(
+
+    "label",
+
+    x = 2.00,
+
+    y = -11.66,
+
+    label = paste0(
+
+      "AP5\n",
+
+      sprintf("%.3f", ap5_mean),
+
+      " ± ",
+
+      sprintf("%.3f", ap5_sd)
+
+    ),
+
+    size = 3.65,
+
+    lineheight = 1.05,
+
+    fill = "white",
+
+    label.size = 0.3
+
+  ) +
+
+
+
+  # ==========================================================
+
+  # MEAN SCORE SEPARATION
+
+  # ==========================================================
+
+
+
+  annotate(
+
+    "segment",
+
+    x = 1.18,
+
+    xend = 1.82,
+
+    y = -10.02,
+
+    yend = -10.02,
+
+    linewidth = 0.65,
+
+    color = "grey35"
+
+  ) +
+
+
+
+  annotate(
+
+    "segment",
+
+    x = 1.18,
+
+    xend = 1.18,
+
+    y = -9.96,
+
+    yend = -10.08,
+
+    linewidth = 0.65,
+
+    color = "grey35"
+
+  ) +
+
+
+
+  annotate(
+
+    "segment",
+
+    x = 1.82,
+
+    xend = 1.82,
+
+    y = -9.96,
+
+    yend = -10.08,
+
+    linewidth = 0.65,
+
+    color = "grey35"
+
+  ) +
+
+
+
+  annotate(
+
+    "label",
+
+    x = 1.50,
+
+    y = -10.02,
+
+    label = paste0(
+
+      "\u0394 mean score = ",
+
+      sprintf(
+
+        "%.2f",
+
+        mean_score_separation
+
+      ),
+
+      " kcal/mol"
+
+    ),
+
+    size = 3.55,
+
+    fill = "white",
+
+    label.size = 0
+
+  ) +
+
+
+
+  # ==========================================================
+
+  # AXES
+
+  # ==========================================================
+
+
+
+  scale_x_continuous(
+
+    limits = c(
+
+      0.55,
+
+      2.45
+
+    ),
+
+    breaks = c(
+
+      1,
+
+      2
+
+    ),
+
+    labels = c(
+
+      "ISO",
+
+      "AP5"
+
+    ),
+
+    expand = c(
+
+      0,
+
+      0
+
+    )
+
+  ) +
+
+
+
+  scale_y_continuous(
+
+    limits = c(
+
+      -11.90,
+
+      -8.40
+
+    ),
+
+    breaks = seq(
+
+      -11.5,
+
+      -8.5,
+
+      by = 0.5
+
+    ),
+
+    expand = c(
+
+      0,
+
+      0
+
+    )
+
+  ) +
+
+
+
+  labs(
+
+
+
+    title =
+
+      "AK1 docking-score context",
+
+
+
+    subtitle =
+
+      paste0(
+
+        "ISO and crystallographic AP5 reference across ",
+
+        "10 independent Vina searches"
+
+      ),
+
+
+
+    x = NULL,
+
+
+
+    y =
+
+      "Best Vina docking score (kcal/mol)"
+
+  ) +
+
+
+
+  theme_classic(
+
+    base_size = 15
+
+  ) +
+
+
+
+  theme(
+
+
+
+    axis.text.x =
+
+      element_text(
+
+        size = 17,
+
+        face = "bold",
+
+        color = "black",
+
+        margin = margin(
+
+          t = 8
+
+        )
+
+      ),
+
+
+
+    axis.text.y =
+
+      element_text(
+
+        size = 13,
+
+        color = "black"
+
+      ),
+
+
+
+    axis.title.y =
+
+      element_text(
+
+        size = 16,
+
+        face = "bold",
+
+        margin = margin(
+
+          r = 10
+
+        )
+
+      ),
+
+
+
+    axis.line =
+
+      element_line(
+
+        linewidth = 0.8,
+
+        color = "black"
+
+      ),
+
+
+
+    axis.ticks =
+
+      element_line(
+
+        linewidth = 0.7,
+
+        color = "black"
+
+      ),
+
+
+
+    plot.title =
+
+      element_text(
+
+        size = 19,
+
+        face = "bold",
+
+        hjust = 0,
+
+        margin = margin(
+
+          b = 4
+
+        )
+
+      ),
+
+
+
+    plot.subtitle =
+
+      element_text(
+
+        size = 11.5,
+
+        hjust = 0,
+
+        color = "grey25",
+
+        margin = margin(
+
+          b = 15
+
+        )
+
+      ),
+
+
+
+    plot.margin =
+
+      margin(
+
+        t = 20,
+
+        r = 25,
+
+        b = 16,
+
+        l = 22
+
+      ),
+
+
+
+    plot.title.position =
+
+      "plot"
+
+  )
+
+
+
+
+
+# ============================================================
+
+# COMPACT BOTTOM LEGEND
+
+# ============================================================
+
+
+
+legend_df <- data.frame(
+
+
+
+  x = c(
+
+    1.0,
+
+    2.25,
+
+    3.65,
+
+    5.10
+
+  ),
+
+
+
+  y = c(
+
+    1,
+
+    1,
+
+    1,
+
+    1
+
+  ),
+
+
+
+  Label = c(
+
+    "ISO dominant",
+
+    "ISO alternative",
+
+    "AP5 reference",
+
+    "Mean ± SD"
+
+  )
+
+)
+
+
+
+
+
+legend_plot <- ggplot() +
+
+
+
+  # ISO dominant
+
+  geom_point(
+
+    aes(
+
+      x = 1.0,
+
+      y = 1
+
+    ),
+
+    shape = 21,
+
+    size = 3.8,
+
+    fill = "#E69F00",
+
+    color = "black"
+
+  ) +
+
+
+
+  # ISO alternative
+
+  geom_point(
+
+    aes(
+
+      x = 2.25,
+
+      y = 1
+
+    ),
+
+    shape = 24,
+
+    size = 4.0,
+
+    fill = "#56B4E9",
+
+    color = "black"
+
+  ) +
+
+
+
+  # AP5
+
+  geom_point(
+
+    aes(
+
+      x = 3.65,
+
+      y = 1
+
+    ),
+
+    shape = 22,
+
+    size = 3.8,
+
+    fill = "#00BFC4",
+
+    color = "black"
+
+  ) +
+
+
+
+  # Mean
+
+  geom_point(
+
+    aes(
+
+      x = 5.10,
+
+      y = 1
+
+    ),
+
+    shape = 23,
+
+    size = 4.5,
+
+    fill = "white",
+
+    color = "black"
+
+  ) +
+
+
+
+  geom_text(
+
+    aes(
+
+      x = 1.12,
+
+      y = 1,
+
+      label = "ISO dominant"
+
+    ),
+
+    hjust = 0,
+
+    size = 4.0
+
+  ) +
+
+
+
+  geom_text(
+
+    aes(
+
+      x = 2.37,
+
+      y = 1,
+
+      label = "ISO alternative"
+
+    ),
+
+    hjust = 0,
+
+    size = 4.0
+
+  ) +
+
+
+
+  geom_text(
+
+    aes(
+
+      x = 3.77,
+
+      y = 1,
+
+      label = "AP5 reference"
+
+    ),
+
+    hjust = 0,
+
+    size = 4.0
+
+  ) +
+
+
+
+  geom_text(
+
+    aes(
+
+      x = 5.22,
+
+      y = 1,
+
+      label = "Mean ± SD"
+
+    ),
+
+    hjust = 0,
+
+    size = 4.0
+
+  ) +
+
+
+
+  xlim(
+
+    0.8,
+
+    6.15
+
+  ) +
+
+
+
+  ylim(
+
+    0.75,
+
+    1.25
+
+  ) +
+
+
+
+  theme_void()
+
+
+
+
+
+# ============================================================
+
+# COMBINE
+
+# ============================================================
+
+
+
+final_plot <- p / legend_plot +
+
+
+
+  plot_layout(
+
+    heights = c(
+
+      14,
+
+      1
+
+    )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# SAVE FIGURE V3
+
+# ============================================================
+
+
+
+png_file <- file.path(
+
+  out_dir,
+
+  "AK1_AP5_vs_ISO_10seed_score_comparison_V3.png"
+
+)
+
+
+
+pdf_file <- file.path(
+
+  out_dir,
+
+  "AK1_AP5_vs_ISO_10seed_score_comparison_V3.pdf"
+
+)
+
+
+
+
+
+ggsave(
+
+  filename = png_file,
+
+  plot = final_plot,
+
+  width = 8.8,
+
+  height = 8.2,
+
+  units = "in",
+
+  dpi = 600,
+
+  bg = "white"
+
+)
+
+
+
+
+
+ggsave(
+
+  filename = pdf_file,
+
+  plot = final_plot,
+
+  width = 8.8,
+
+  height = 8.2,
+
+  units = "in",
+
+  bg = "white"
+
+)
+
+
+
+
+
+# ============================================================
+
+# FINAL CONSOLE SUMMARY
+
+# ============================================================
+
+
+
+cat("\n")
+
+cat("============================================================\n")
+
+cat("AK1 ISO vs AP5 SCORE COMPARISON — V3\n")
+
+cat("============================================================\n\n")
+
+
+
+cat(
+
+  sprintf(
+
+    "ISO all 10:      %.3f ± %.3f kcal/mol\n",
+
+    iso_mean,
+
+    iso_sd
+
+  )
+
+)
+
+
+
+cat(
+
+  sprintf(
+
+    "ISO dominant 8:  %.3f ± %.3f kcal/mol\n",
+
+    iso_dom_mean,
+
+    iso_dom_sd
+
+  )
+
+)
+
+
+
+cat(
+
+  sprintf(
+
+    "AP5 all 10:      %.3f ± %.3f kcal/mol\n",
+
+    ap5_mean,
+
+    ap5_sd
+
+  )
+
+)
+
+
+
+cat(
+
+  sprintf(
+
+    "Mean-score separation: %.3f kcal/mol\n",
+
+    mean_score_separation
+
+  )
+
+)
+
+
+
+cat("\nSaved:\n")
+
+cat(png_file, "\n")
+
+cat(pdf_file, "\n")
+
+cat(xlsx_file, "\n")
+
+cat(scores_csv, "\n")
+
+cat(summary_csv, "\n")
+
+cat(paired_csv, "\n")
+
+END FILE: AK1_AP5_vs_ISO_score_comparison.R
+
+================================================================================
+FILE: AK1_panelC_AP5_redocking.pml
+Executable source: code/AK1_panelC_AP5_redocking.pml
+================================================================================
+reinitialize
+
+
+
+# ============================================================
+
+# LOAD STRUCTURES
+
+# ============================================================
+
+
+
+load ..\receptors\AK1_chainA_FIXED.pdb, AK1
+
+
+
+load ..\ligand\AK1_native_AP5_chainA.pdb, AP5_native
+
+
+
+load ..\docking\AK1_AP5_redock_bestpose.sdf, AP5_redocked
+
+
+
+
+
+# ============================================================
+
+# CLEAN START
+
+# ============================================================
+
+
+
+remove solvent
+
+hide everything
+
+
+
+
+
+# ============================================================
+
+# AK1 PROTEIN
+
+# ============================================================
+
+
+
+show cartoon, AK1
+
+
+
+color gray80, AK1
+
+
+
+set cartoon_transparency, 0.68, AK1
+
+
+
+
+
+# ============================================================
+
+# BINDING POCKET
+
+# ============================================================
+
+
+
+select pocket, byres (AK1 within 4.0 of AP5_native)
+
+
+
+show sticks, pocket
+
+
+
+color palegreen, pocket and elem C
+
+color red, pocket and elem O
+
+color blue, pocket and elem N
+
+
+
+set stick_radius, 0.10, pocket
+
+set stick_transparency, 0.35, pocket
+
+
+
+
+
+# ============================================================
+
+# CRYSTALLOGRAPHIC AP5
+
+# CYAN
+
+# ============================================================
+
+
+
+show sticks, AP5_native
+
+
+
+color cyan, AP5_native and elem C
+
+color red, AP5_native and elem O
+
+color blue, AP5_native and elem N
+
+
+
+set stick_radius, 0.23, AP5_native
+
+
+
+
+
+# ============================================================
+
+# REDOCKED AP5
+
+# MAGENTA
+
+# ============================================================
+
+
+
+show sticks, AP5_redocked
+
+
+
+color magenta, AP5_redocked and elem C
+
+color red, AP5_redocked and elem O
+
+color blue, AP5_redocked and elem N
+
+
+
+set stick_radius, 0.18, AP5_redocked
+
+
+
+
+
+# ============================================================
+
+# APPEARANCE
+
+# ============================================================
+
+
+
+bg_color white
+
+
+
+set opaque_background, on
+
+set ray_opaque_background, on
+
+
+
+set antialias, 2
+
+set orthoscopic, on
+
+set depth_cue, 0
+
+set specular, 0.20
+
+set ambient, 0.45
+
+
+
+
+
+# ============================================================
+
+# CLOSE-UP VIEW
+
+# ============================================================
+
+
+
+orient AP5_native
+
+
+
+center AP5_native
+
+
+
+zoom (AP5_native or AP5_redocked or pocket), 7
+
+
+
+turn y, 10
+
+turn x, -5
+
+
+
+
+
+# ============================================================
+
+# IMAGE SIZE
+
+# ============================================================
+
+
+
+viewport 2200,1800
+
+
+
+
+
+# ============================================================
+
+# OUTPUT
+
+# ============================================================
+
+
+
+ray 3000,2400
+
+
+
+png ..\results\AK1_panelC\AK1_panelC_AP5_redocking_validation.png, dpi=600
+
+END FILE: AK1_panelC_AP5_redocking.pml
+
+================================================================================
+FILE: annotate_AK1_panelC.py
+Executable source: code/annotate_AK1_panelC.py
+================================================================================
+from PIL import Image, ImageDraw, ImageFont
+
+from pathlib import Path
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+
+
+inp = (
+
+    PROJECT
+
+    / "results"
+
+    / "AK1_panelC"
+
+    / "AK1_panelC_AP5_redocking_validation.png"
+
+)
+
+
+
+out = (
+
+    PROJECT
+
+    / "results"
+
+    / "AK1_panelC"
+
+    / "AK1_panelC_AP5_redocking_validation_LEGEND.png"
+
+)
+
+
+
+img = Image.open(inp).convert("RGB")
+
+draw = ImageDraw.Draw(img)
+
+
+
+# ------------------------------------------------------------
+
+# Fonts
+
+# ------------------------------------------------------------
+
+
+
+arial = r"C:\Windows\Fonts\arial.ttf"
+
+arial_bold = r"C:\Windows\Fonts\arialbd.ttf"
+
+
+
+title_font = ImageFont.truetype(arial_bold, 58)
+
+text_font = ImageFont.truetype(arial, 48)
+
+rmsd_font = ImageFont.truetype(arial_bold, 54)
+
+
+
+# ------------------------------------------------------------
+
+# Legend box
+
+# Put it in the lower-left white area
+
+# ------------------------------------------------------------
+
+
+
+x0 = 100
+
+y0 = img.height - 600
+
+x1 = 1250
+
+y1 = img.height - 100
+
+
+
+draw.rounded_rectangle(
+
+    [x0, y0, x1, y1],
+
+    radius=28,
+
+    fill=(255, 255, 255),
+
+    outline=(170, 170, 170),
+
+    width=3
+
+)
+
+
+
+# ------------------------------------------------------------
+
+# Title
+
+# ------------------------------------------------------------
+
+
+
+draw.text(
+
+    (x0 + 50, y0 + 35),
+
+    "AK1 native-ligand redocking",
+
+    font=title_font,
+
+    fill=(0, 0, 0)
+
+)
+
+
+
+# ------------------------------------------------------------
+
+# Legend entries
+
+# ------------------------------------------------------------
+
+
+
+entries = [
+
+    ("Crystallographic AP5", (0, 220, 220)),
+
+    ("Redocked AP5", (220, 0, 220)),
+
+    ("AK1 protein", (150, 150, 150)),
+
+    ("AP5-site residues", (145, 210, 145)),
+
+]
+
+
+
+start_y = y0 + 125
+
+step = 72
+
+
+
+for i, (label, color) in enumerate(entries):
+
+
+
+    yy = start_y + i * step
+
+
+
+    draw.line(
+
+        [(x0 + 60, yy + 22), (x0 + 160, yy + 22)],
+
+        fill=color,
+
+        width=18
+
+    )
+
+
+
+    draw.text(
+
+        (x0 + 195, yy),
+
+        label,
+
+        font=text_font,
+
+        fill=(0, 0, 0)
+
+    )
+
+
+
+# ------------------------------------------------------------
+
+# RMSD annotation
+
+# ------------------------------------------------------------
+
+
+
+draw.text(
+
+    (x0 + 50, y1 - 90),
+
+    "Redocking RMSD = 1.776 Å",
+
+    font=rmsd_font,
+
+    fill=(0, 0, 0)
+
+)
+
+
+
+# ------------------------------------------------------------
+
+# Save as NEW file
+
+# ------------------------------------------------------------
+
+
+
+img.save(out, dpi=(600, 600))
+
+
+
+print("Saved:")
+
+print(out)
+
+END FILE: annotate_AK1_panelC.py
+
+================================================================================
+FILE: calc_AP5_RMSD.py
+Executable source: code/calc_AP5_RMSD.py
+================================================================================
+from rdkit import Chem
+
+from rdkit.Geometry import Point3D
+
+import math
+
+
+
+native_pdb = r"..\ligand\AK1_native_AP5_chainA.pdb"
+
+ideal_sdf = r"..\ligand\AP5_ideal.sdf"
+
+docked_sdf = r"..\docking\AK1_AP5_redock_seed1001.sdf"
+
+
+
+# --------------------------------------------------
+
+# Read native crystallographic AP5 coordinates
+
+# --------------------------------------------------
+
+
+
+native_coords = []
+
+native_elements = []
+
+
+
+with open(native_pdb) as f:
+
+    for line in f:
+
+        if line.startswith("HETATM"):
+
+
+
+            x = float(line[30:38])
+
+            y = float(line[38:46])
+
+            z = float(line[46:54])
+
+
+
+            element = line[76:78].strip()
+
+
+
+            if not element:
+
+                element = ''.join(
+
+                    c for c in line[12:16] if c.isalpha()
+
+                )[0]
+
+
+
+            native_coords.append((x, y, z))
+
+            native_elements.append(element.capitalize())
+
+
+
+# --------------------------------------------------
+
+# Use the RCSB ideal AP5 molecule as connectivity template
+
+# --------------------------------------------------
+
+
+
+ideal = Chem.SDMolSupplier(
+
+    ideal_sdf,
+
+    removeHs=False
+
+)[0]
+
+
+
+ideal = Chem.RemoveHs(ideal)
+
+
+
+ideal_elements = [
+
+    atom.GetSymbol()
+
+    for atom in ideal.GetAtoms()
+
+]
+
+
+
+print("Native heavy atoms:", len(native_coords))
+
+print("Template heavy atoms:", ideal.GetNumAtoms())
+
+
+
+if len(native_coords) != ideal.GetNumAtoms():
+
+    raise ValueError(
+
+        "Native and template AP5 atom counts do not match."
+
+    )
+
+
+
+if native_elements != ideal_elements:
+
+    print("WARNING: Element ordering differs.")
+
+    print("Native :", native_elements)
+
+    print("Template:", ideal_elements)
+
+    raise ValueError(
+
+        "Stop here because atom order must be checked."
+
+    )
+
+
+
+# Replace ideal coordinates with the actual crystal coordinates
+
+
+
+reference = Chem.Mol(ideal)
+
+
+
+reference.RemoveAllConformers()
+
+
+
+conf = Chem.Conformer(reference.GetNumAtoms())
+
+
+
+for i, (x, y, z) in enumerate(native_coords):
+
+    conf.SetAtomPosition(i, Point3D(x, y, z))
+
+
+
+reference.AddConformer(conf)
+
+
+
+# --------------------------------------------------
+
+# Read all docked AP5 poses
+
+# --------------------------------------------------
+
+
+
+supplier = Chem.SDMolSupplier(
+
+    docked_sdf,
+
+    removeHs=False
+
+)
+
+
+
+poses = [
+
+    Chem.RemoveHs(m)
+
+    for m in supplier
+
+    if m is not None
+
+]
+
+
+
+# --------------------------------------------------
+
+# Direct coordinate RMSD with symmetry-aware atom mapping
+
+#
+
+# IMPORTANT:
+
+# We do NOT superimpose the ligand here.
+
+# Both poses already share the same AK1 coordinate system.
+
+# --------------------------------------------------
+
+
+
+def direct_rmsd(ref, pose, mapping):
+
+
+
+    ref_conf = ref.GetConformer()
+
+    pose_conf = pose.GetConformer()
+
+
+
+    squared = []
+
+
+
+    for ref_idx, pose_idx in enumerate(mapping):
+
+
+
+        a = ref_conf.GetAtomPosition(ref_idx)
+
+        b = pose_conf.GetAtomPosition(pose_idx)
+
+
+
+        squared.append(
+
+            (a.x - b.x)**2 +
+
+            (a.y - b.y)**2 +
+
+            (a.z - b.z)**2
+
+        )
+
+
+
+    return math.sqrt(sum(squared) / len(squared))
+
+
+
+
+
+print()
+
+print("AP5 REDOCKING RMSD")
+
+print("------------------")
+
+
+
+results = []
+
+
+
+for pose_number, pose in enumerate(poses, start=1):
+
+
+
+    if pose.GetNumAtoms() != reference.GetNumAtoms():
+
+        print(
+
+            f"Pose {pose_number}: atom-count mismatch"
+
+        )
+
+        continue
+
+
+
+    # Find chemically equivalent atom mappings
+
+    mappings = pose.GetSubstructMatches(
+
+        reference,
+
+        uniquify=False,
+
+        maxMatches=10000
+
+    )
+
+
+
+    if not mappings:
+
+        raise ValueError(
+
+            f"No atom mapping found for pose {pose_number}"
+
+        )
+
+
+
+    rmsds = [
+
+        direct_rmsd(reference, pose, mapping)
+
+        for mapping in mappings
+
+    ]
+
+
+
+    best = min(rmsds)
+
+
+
+    results.append(best)
+
+
+
+    print(
+
+        f"Pose {pose_number}: {best:.3f} A"
+
+    )
+
+
+
+print()
+
+print(
+
+    "Best redocking RMSD:",
+
+    f"{min(results):.3f} A"
+
+)
+
+END FILE: calc_AP5_RMSD.py
+
+================================================================================
+FILE: run_AK1_AP5_10seeds.bat
+Executable source: code/run_AK1_AP5_10seeds.bat
+================================================================================
+@echo off
+
+
+
+echo ============================================================
+
+echo AK1 / AP5
+
+echo 10 independent AutoDock Vina seeds
+
+echo Same protocol as ISO
+
+echo ============================================================
+
+
+
+for %%S in (1001 2002 3003 4004 5005 6006 7007 8008 9009 10101) do (
+
+
+
+    echo.
+
+    echo ============================================================
+
+    echo Running AP5 seed %%S
+
+    echo ============================================================
+
+
+
+    "C:\Users\akidi\Desktop\Docking tools\vina_win.exe" ^
+
+    --receptor "..\receptors\AK1.pdbqt" ^
+
+    --ligand "..\ligand\AP5.pdbqt" ^
+
+    --center_x 25.044 ^
+
+    --center_y 44.571 ^
+
+    --center_z -3.708 ^
+
+    --size_x 23.687 ^
+
+    --size_y 23.364 ^
+
+    --size_z 30.062 ^
+
+    --exhaustiveness 16 ^
+
+    --num_modes 10 ^
+
+    --seed %%S ^
+
+    --out "..\docking\AK1_AP5_seed%%S.pdbqt"
+
+)
+
+
+
+echo.
+
+echo ============================================================
+
+echo ALL 10 AP5 RUNS FINISHED
+
+echo ============================================================
+
+END FILE: run_AK1_AP5_10seeds.bat
+
+
+SCRIPTS SELECTED FOR EXECUTION
+The preparation helper selects the following scripts for the working project.
+
+================================================================================
+FILE: code/portable/run_AK1_AP5_10seeds.bat
+Purpose: Run the specified Vina searches, skip completed outputs and stop if a search fails.
+================================================================================
+@echo off
+
+echo ============================================================
+echo AK1 / AP5
+echo 10 independent AutoDock Vina seeds
+echo Same protocol as ISO
+echo ============================================================
+
+for %%S in (1001 2002 3003 4004 5005 6006 7007 8008 9009 10101) do (
+
+    echo.
+    echo ============================================================
+    echo Running AP5 seed %%S
+    echo ============================================================
+
+    if exist "..\docking\AK1_AP5_seed%%S.pdbqt" (
+      echo Keeping existing output "..\docking\AK1_AP5_seed%%S.pdbqt"
+    ) else (
+      "C:\Users\akidi\Desktop\Docking tools\vina_win.exe" ^
+      --receptor "..\receptors\AK1.pdbqt" ^
+      --ligand "..\ligand\AP5.pdbqt" ^
+      --center_x 25.044 ^
+      --center_y 44.571 ^
+      --center_z -3.708 ^
+      --size_x 23.687 ^
+      --size_y 23.364 ^
+      --size_z 30.062 ^
+      --exhaustiveness 16 ^
+      --num_modes 10 ^
+      --seed %%S ^
+      --out "..\docking\AK1_AP5_seed%%S.pdbqt"
+      if errorlevel 1 (
+        echo Docking failed. Stopping this batch.
+        exit /b 1
+      )
+    )
+)
+
+echo.
+echo ============================================================
+echo ALL 10 AP5 RUNS FINISHED
+echo ============================================================
+
+END FILE: run_AK1_AP5_10seeds.bat

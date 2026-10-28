@@ -1,0 +1,12118 @@
+Targeted isorhamnetin docking, score reproducibility, pose convergence and clustering
+Figure 8c: ten-pose pairwise RMSD and dominant/alternative families. Figure S13a: independently seeded docking scores. Figure S13c: ISO placement relative to the nucleotide-binding region.
+
+COMPLETE ORIGINAL SOURCE CODE
+
+Use the separate executable source files in code/. Each section below contains the complete original source for one file. This TXT is a readable record, not one combined executable script.
+
+================================================================================
+FILE: AK1_cluster_poses.py
+Executable source: code/AK1_cluster_poses.py
+================================================================================
+from pathlib import Path
+
+import pandas as pd
+
+import numpy as np
+
+from scipy.cluster.hierarchy import linkage, fcluster
+
+from scipy.spatial.distance import squareform
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+
+
+matrix_file = (
+
+    PROJECT
+
+    / "results"
+
+    / "AK1_ISO_pose_RMSD_matrix.csv"
+
+)
+
+
+
+df = pd.read_csv(matrix_file, index_col=0)
+
+
+
+# Convert row/column labels to seed numbers
+
+df.index = df.index.astype(int)
+
+df.columns = df.columns.astype(int)
+
+
+
+distance_matrix = df.values
+
+
+
+# Convert full RMSD matrix into condensed format
+
+condensed = squareform(
+
+    distance_matrix,
+
+    checks=False
+
+)
+
+
+
+# Average-linkage clustering
+
+Z = linkage(
+
+    condensed,
+
+    method="average"
+
+)
+
+
+
+print()
+
+print("=" * 60)
+
+print("AK1 ISO POSE CLUSTERING")
+
+print("=" * 60)
+
+
+
+# Examine both 2 A and 3 A thresholds
+
+for threshold in [2.0, 3.0]:
+
+
+
+    labels = fcluster(
+
+        Z,
+
+        t=threshold,
+
+        criterion="distance"
+
+    )
+
+
+
+    clusters = {}
+
+
+
+    for seed, cluster in zip(df.index, labels):
+
+        clusters.setdefault(cluster, []).append(seed)
+
+
+
+    print()
+
+    print(f"RMSD threshold = {threshold:.1f} A")
+
+    print("-" * 40)
+
+
+
+    ordered = sorted(
+
+        clusters.items(),
+
+        key=lambda x: len(x[1]),
+
+        reverse=True
+
+    )
+
+
+
+    for number, (cluster, seeds) in enumerate(
+
+        ordered,
+
+        start=1
+
+    ):
+
+
+
+        print(
+
+            f"Cluster {number}: "
+
+            f"{len(seeds)} poses -> "
+
+            f"seeds {seeds}"
+
+        )
+
+
+
+print()
+
+END FILE: AK1_cluster_poses.py
+
+================================================================================
+FILE: AK1_cluster_scores.py
+Executable source: code/AK1_cluster_scores.py
+================================================================================
+from pathlib import Path
+
+import re
+
+import statistics
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+DOCKING = PROJECT / "docking"
+
+
+
+dominant = {
+
+    1001, 2002, 3003, 4004,
+
+    5005, 7007, 9009, 10101
+
+}
+
+
+
+alternative = {
+
+    6006, 8008
+
+}
+
+
+
+
+
+def get_best_score(path):
+
+
+
+    with open(path, "r") as f:
+
+
+
+        for line in f:
+
+
+
+            if line.startswith("REMARK VINA RESULT:"):
+
+
+
+                return float(
+
+                    line.split()[3]
+
+                )
+
+
+
+    raise ValueError(
+
+        f"No Vina result found in {path}"
+
+    )
+
+
+
+
+
+groups = {
+
+    "Dominant cluster": dominant,
+
+    "Alternative cluster": alternative
+
+}
+
+
+
+
+
+for name, seeds in groups.items():
+
+
+
+    scores = []
+
+
+
+    print()
+
+    print("=" * 55)
+
+    print(name)
+
+    print("=" * 55)
+
+
+
+    for seed in sorted(seeds):
+
+
+
+        file = (
+
+            DOCKING /
+
+            f"AK1_ISO_seed{seed}.pdbqt"
+
+        )
+
+
+
+        score = get_best_score(file)
+
+
+
+        scores.append(score)
+
+
+
+        print(
+
+            f"Seed {seed}: {score:.3f} kcal/mol"
+
+        )
+
+
+
+    print()
+
+    print("n =", len(scores))
+
+    print(
+
+        "Mean =",
+
+        f"{statistics.mean(scores):.3f}"
+
+    )
+
+    print(
+
+        "Median =",
+
+        f"{statistics.median(scores):.3f}"
+
+    )
+
+
+
+    if len(scores) > 1:
+
+        print(
+
+            "SD =",
+
+            f"{statistics.stdev(scores):.3f}"
+
+        )
+
+
+
+    print(
+
+        "Best =",
+
+        f"{min(scores):.3f}"
+
+    )
+
+
+
+    print(
+
+        "Worst =",
+
+        f"{max(scores):.3f}"
+
+    )
+
+END FILE: AK1_cluster_scores.py
+
+================================================================================
+FILE: AK1_panelD_multiseed.R
+Executable source: code/AK1_panelD_multiseed.R
+================================================================================
+# ============================================================
+
+# FIGURE 8 — PANEL D
+
+# AK1 multi-seed docking reproducibility
+
+# ============================================================
+
+
+
+packages <- c("readxl", "ggplot2", "dplyr")
+
+
+
+for (p in packages) {
+
+  if (!requireNamespace(p, quietly = TRUE)) {
+
+    install.packages(
+
+      p,
+
+      repos = "https://cloud.r-project.org"
+
+    )
+
+  }
+
+}
+
+
+
+library(readxl)
+
+library(ggplot2)
+
+library(dplyr)
+
+
+
+
+
+# ============================================================
+
+# PATHS
+
+# ============================================================
+
+
+
+project <- "C:/Users/akidi/Desktop/ISO_AK_Docking"
+
+
+
+input_file <- file.path(
+
+  project,
+
+  "results",
+
+  "AK1_ISO_COMPREHENSIVE_DOCKING_RESULTS.xlsx"
+
+)
+
+
+
+output_dir <- file.path(
+
+  project,
+
+  "results",
+
+  "AK1_panelD"
+
+)
+
+
+
+dir.create(
+
+  output_dir,
+
+  showWarnings = FALSE,
+
+  recursive = TRUE
+
+)
+
+
+
+
+
+# ============================================================
+
+# READ THE REAL 10-SEED DATA
+
+# ============================================================
+
+
+
+dat <- read_excel(
+
+  input_file,
+
+  sheet = "02_Seed_Results",
+
+  skip = 2
+
+)
+
+
+
+# First three columns are:
+
+# Seed / Cluster / Best Vina score
+
+names(dat)[1:3] <- c(
+
+  "Seed",
+
+  "Cluster",
+
+  "Score"
+
+)
+
+
+
+dat <- dat %>%
+
+  select(Seed, Cluster, Score) %>%
+
+  filter(
+
+    !is.na(Seed),
+
+    !is.na(Score)
+
+  )
+
+
+
+dat$Seed <- factor(
+
+  dat$Seed,
+
+  levels = dat$Seed
+
+)
+
+
+
+dat$Cluster <- factor(
+
+  dat$Cluster,
+
+  levels = c(
+
+    "Dominant",
+
+    "Alternative"
+
+  )
+
+)
+
+
+
+
+
+# ============================================================
+
+# SUMMARY STATISTICS
+
+# ============================================================
+
+
+
+mean_score <- mean(dat$Score)
+
+median_score <- median(dat$Score)
+
+sd_score <- sd(dat$Score)
+
+
+
+dominant_n <- sum(
+
+  dat$Cluster == "Dominant"
+
+)
+
+
+
+total_n <- nrow(dat)
+
+
+
+
+
+cat("\n")
+
+cat("============================================\n")
+
+cat("AK1 MULTI-SEED REPRODUCIBILITY\n")
+
+cat("============================================\n")
+
+
+
+cat(
+
+  "n =", total_n, "\n"
+
+)
+
+
+
+cat(
+
+  "Mean =",
+
+  sprintf("%.3f", mean_score),
+
+  "kcal/mol\n"
+
+)
+
+
+
+cat(
+
+  "Median =",
+
+  sprintf("%.3f", median_score),
+
+  "kcal/mol\n"
+
+)
+
+
+
+cat(
+
+  "SD =",
+
+  sprintf("%.3f", sd_score),
+
+  "kcal/mol\n"
+
+)
+
+
+
+cat(
+
+  "Dominant cluster =",
+
+  dominant_n,
+
+  "/",
+
+  total_n,
+
+  "\n"
+
+)
+
+
+
+
+
+# ============================================================
+
+# PLOT
+
+# ============================================================
+
+
+
+p <- ggplot(
+
+  dat,
+
+  aes(
+
+    x = Seed,
+
+    y = Score,
+
+    fill = Cluster
+
+  )
+
+) +
+
+
+
+  # Median reference line
+
+  geom_hline(
+
+    yintercept = median_score,
+
+    linetype = "dashed",
+
+    linewidth = 0.7,
+
+    color = "black"
+
+  ) +
+
+
+
+  # Individual independent docking runs
+
+  geom_point(
+
+    shape = 21,
+
+    size = 5,
+
+    stroke = 0.8,
+
+    color = "black"
+
+  ) +
+
+
+
+  # Cluster colors
+
+  scale_fill_manual(
+
+    values = c(
+
+      "Dominant" = "#E69F00",
+
+      "Alternative" = "#56B4E9"
+
+    ),
+
+    labels = c(
+
+      "Dominant pose cluster (8/10)",
+
+      "Alternative pose cluster (2/10)"
+
+    )
+
+  ) +
+
+
+
+  # Keep scale tight enough to show the small variation
+
+  scale_y_continuous(
+
+    breaks = seq(
+
+      floor(min(dat$Score) * 100) / 100,
+
+      ceiling(max(dat$Score) * 100) / 100,
+
+      by = 0.01
+
+    ),
+
+    expand = expansion(
+
+      mult = c(0.12, 0.35)
+
+    )
+
+  ) +
+
+
+
+  labs(
+
+    x = "Independent Vina seed",
+
+    y = "Best Vina score (kcal/mol)",
+
+    fill = NULL
+
+  ) +
+
+
+
+  # Summary annotation
+
+  annotate(
+
+    "label",
+
+    x = 7.5,
+
+    y = max(dat$Score) + 0.012,
+
+    label = paste0(
+
+      "Median = ",
+
+      sprintf("%.3f", median_score),
+
+      " kcal/mol\n",
+
+      "Mean = ",
+
+      sprintf("%.3f", mean_score),
+
+      " kcal/mol\n",
+
+      "SD = ",
+
+      sprintf("%.3f", sd_score),
+
+      " kcal/mol\n",
+
+      "Dominant cluster = ",
+
+      dominant_n,
+
+      "/",
+
+      total_n
+
+    ),
+
+    hjust = 0,
+
+    vjust = 0,
+
+    size = 4.2,
+
+    label.size = 0.35,
+
+    fill = "white"
+
+  ) +
+
+
+
+  theme_classic(
+
+    base_size = 15
+
+  ) +
+
+
+
+  theme(
+
+    axis.text = element_text(
+
+      color = "black"
+
+    ),
+
+
+
+    axis.text.x = element_text(
+
+      angle = 45,
+
+      hjust = 1
+
+    ),
+
+
+
+    axis.title = element_text(
+
+      color = "black",
+
+      face = "bold"
+
+    ),
+
+
+
+    legend.position = "top",
+
+
+
+    legend.text = element_text(
+
+      size = 11
+
+    ),
+
+
+
+    plot.margin = margin(
+
+      12,
+
+      18,
+
+      12,
+
+      12
+
+    )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# SAVE HIGH-RESOLUTION PNG
+
+# ============================================================
+
+
+
+png_file <- file.path(
+
+  output_dir,
+
+  "AK1_panelD_multiseed_reproducibility.png"
+
+)
+
+
+
+ggsave(
+
+  filename = png_file,
+
+  plot = p,
+
+  width = 7.2,
+
+  height = 5.5,
+
+  units = "in",
+
+  dpi = 600,
+
+  bg = "white"
+
+)
+
+
+
+
+
+# ============================================================
+
+# SAVE VECTOR PDF
+
+# ============================================================
+
+
+
+pdf_file <- file.path(
+
+  output_dir,
+
+  "AK1_panelD_multiseed_reproducibility.pdf"
+
+)
+
+
+
+ggsave(
+
+  filename = pdf_file,
+
+  plot = p,
+
+  width = 7.2,
+
+  height = 5.5,
+
+  units = "in"
+
+)
+
+
+
+
+
+cat("\nSaved PNG:\n")
+
+cat(png_file, "\n")
+
+
+
+cat("\nSaved PDF:\n")
+
+cat(pdf_file, "\n")
+
+END FILE: AK1_panelD_multiseed.R
+
+================================================================================
+FILE: AK1_panelD_multiseed_v2.R
+Executable source: code/AK1_panelD_multiseed_v2.R
+================================================================================
+# ============================================================
+
+# FIGURE 8 — PANEL D
+
+# AK1 multi-seed docking reproducibility
+
+# Axis scale
+
+# ============================================================
+
+
+
+packages <- c("readxl", "ggplot2", "dplyr")
+
+
+
+for (p in packages) {
+
+  if (!requireNamespace(p, quietly = TRUE)) {
+
+    install.packages(
+
+      p,
+
+      repos = "https://cloud.r-project.org"
+
+    )
+
+  }
+
+}
+
+
+
+library(readxl)
+
+library(ggplot2)
+
+library(dplyr)
+
+
+
+
+
+# ============================================================
+
+# PATHS
+
+# ============================================================
+
+
+
+project <- "C:/Users/akidi/Desktop/ISO_AK_Docking"
+
+
+
+input_file <- file.path(
+
+  project,
+
+  "results",
+
+  "AK1_ISO_COMPREHENSIVE_DOCKING_RESULTS.xlsx"
+
+)
+
+
+
+output_dir <- file.path(
+
+  project,
+
+  "results",
+
+  "AK1_panelD"
+
+)
+
+
+
+dir.create(
+
+  output_dir,
+
+  showWarnings = FALSE,
+
+  recursive = TRUE
+
+)
+
+
+
+
+
+# ============================================================
+
+# READ REAL DATA
+
+# ============================================================
+
+
+
+dat <- read_excel(
+
+  input_file,
+
+  sheet = "02_Seed_Results",
+
+  skip = 2
+
+)
+
+
+
+names(dat)[1:3] <- c(
+
+  "Seed",
+
+  "Cluster",
+
+  "Score"
+
+)
+
+
+
+dat <- dat %>%
+
+  select(Seed, Cluster, Score) %>%
+
+  filter(
+
+    !is.na(Seed),
+
+    !is.na(Score)
+
+  )
+
+
+
+dat$Seed <- factor(
+
+  dat$Seed,
+
+  levels = dat$Seed
+
+)
+
+
+
+dat$Cluster <- factor(
+
+  dat$Cluster,
+
+  levels = c(
+
+    "Dominant",
+
+    "Alternative"
+
+  )
+
+)
+
+
+
+
+
+# ============================================================
+
+# STATISTICS
+
+# ============================================================
+
+
+
+mean_score <- mean(dat$Score)
+
+median_score <- median(dat$Score)
+
+sd_score <- sd(dat$Score)
+
+
+
+best_score <- min(dat$Score)
+
+worst_score <- max(dat$Score)
+
+score_range <- worst_score - best_score
+
+
+
+dominant_n <- sum(
+
+  dat$Cluster == "Dominant"
+
+)
+
+
+
+total_n <- nrow(dat)
+
+
+
+
+
+cat("\n")
+
+cat("============================================\n")
+
+cat("AK1 MULTI-SEED REPRODUCIBILITY\n")
+
+cat("============================================\n")
+
+
+
+cat("n =", total_n, "\n")
+
+cat("Mean =", sprintf("%.3f", mean_score), "kcal/mol\n")
+
+cat("Median =", sprintf("%.3f", median_score), "kcal/mol\n")
+
+cat("SD =", sprintf("%.3f", sd_score), "kcal/mol\n")
+
+cat("Range =", sprintf("%.3f", score_range), "kcal/mol\n")
+
+cat(
+
+  "Dominant pose cluster =",
+
+  dominant_n,
+
+  "/",
+
+  total_n,
+
+  "\n"
+
+)
+
+
+
+
+
+# ============================================================
+
+# PLOT
+
+#
+
+# IMPORTANT:
+
+# Fixed broader Y scale prevents exaggeration of
+
+# the very small score differences.
+
+# ============================================================
+
+
+
+p <- ggplot(
+
+  dat,
+
+  aes(
+
+    x = Seed,
+
+    y = Score,
+
+    fill = Cluster
+
+  )
+
+) +
+
+
+
+  # Mean ± SD band
+
+  annotate(
+
+    "rect",
+
+    xmin = -Inf,
+
+    xmax = Inf,
+
+    ymin = mean_score - sd_score,
+
+    ymax = mean_score + sd_score,
+
+    fill = "grey70",
+
+    alpha = 0.22
+
+  ) +
+
+
+
+  # Mean line
+
+  geom_hline(
+
+    yintercept = mean_score,
+
+    linewidth = 0.7,
+
+    color = "grey35"
+
+  ) +
+
+
+
+  # Median line
+
+  geom_hline(
+
+    yintercept = median_score,
+
+    linetype = "dashed",
+
+    linewidth = 0.7,
+
+    color = "black"
+
+  ) +
+
+
+
+  # Seed values
+
+  geom_point(
+
+    shape = 21,
+
+    size = 5,
+
+    stroke = 0.8,
+
+    color = "black"
+
+  ) +
+
+
+
+  # Colors represent POSE CLUSTER, not energetic groups
+
+  scale_fill_manual(
+
+    values = c(
+
+      "Dominant" = "#E69F00",
+
+      "Alternative" = "#56B4E9"
+
+    ),
+
+    labels = c(
+
+      "Dominant pose cluster (8/10)",
+
+      "Alternative pose cluster (2/10)"
+
+    )
+
+  ) +
+
+
+
+  # BROADER FIXED Y SCALE
+
+  coord_cartesian(
+
+    ylim = c(-9.00, -8.50)
+
+  ) +
+
+
+
+  scale_y_continuous(
+
+    breaks = seq(
+
+      -9.0,
+
+      -8.5,
+
+      by = 0.1
+
+    )
+
+  ) +
+
+
+
+  labs(
+
+    x = "Independent Vina seed",
+
+    y = "Best Vina score (kcal/mol)",
+
+    fill = NULL
+
+  ) +
+
+
+
+  # Statistical summary
+
+  annotate(
+
+    "label",
+
+    x = 6.1,
+
+    y = -8.54,
+
+    label = paste0(
+
+      "Mean = ",
+
+      sprintf("%.3f", mean_score),
+
+      " kcal/mol\n",
+
+      "Median = ",
+
+      sprintf("%.3f", median_score),
+
+      " kcal/mol\n",
+
+      "SD = ",
+
+      sprintf("%.3f", sd_score),
+
+      " kcal/mol\n",
+
+      "Total range = ",
+
+      sprintf("%.3f", score_range),
+
+      " kcal/mol"
+
+    ),
+
+    hjust = 0,
+
+    vjust = 1,
+
+    size = 4.0,
+
+    label.size = 0.3,
+
+    fill = "white"
+
+  ) +
+
+
+
+  # Key interpretation
+
+  annotate(
+
+    "text",
+
+    x = 5.5,
+
+    y = -8.94,
+
+    label = "Highly consistent scores across 10 independent searches",
+
+    fontface = "bold",
+
+    size = 4.3
+
+  ) +
+
+
+
+  theme_classic(
+
+    base_size = 15
+
+  ) +
+
+
+
+  theme(
+
+    axis.text = element_text(
+
+      color = "black"
+
+    ),
+
+
+
+    axis.text.x = element_text(
+
+      angle = 45,
+
+      hjust = 1
+
+    ),
+
+
+
+    axis.title = element_text(
+
+      face = "bold",
+
+      color = "black"
+
+    ),
+
+
+
+    legend.position = "top",
+
+
+
+    legend.text = element_text(
+
+      size = 11
+
+    ),
+
+
+
+    plot.margin = margin(
+
+      12,
+
+      18,
+
+      12,
+
+      12
+
+    )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# SAVE AS NEW FILES
+
+# ============================================================
+
+
+
+png_file <- file.path(
+
+  output_dir,
+
+  "AK1_panelD_multiseed_reproducibility_V2.png"
+
+)
+
+
+
+ggsave(
+
+  filename = png_file,
+
+  plot = p,
+
+  width = 7.2,
+
+  height = 5.5,
+
+  units = "in",
+
+  dpi = 600,
+
+  bg = "white"
+
+)
+
+
+
+
+
+pdf_file <- file.path(
+
+  output_dir,
+
+  "AK1_panelD_multiseed_reproducibility_V2.pdf"
+
+)
+
+
+
+ggsave(
+
+  filename = pdf_file,
+
+  plot = p,
+
+  width = 7.2,
+
+  height = 5.5,
+
+  units = "in"
+
+)
+
+
+
+
+
+cat("\nSaved PNG:\n")
+
+cat(png_file, "\n")
+
+
+
+cat("\nSaved PDF:\n")
+
+cat(pdf_file, "\n")
+
+END FILE: AK1_panelD_multiseed_v2.R
+
+================================================================================
+FILE: AK1_panelE_RMSD_heatmap.R
+Executable source: code/AK1_panelE_RMSD_heatmap.R
+================================================================================
+# ============================================================
+
+# FIGURE 8 — PANEL E
+
+# Pairwise RMSD heatmap of AK1–ISO best poses
+
+# ============================================================
+
+
+
+packages <- c("ggplot2", "dplyr", "tidyr")
+
+
+
+for (p in packages) {
+
+  if (!requireNamespace(p, quietly = TRUE)) {
+
+    install.packages(
+
+      p,
+
+      repos = "https://cloud.r-project.org"
+
+    )
+
+  }
+
+}
+
+
+
+library(ggplot2)
+
+library(dplyr)
+
+library(tidyr)
+
+
+
+
+
+# ============================================================
+
+# PATHS
+
+# ============================================================
+
+
+
+project <- "C:/Users/akidi/Desktop/ISO_AK_Docking"
+
+
+
+input_file <- file.path(
+
+  project,
+
+  "results",
+
+  "AK1_ISO_pose_RMSD_matrix.csv"
+
+)
+
+
+
+output_dir <- file.path(
+
+  project,
+
+  "results",
+
+  "AK1_panelE"
+
+)
+
+
+
+dir.create(
+
+  output_dir,
+
+  showWarnings = FALSE,
+
+  recursive = TRUE
+
+)
+
+
+
+
+
+# ============================================================
+
+# READ REAL RMSD MATRIX
+
+# ============================================================
+
+
+
+rmsd <- read.csv(
+
+  input_file,
+
+  check.names = FALSE,
+
+  row.names = 1
+
+)
+
+
+
+rmsd <- as.matrix(rmsd)
+
+
+
+mode(rmsd) <- "numeric"
+
+
+
+# make sure row and column names are identical
+
+rownames(rmsd) <- as.character(rownames(rmsd))
+
+colnames(rmsd) <- as.character(colnames(rmsd))
+
+
+
+
+
+# ============================================================
+
+# HIERARCHICAL CLUSTERING
+
+# ============================================================
+
+
+
+hc <- hclust(
+
+  as.dist(rmsd),
+
+  method = "average"
+
+)
+
+
+
+cluster_order <- hc$labels[hc$order]
+
+
+
+cat("\n")
+
+cat("============================================\n")
+
+cat("AK1 POSE RMSD CLUSTER ORDER\n")
+
+cat("============================================\n")
+
+cat(cluster_order, sep = "  ")
+
+cat("\n\n")
+
+
+
+
+
+# ============================================================
+
+# KNOWN CLUSTER MEMBERSHIP FROM THE ACTUAL ANALYSIS
+
+# ============================================================
+
+
+
+dominant <- c(
+
+  "1001",
+
+  "2002",
+
+  "3003",
+
+  "4004",
+
+  "5005",
+
+  "7007",
+
+  "9009",
+
+  "10101"
+
+)
+
+
+
+alternative <- c(
+
+  "6006",
+
+  "8008"
+
+)
+
+
+
+
+
+# ============================================================
+
+# ORDER SEEDS TO MAKE THE TWO CLUSTERS VISUALLY CLEAR
+
+#
+
+# Within each cluster, preserve hierarchical ordering.
+
+# ============================================================
+
+
+
+dominant_order <- cluster_order[
+
+  cluster_order %in% dominant
+
+]
+
+
+
+alternative_order <- cluster_order[
+
+  cluster_order %in% alternative
+
+]
+
+
+
+display_order <- c(
+
+  dominant_order,
+
+  alternative_order
+
+)
+
+
+
+
+
+# ============================================================
+
+# CONVERT MATRIX TO LONG FORMAT
+
+# ============================================================
+
+
+
+df <- as.data.frame(rmsd)
+
+
+
+df$Seed_y <- rownames(df)
+
+
+
+long <- df %>%
+
+  pivot_longer(
+
+    cols = -Seed_y,
+
+    names_to = "Seed_x",
+
+    values_to = "RMSD"
+
+  )
+
+
+
+
+
+# ============================================================
+
+# FACTOR ORDER
+
+#
+
+# Reverse Y order so top-left reads naturally.
+
+# ============================================================
+
+
+
+long$Seed_x <- factor(
+
+  long$Seed_x,
+
+  levels = display_order
+
+)
+
+
+
+long$Seed_y <- factor(
+
+  long$Seed_y,
+
+  levels = rev(display_order)
+
+)
+
+
+
+
+
+# ============================================================
+
+# AXIS LABELS
+
+# Mark representative seed 9009 with a star
+
+# ============================================================
+
+
+
+x_labels <- setNames(
+
+  display_order,
+
+  display_order
+
+)
+
+
+
+x_labels["9009"] <- "9009 *"
+
+
+
+y_order <- rev(display_order)
+
+
+
+y_labels <- setNames(
+
+  y_order,
+
+  y_order
+
+)
+
+
+
+y_labels["9009"] <- "9009 *"
+
+
+
+
+
+# ============================================================
+
+# CLUSTER BOUNDARY
+
+# ============================================================
+
+
+
+n_dom <- length(dominant_order)
+
+n_total <- length(display_order)
+
+
+
+# Because Y axis is reversed, dominant block occupies
+
+# upper-left / lower-right symmetrically in matrix.
+
+# We'll draw separation lines after the 8th pose.
+
+
+
+
+
+# ============================================================
+
+# PLOT
+
+# ============================================================
+
+
+
+p <- ggplot(
+
+  long,
+
+  aes(
+
+    x = Seed_x,
+
+    y = Seed_y,
+
+    fill = RMSD
+
+  )
+
+) +
+
+
+
+  geom_tile(
+
+    color = "white",
+
+    linewidth = 0.6
+
+  ) +
+
+
+
+  # numeric RMSD values inside cells
+
+  geom_text(
+
+    aes(
+
+      label = sprintf("%.2f", RMSD)
+
+    ),
+
+    size = 3.2,
+
+    color = "black"
+
+  ) +
+
+
+
+  # RMSD color scale
+
+  scale_fill_gradientn(
+
+    colours = c(
+
+      "#2166AC",
+
+      "#67A9CF",
+
+      "#D1E5F0",
+
+      "#F7F7F7",
+
+      "#FDDBC7",
+
+      "#EF8A62",
+
+      "#B2182B"
+
+    ),
+
+    values = scales::rescale(
+
+      c(
+
+        0,
+
+        0.5,
+
+        1,
+
+        2,
+
+        3,
+
+        5,
+
+        max(long$RMSD)
+
+      )
+
+    ),
+
+    limits = c(
+
+      0,
+
+      max(long$RMSD)
+
+    ),
+
+    name = "Pairwise RMSD\n(Å)"
+
+  ) +
+
+
+
+  # Separation between dominant 8 and alternative 2
+
+  geom_vline(
+
+    xintercept = n_dom + 0.5,
+
+    linewidth = 1.2,
+
+    color = "black"
+
+  ) +
+
+
+
+  # Y separation needs opposite coordinate because Y is reversed
+
+  geom_hline(
+
+    yintercept = length(alternative_order) + 0.5,
+
+    linewidth = 1.2,
+
+    color = "black"
+
+  ) +
+
+
+
+  scale_x_discrete(
+
+    labels = x_labels,
+
+    drop = FALSE
+
+  ) +
+
+
+
+  scale_y_discrete(
+
+    labels = y_labels,
+
+    drop = FALSE
+
+  ) +
+
+
+
+  labs(
+
+    x = "Independent Vina seed",
+
+    y = "Independent Vina seed"
+
+  ) +
+
+
+
+  coord_fixed() +
+
+
+
+  theme_minimal(
+
+    base_size = 14
+
+  ) +
+
+
+
+  theme(
+
+    panel.grid = element_blank(),
+
+
+
+    axis.text.x = element_text(
+
+      angle = 45,
+
+      hjust = 1,
+
+      color = "black",
+
+      size = 11
+
+    ),
+
+
+
+    axis.text.y = element_text(
+
+      color = "black",
+
+      size = 11
+
+    ),
+
+
+
+    axis.title = element_text(
+
+      face = "bold",
+
+      color = "black"
+
+    ),
+
+
+
+    legend.title = element_text(
+
+      face = "bold"
+
+    ),
+
+
+
+    legend.position = "right",
+
+
+
+    plot.margin = margin(
+
+      12,
+
+      15,
+
+      12,
+
+      12
+
+    )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# SAVE BASE HEATMAP
+
+# ============================================================
+
+
+
+png_file <- file.path(
+
+  output_dir,
+
+  "AK1_panelE_pose_RMSD_heatmap.png"
+
+)
+
+
+
+ggsave(
+
+  filename = png_file,
+
+  plot = p,
+
+  width = 7.5,
+
+  height = 6.5,
+
+  units = "in",
+
+  dpi = 600,
+
+  bg = "white"
+
+)
+
+
+
+
+
+pdf_file <- file.path(
+
+  output_dir,
+
+  "AK1_panelE_pose_RMSD_heatmap.pdf"
+
+)
+
+
+
+ggsave(
+
+  filename = pdf_file,
+
+  plot = p,
+
+  width = 7.5,
+
+  height = 6.5,
+
+  units = "in"
+
+)
+
+
+
+
+
+# ============================================================
+
+# PRINT SUMMARY
+
+# ============================================================
+
+
+
+pairwise_values <- rmsd[
+
+  upper.tri(rmsd)
+
+]
+
+
+
+cat("Mean pairwise RMSD =",
+
+    sprintf("%.3f", mean(pairwise_values)),
+
+    "A\n")
+
+
+
+cat("Minimum pairwise RMSD =",
+
+    sprintf("%.3f", min(pairwise_values)),
+
+    "A\n")
+
+
+
+cat("Maximum pairwise RMSD =",
+
+    sprintf("%.3f", max(pairwise_values)),
+
+    "A\n")
+
+
+
+cat("\nDominant cluster (8/10):\n")
+
+cat(dominant, sep = " ")
+
+cat("\n")
+
+
+
+cat("\nAlternative cluster (2/10):\n")
+
+cat(alternative, sep = " ")
+
+cat("\n")
+
+
+
+cat("\nRepresentative dominant pose: seed 9009\n")
+
+cat("Mean RMSD within dominant cluster: 0.039 A\n")
+
+
+
+cat("\nSaved PNG:\n")
+
+cat(png_file, "\n")
+
+
+
+cat("\nSaved PDF:\n")
+
+cat(pdf_file, "\n")
+
+END FILE: AK1_panelE_RMSD_heatmap.R
+
+================================================================================
+FILE: AK1_panelE_RMSD_heatmap_explained.R
+Executable source: code/AK1_panelE_RMSD_heatmap_explained.R
+================================================================================
+# ============================================================
+
+# FIGURE 8 — PANEL E, EXPLANATORY VERSION
+
+# Pairwise RMSD among the top-ranked AK1–ISO poses
+
+# ============================================================
+
+
+
+packages <- c("ggplot2", "dplyr", "tidyr")
+
+
+
+for (p in packages) {
+
+  if (!requireNamespace(p, quietly = TRUE)) {
+
+    install.packages(
+
+      p,
+
+      repos = "https://cloud.r-project.org"
+
+    )
+
+  }
+
+}
+
+
+
+library(ggplot2)
+
+library(dplyr)
+
+library(tidyr)
+
+
+
+
+
+# ============================================================
+
+# PATHS
+
+# ============================================================
+
+
+
+project <- "C:/Users/akidi/Desktop/ISO_AK_Docking"
+
+
+
+input_file <- file.path(
+
+  project,
+
+  "results",
+
+  "AK1_ISO_pose_RMSD_matrix.csv"
+
+)
+
+
+
+output_dir <- file.path(
+
+  project,
+
+  "results",
+
+  "AK1_panelE"
+
+)
+
+
+
+dir.create(
+
+  output_dir,
+
+  showWarnings = FALSE,
+
+  recursive = TRUE
+
+)
+
+
+
+
+
+# ============================================================
+
+# READ RMSD MATRIX
+
+# ============================================================
+
+
+
+rmsd <- read.csv(
+
+  input_file,
+
+  check.names = FALSE,
+
+  row.names = 1
+
+)
+
+
+
+rmsd <- as.matrix(rmsd)
+
+mode(rmsd) <- "numeric"
+
+
+
+rownames(rmsd) <- as.character(rownames(rmsd))
+
+colnames(rmsd) <- as.character(colnames(rmsd))
+
+
+
+
+
+# ============================================================
+
+# CLUSTERS
+
+# ============================================================
+
+
+
+dominant <- c(
+
+  "1001",
+
+  "2002",
+
+  "3003",
+
+  "4004",
+
+  "5005",
+
+  "7007",
+
+  "9009",
+
+  "10101"
+
+)
+
+
+
+alternative <- c(
+
+  "6006",
+
+  "8008"
+
+)
+
+
+
+
+
+# ============================================================
+
+# HIERARCHICAL ORDER WITHIN EACH CLUSTER
+
+# ============================================================
+
+
+
+hc <- hclust(
+
+  as.dist(rmsd),
+
+  method = "average"
+
+)
+
+
+
+cluster_order <- hc$labels[hc$order]
+
+
+
+dominant_order <- cluster_order[
+
+  cluster_order %in% dominant
+
+]
+
+
+
+alternative_order <- cluster_order[
+
+  cluster_order %in% alternative
+
+]
+
+
+
+display_order <- c(
+
+  dominant_order,
+
+  alternative_order
+
+)
+
+
+
+
+
+# ============================================================
+
+# CALCULATE THE IMPORTANT RMSD RANGES AUTOMATICALLY
+
+# ============================================================
+
+
+
+dom_mat <- rmsd[
+
+  dominant,
+
+  dominant,
+
+  drop = FALSE
+
+]
+
+
+
+dom_values <- dom_mat[
+
+  upper.tri(dom_mat)
+
+]
+
+
+
+alt_mat <- rmsd[
+
+  alternative,
+
+  alternative,
+
+  drop = FALSE
+
+]
+
+
+
+alt_values <- alt_mat[
+
+  upper.tri(alt_mat)
+
+]
+
+
+
+between_values <- rmsd[
+
+  dominant,
+
+  alternative,
+
+  drop = FALSE
+
+]
+
+
+
+dom_min <- min(dom_values)
+
+dom_max <- max(dom_values)
+
+
+
+alt_min <- min(alt_values)
+
+alt_max <- max(alt_values)
+
+
+
+between_min <- min(between_values)
+
+between_max <- max(between_values)
+
+
+
+
+
+# ============================================================
+
+# CONVERT TO LONG FORMAT WITH NUMERIC POSITIONS
+
+# ============================================================
+
+
+
+plot_matrix <- rmsd[
+
+  display_order,
+
+  display_order
+
+]
+
+
+
+long <- as.data.frame(plot_matrix)
+
+
+
+long$Seed_y <- rownames(long)
+
+
+
+long <- long %>%
+
+  pivot_longer(
+
+    cols = -Seed_y,
+
+    names_to = "Seed_x",
+
+    values_to = "RMSD"
+
+  )
+
+
+
+
+
+# Numeric positions
+
+x_lookup <- setNames(
+
+  seq_along(display_order),
+
+  display_order
+
+)
+
+
+
+# Reverse Y position so first seed is at top
+
+y_lookup <- setNames(
+
+  rev(seq_along(display_order)),
+
+  display_order
+
+)
+
+
+
+long$x <- x_lookup[long$Seed_x]
+
+long$y <- y_lookup[long$Seed_y]
+
+
+
+
+
+# ============================================================
+
+# AXIS LABELS
+
+# ============================================================
+
+
+
+x_axis_labels <- display_order
+
+x_axis_labels[
+
+  x_axis_labels == "9009"
+
+] <- "9009 *"
+
+
+
+y_display <- rev(display_order)
+
+
+
+y_axis_labels <- y_display
+
+y_axis_labels[
+
+  y_axis_labels == "9009"
+
+] <- "9009 *"
+
+
+
+
+
+# ============================================================
+
+# COLORS
+
+# Same cluster colors as Panel D
+
+# ============================================================
+
+
+
+dominant_color <- "#E69F00"
+
+alternative_color <- "#56B4E9"
+
+
+
+
+
+# ============================================================
+
+# PLOT
+
+# ============================================================
+
+
+
+p <- ggplot(
+
+  long,
+
+  aes(
+
+    x = x,
+
+    y = y,
+
+    fill = RMSD
+
+  )
+
+) +
+
+
+
+  # Heatmap cells
+
+  geom_tile(
+
+    color = "white",
+
+    linewidth = 0.6,
+
+    width = 1,
+
+    height = 1
+
+  ) +
+
+
+
+  # RMSD values
+
+  geom_text(
+
+    aes(
+
+      label = sprintf("%.2f", RMSD)
+
+    ),
+
+    size = 3.0,
+
+    color = "black"
+
+  ) +
+
+
+
+  # RMSD scale
+
+  scale_fill_gradientn(
+
+    colours = c(
+
+      "#2166AC",
+
+      "#67A9CF",
+
+      "#D1E5F0",
+
+      "#F7F7F7",
+
+      "#FDDBC7",
+
+      "#EF8A62",
+
+      "#B2182B"
+
+    ),
+
+    values = scales::rescale(
+
+      c(
+
+        0,
+
+        0.5,
+
+        1,
+
+        2,
+
+        3,
+
+        5,
+
+        max(long$RMSD)
+
+      )
+
+    ),
+
+    limits = c(
+
+      0,
+
+      max(long$RMSD)
+
+    ),
+
+    name = "Pairwise pose RMSD (Å)"
+
+  ) +
+
+
+
+  # ========================================================
+
+  # CLUSTER DIVIDERS
+
+  # ========================================================
+
+
+
+  geom_vline(
+
+    xintercept = 8.5,
+
+    linewidth = 1.2,
+
+    color = "black"
+
+  ) +
+
+
+
+  geom_hline(
+
+    yintercept = 2.5,
+
+    linewidth = 1.2,
+
+    color = "black"
+
+  ) +
+
+
+
+  # ========================================================
+
+  # CLUSTER COLOR STRIPS — TOP
+
+  # ========================================================
+
+
+
+  annotate(
+
+    "rect",
+
+    xmin = 0.5,
+
+    xmax = 8.5,
+
+    ymin = 10.62,
+
+    ymax = 10.84,
+
+    fill = dominant_color
+
+  ) +
+
+
+
+  annotate(
+
+    "rect",
+
+    xmin = 8.5,
+
+    xmax = 10.5,
+
+    ymin = 10.62,
+
+    ymax = 10.84,
+
+    fill = alternative_color
+
+  ) +
+
+
+
+  # ========================================================
+
+  # CLUSTER LABELS ABOVE HEATMAP
+
+  # ========================================================
+
+
+
+  annotate(
+
+    "text",
+
+    x = 4.5,
+
+    y = 11.15,
+
+    label = "Dominant pose cluster (8/10)",
+
+    fontface = "bold",
+
+    size = 4.2
+
+  ) +
+
+
+
+  annotate(
+
+    "text",
+
+    x = 9.5,
+
+    y = 11.15,
+
+    label = "Alternative\ncluster (2/10)",
+
+    fontface = "bold",
+
+    size = 3.8
+
+  ) +
+
+
+
+  # ========================================================
+
+  # EXPLANATORY CALLOUTS
+
+  # ========================================================
+
+
+
+  annotate(
+
+    "label",
+
+    x = 11.75,
+
+    y = 8.4,
+
+    label = paste0(
+
+      "Within dominant cluster\n",
+
+      sprintf("%.2f", dom_min),
+
+      "–",
+
+      sprintf("%.2f", dom_max),
+
+      " Å"
+
+    ),
+
+    hjust = 0,
+
+    size = 4.0,
+
+    fill = "white"
+
+  ) +
+
+
+
+  annotate(
+
+    "label",
+
+    x = 11.75,
+
+    y = 6.0,
+
+    label = paste0(
+
+      "Between clusters\n",
+
+      sprintf("%.2f", between_min),
+
+      "–",
+
+      sprintf("%.2f", between_max),
+
+      " Å"
+
+    ),
+
+    hjust = 0,
+
+    size = 4.0,
+
+    fill = "white"
+
+  ) +
+
+
+
+  annotate(
+
+    "label",
+
+    x = 11.75,
+
+    y = 3.6,
+
+    label = paste0(
+
+      "Within alternative cluster\n",
+
+      sprintf("%.2f", alt_min),
+
+      "–",
+
+      sprintf("%.2f", alt_max),
+
+      " Å"
+
+    ),
+
+    hjust = 0,
+
+    size = 4.0,
+
+    fill = "white"
+
+  ) +
+
+
+
+  # ========================================================
+
+  # EXPLANATORY FOOTNOTE
+
+  # ========================================================
+
+
+
+  annotate(
+
+    "text",
+
+    x = 5.5,
+
+    y = -0.35,
+
+    label = paste0(
+
+      "Each cell compares the top-ranked ISO pose from the row seed ",
+
+      "with the top-ranked pose from the column seed.\n",
+
+      "Diagonal = self-comparison (0 Å); * seed 9009 = representative dominant pose."
+
+    ),
+
+    size = 3.6,
+
+    hjust = 0.5
+
+  ) +
+
+
+
+  # ========================================================
+
+  # AXES
+
+  # ========================================================
+
+
+
+  scale_x_continuous(
+
+    breaks = 1:10,
+
+    labels = x_axis_labels,
+
+    limits = c(
+
+      0.5,
+
+      15.2
+
+    ),
+
+    expand = c(0, 0)
+
+  ) +
+
+
+
+  scale_y_continuous(
+
+    breaks = 1:10,
+
+    labels = y_axis_labels,
+
+    limits = c(
+
+      -0.8,
+
+      11.5
+
+    ),
+
+    expand = c(0, 0)
+
+  ) +
+
+
+
+  labs(
+
+    x = "Best pose from Vina seed",
+
+    y = "Best pose from Vina seed"
+
+  ) +
+
+
+
+  coord_fixed(
+
+    ratio = 1,
+
+    clip = "off"
+
+  ) +
+
+
+
+  guides(
+
+    fill = guide_colorbar(
+
+      title.position = "top",
+
+      title.hjust = 0.5
+
+    )
+
+  ) +
+
+
+
+  theme_minimal(
+
+    base_size = 14
+
+  ) +
+
+
+
+  theme(
+
+    panel.grid = element_blank(),
+
+
+
+    axis.text.x = element_text(
+
+      angle = 45,
+
+      hjust = 1,
+
+      color = "black",
+
+      size = 10.5
+
+    ),
+
+
+
+    axis.text.y = element_text(
+
+      color = "black",
+
+      size = 10.5
+
+    ),
+
+
+
+    axis.title = element_text(
+
+      face = "bold",
+
+      color = "black"
+
+    ),
+
+
+
+    legend.title = element_text(
+
+      face = "bold"
+
+    ),
+
+
+
+    plot.margin = margin(
+
+      25,
+
+      25,
+
+      45,
+
+      15
+
+    )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# SAVE AS NEW FILES
+
+# Original Panel E remains untouched
+
+# ============================================================
+
+
+
+png_file <- file.path(
+
+  output_dir,
+
+  "AK1_panelE_pose_RMSD_heatmap_EXPLAINED.png"
+
+)
+
+
+
+ggsave(
+
+  filename = png_file,
+
+  plot = p,
+
+  width = 11.0,
+
+  height = 7.2,
+
+  units = "in",
+
+  dpi = 600,
+
+  bg = "white"
+
+)
+
+
+
+
+
+pdf_file <- file.path(
+
+  output_dir,
+
+  "AK1_panelE_pose_RMSD_heatmap_EXPLAINED.pdf"
+
+)
+
+
+
+ggsave(
+
+  filename = pdf_file,
+
+  plot = p,
+
+  width = 11.0,
+
+  height = 7.2,
+
+  units = "in"
+
+)
+
+
+
+
+
+# ============================================================
+
+# PRINT SUMMARY
+
+# ============================================================
+
+
+
+cat("\n")
+
+cat("Dominant-cluster RMSD range:",
+
+    sprintf("%.2f", dom_min),
+
+    "-",
+
+    sprintf("%.2f", dom_max),
+
+    "A\n")
+
+
+
+cat("Alternative-cluster RMSD range:",
+
+    sprintf("%.2f", alt_min),
+
+    "-",
+
+    sprintf("%.2f", alt_max),
+
+    "A\n")
+
+
+
+cat("Between-cluster RMSD range:",
+
+    sprintf("%.2f", between_min),
+
+    "-",
+
+    sprintf("%.2f", between_max),
+
+    "A\n")
+
+
+
+cat("\nSaved:\n")
+
+cat(png_file, "\n")
+
+cat(pdf_file, "\n")
+
+END FILE: AK1_panelE_RMSD_heatmap_explained.R
+
+================================================================================
+FILE: AK1_panelE_clean_for_paper.R
+Executable source: code/AK1_panelE_clean_for_paper.R
+================================================================================
+# ============================================================
+
+# FIGURE 8 — PANEL E (CLEAN PAPER VERSION)
+
+# Pairwise RMSD heatmap of best AK1–ISO poses across seeds
+
+# ============================================================
+
+
+
+packages <- c("ggplot2", "dplyr", "tidyr", "scales")
+
+
+
+for (p in packages) {
+
+  if (!requireNamespace(p, quietly = TRUE)) {
+
+    install.packages(p, repos = "https://cloud.r-project.org")
+
+  }
+
+}
+
+
+
+library(ggplot2)
+
+library(dplyr)
+
+library(tidyr)
+
+library(scales)
+
+
+
+# ============================================================
+
+# PATHS
+
+# ============================================================
+
+
+
+project <- "C:/Users/akidi/Desktop/ISO_AK_Docking"
+
+
+
+input_file <- file.path(
+
+  project,
+
+  "results",
+
+  "AK1_ISO_pose_RMSD_matrix.csv"
+
+)
+
+
+
+output_dir <- file.path(
+
+  project,
+
+  "results",
+
+  "AK1_panelE"
+
+)
+
+
+
+dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+
+
+
+# ============================================================
+
+# READ MATRIX
+
+# ============================================================
+
+
+
+rmsd <- read.csv(
+
+  input_file,
+
+  check.names = FALSE,
+
+  row.names = 1
+
+)
+
+
+
+rmsd <- as.matrix(rmsd)
+
+mode(rmsd) <- "numeric"
+
+
+
+rownames(rmsd) <- as.character(rownames(rmsd))
+
+colnames(rmsd) <- as.character(colnames(rmsd))
+
+
+
+# ============================================================
+
+# CLUSTERS
+
+# ============================================================
+
+
+
+dominant <- c("1001", "2002", "3003", "4004", "5005", "7007", "9009", "10101")
+
+alternative <- c("6006", "8008")
+
+
+
+# ============================================================
+
+# ORDER
+
+# ============================================================
+
+
+
+hc <- hclust(as.dist(rmsd), method = "average")
+
+cluster_order <- hc$labels[hc$order]
+
+
+
+dominant_order <- cluster_order[cluster_order %in% dominant]
+
+alternative_order <- cluster_order[cluster_order %in% alternative]
+
+
+
+display_order <- c(dominant_order, alternative_order)
+
+
+
+plot_matrix <- rmsd[display_order, display_order]
+
+
+
+# ============================================================
+
+# SUMMARY VALUES
+
+# ============================================================
+
+
+
+dom_mat <- rmsd[dominant, dominant, drop = FALSE]
+
+dom_vals <- dom_mat[upper.tri(dom_mat)]
+
+
+
+alt_mat <- rmsd[alternative, alternative, drop = FALSE]
+
+alt_vals <- alt_mat[upper.tri(alt_mat)]
+
+
+
+between_vals <- rmsd[dominant, alternative, drop = FALSE]
+
+
+
+dom_min <- min(dom_vals)
+
+dom_max <- max(dom_vals)
+
+
+
+alt_min <- min(alt_vals)
+
+alt_max <- max(alt_vals)
+
+
+
+between_min <- min(between_vals)
+
+between_max <- max(between_vals)
+
+
+
+# ============================================================
+
+# LONG FORMAT
+
+# ============================================================
+
+
+
+long <- as.data.frame(plot_matrix)
+
+long$Seed_y <- rownames(long)
+
+
+
+long <- long %>%
+
+  pivot_longer(
+
+    cols = -Seed_y,
+
+    names_to = "Seed_x",
+
+    values_to = "RMSD"
+
+  )
+
+
+
+x_lookup <- setNames(seq_along(display_order), display_order)
+
+y_lookup <- setNames(rev(seq_along(display_order)), display_order)
+
+
+
+long$x <- x_lookup[long$Seed_x]
+
+long$y <- y_lookup[long$Seed_y]
+
+
+
+# Axis labels
+
+x_axis_labels <- display_order
+
+x_axis_labels[x_axis_labels == "9009"] <- "9009*"
+
+
+
+y_display <- rev(display_order)
+
+y_axis_labels <- y_display
+
+y_axis_labels[y_axis_labels == "9009"] <- "9009*"
+
+
+
+# Colors
+
+dominant_color <- "#E69F00"
+
+alternative_color <- "#56B4E9"
+
+
+
+# ============================================================
+
+# PLOT
+
+# ============================================================
+
+
+
+p <- ggplot(long, aes(x = x, y = y, fill = RMSD)) +
+
+
+
+  geom_tile(
+
+    color = "white",
+
+    linewidth = 0.7,
+
+    width = 1,
+
+    height = 1
+
+  ) +
+
+
+
+  geom_text(
+
+    aes(label = sprintf("%.2f", RMSD)),
+
+    size = 3.2,
+
+    color = "black"
+
+  ) +
+
+
+
+  scale_fill_gradientn(
+
+    colours = c(
+
+      "#2166AC",
+
+      "#67A9CF",
+
+      "#D1E5F0",
+
+      "#F7F7F7",
+
+      "#FDDBC7",
+
+      "#EF8A62",
+
+      "#B2182B"
+
+    ),
+
+    values = rescale(c(0, 0.5, 1, 2, 3, 5, max(long$RMSD))),
+
+    limits = c(0, max(long$RMSD)),
+
+    name = "Pairwise RMSD (Å)"
+
+  ) +
+
+
+
+  # Cluster dividing lines
+
+  geom_vline(xintercept = 8.5, linewidth = 1.4, color = "black") +
+
+  geom_hline(yintercept = 2.5, linewidth = 1.4, color = "black") +
+
+
+
+  # Top cluster bars
+
+  annotate("rect", xmin = 0.5, xmax = 8.5, ymin = 10.15, ymax = 10.35,
+
+           fill = dominant_color, color = NA) +
+
+  annotate("rect", xmin = 8.5, xmax = 10.5, ymin = 10.15, ymax = 10.35,
+
+           fill = alternative_color, color = NA) +
+
+
+
+  # Cluster labels
+
+  annotate("text", x = 4.5, y = 10.62,
+
+           label = "Dominant pose cluster (8/10)",
+
+           size = 4.4, fontface = "bold") +
+
+
+
+  annotate("text", x = 9.5, y = 10.62,
+
+           label = "Alternative\ncluster (2/10)",
+
+           size = 3.8, fontface = "bold", lineheight = 0.95) +
+
+
+
+  # Right-side explanatory boxes
+
+  annotate(
+
+    "label",
+
+    x = 12.0,
+
+    y = 8.5,
+
+    label = paste0(
+
+      "Within dominant cluster\n",
+
+      sprintf("%.2f", dom_min), "–", sprintf("%.2f", dom_max), " Å"
+
+    ),
+
+    hjust = 0,
+
+    size = 4.0,
+
+    label.size = 0.5,
+
+    fill = "white"
+
+  ) +
+
+
+
+  annotate(
+
+    "label",
+
+    x = 12.0,
+
+    y = 6.0,
+
+    label = paste0(
+
+      "Between clusters\n",
+
+      sprintf("%.2f", between_min), "–", sprintf("%.2f", between_max), " Å"
+
+    ),
+
+    hjust = 0,
+
+    size = 4.0,
+
+    label.size = 0.5,
+
+    fill = "white"
+
+  ) +
+
+
+
+  annotate(
+
+    "label",
+
+    x = 12.0,
+
+    y = 3.5,
+
+    label = paste0(
+
+      "Within alternative cluster\n",
+
+      sprintf("%.2f", alt_min), "–", sprintf("%.2f", alt_max), " Å"
+
+    ),
+
+    hjust = 0,
+
+    size = 4.0,
+
+    label.size = 0.5,
+
+    fill = "white"
+
+  ) +
+
+
+
+  scale_x_continuous(
+
+    breaks = 1:10,
+
+    labels = x_axis_labels,
+
+    limits = c(0.5, 15.4),
+
+    expand = c(0, 0)
+
+  ) +
+
+
+
+  scale_y_continuous(
+
+    breaks = 1:10,
+
+    labels = y_axis_labels,
+
+    limits = c(0.5, 10.9),
+
+    expand = c(0, 0)
+
+  ) +
+
+
+
+  labs(
+
+    x = "Best pose from Vina seed",
+
+    y = "Best pose from Vina seed"
+
+  ) +
+
+
+
+  coord_fixed(clip = "off") +
+
+
+
+  guides(
+
+    fill = guide_colorbar(
+
+      title.position = "top",
+
+      title.hjust = 0.5,
+
+      barheight = unit(70, "pt"),
+
+      barwidth  = unit(12, "pt")
+
+    )
+
+  ) +
+
+
+
+  theme_minimal(base_size = 16) +
+
+  theme(
+
+    panel.grid = element_blank(),
+
+
+
+    axis.text.x = element_text(
+
+      angle = 45,
+
+      hjust = 1,
+
+      vjust = 1,
+
+      color = "black",
+
+      size = 11
+
+    ),
+
+
+
+    axis.text.y = element_text(
+
+      color = "black",
+
+      size = 11
+
+    ),
+
+
+
+    axis.title = element_text(
+
+      face = "bold",
+
+      color = "black",
+
+      size = 16
+
+    ),
+
+
+
+    legend.title = element_text(
+
+      face = "bold",
+
+      size = 14
+
+    ),
+
+
+
+    legend.text = element_text(size = 11),
+
+
+
+    plot.margin = margin(25, 120, 25, 20)
+
+  )
+
+
+
+# ============================================================
+
+# SAVE
+
+# ============================================================
+
+
+
+png_file <- file.path(output_dir, "AK1_panelE_pose_RMSD_heatmap_CLEAN.png")
+
+pdf_file <- file.path(output_dir, "AK1_panelE_pose_RMSD_heatmap_CLEAN.pdf")
+
+
+
+ggsave(
+
+  filename = png_file,
+
+  plot = p,
+
+  width = 12.5,
+
+  height = 7.2,
+
+  units = "in",
+
+  dpi = 600,
+
+  bg = "white"
+
+)
+
+
+
+ggsave(
+
+  filename = pdf_file,
+
+  plot = p,
+
+  width = 12.5,
+
+  height = 7.2,
+
+  units = "in",
+
+  bg = "white"
+
+)
+
+
+
+cat("\nSaved:\n")
+
+cat(png_file, "\n")
+
+cat(pdf_file, "\n")
+
+END FILE: AK1_panelE_clean_for_paper.R
+
+================================================================================
+FILE: AK1_panelE_clean_v2.R
+Executable source: code/AK1_panelE_clean_v2.R
+================================================================================
+# ============================================================
+
+# AK1 Panel E (clean paper version)
+
+# Pairwise RMSD heatmap of best ISO poses across 10 Vina seeds
+
+# ============================================================
+
+
+
+# ----------------------------
+
+# Packages
+
+# ----------------------------
+
+if (!requireNamespace("ggplot2", quietly = TRUE)) install.packages("ggplot2")
+
+if (!requireNamespace("grid", quietly = TRUE)) install.packages("grid")
+
+
+
+library(ggplot2)
+
+library(grid)
+
+
+
+# ----------------------------
+
+# Input / output
+
+# ----------------------------
+
+INPUT_CSV  <- "..\\results\\AK1_ISO_pose_RMSD_matrix.csv"
+
+OUTPUT_PNG <- "..\\results\\AK1_panelE_clean_v2.png"
+
+
+
+# ----------------------------
+
+# Read matrix
+
+# ----------------------------
+
+mat <- as.matrix(read.csv(INPUT_CSV, row.names = 1, check.names = FALSE))
+
+
+
+# Force numeric
+
+mode(mat) <- "numeric"
+
+
+
+# ----------------------------
+
+# Desired plotting order
+
+# Dominant cluster first, alternative cluster last
+
+# 9009 is marked as representative dominant pose
+
+# ----------------------------
+
+seed_order <- c("10101", "1001", "2002", "5005", "3003", "9009", "4004", "7007", "6006", "8008")
+
+axis_labels <- c("10101", "1001", "2002", "5005", "3003", "9009*", "4004", "7007", "6006", "8008")
+
+
+
+mat <- mat[seed_order, seed_order, drop = FALSE]
+
+
+
+# ----------------------------
+
+# Build plotting dataframe
+
+# y is reversed so first seed appears at top
+
+# ----------------------------
+
+plot_df <- expand.grid(
+
+  x = 1:ncol(mat),
+
+  y_index = 1:nrow(mat)
+
+)
+
+
+
+plot_df$seed_x <- rep(colnames(mat), each = nrow(mat))
+
+plot_df$seed_y <- rep(rownames(mat), times = ncol(mat))
+
+
+
+# top-to-bottom layout
+
+plot_df$y <- 11 - plot_df$y_index
+
+
+
+# matrix values
+
+plot_df$value <- as.vector(t(mat))
+
+
+
+# label formatting
+
+plot_df$label <- sprintf("%.2f", plot_df$value)
+
+
+
+# ----------------------------
+
+# Cluster summary values
+
+# ----------------------------
+
+dominant_idx    <- 1:8
+
+alternative_idx <- 9:10
+
+
+
+dominant_block <- mat[dominant_idx, dominant_idx, drop = FALSE]
+
+alt_block      <- mat[alternative_idx, alternative_idx, drop = FALSE]
+
+between_block  <- mat[dominant_idx, alternative_idx, drop = FALSE]
+
+
+
+dominant_vals <- dominant_block[upper.tri(dominant_block)]
+
+alt_vals      <- alt_block[upper.tri(alt_block)]
+
+between_vals  <- as.vector(between_block)
+
+
+
+dom_min <- min(dominant_vals)
+
+dom_max <- max(dominant_vals)
+
+
+
+alt_min <- min(alt_vals)
+
+alt_max <- max(alt_vals)
+
+
+
+bet_min <- min(between_vals)
+
+bet_max <- max(between_vals)
+
+
+
+# ----------------------------
+
+# Colors
+
+# ----------------------------
+
+dominant_color    <- "#E69F00"   # orange-gold
+
+alternative_color <- "#56B4E9"   # light blue
+
+
+
+# ----------------------------
+
+# Plot
+
+# ----------------------------
+
+p <- ggplot(plot_df, aes(x = x, y = y, fill = value)) +
+
+
+
+  # heatmap tiles
+
+  geom_tile(color = "white", linewidth = 0.8) +
+
+
+
+  # numbers inside tiles
+
+  geom_text(aes(label = label), size = 4.2) +
+
+
+
+  # divide the two clusters
+
+  geom_vline(xintercept = 8.5, linewidth = 1.6, color = "black") +
+
+  geom_hline(yintercept = 2.5, linewidth = 1.6, color = "black") +
+
+
+
+  # top cluster bars
+
+  annotate("rect",
+
+           xmin = 0.5, xmax = 8.5,
+
+           ymin = 10.58, ymax = 10.76,
+
+           fill = dominant_color, color = NA) +
+
+
+
+  annotate("rect",
+
+           xmin = 8.5, xmax = 10.5,
+
+           ymin = 10.58, ymax = 10.76,
+
+           fill = alternative_color, color = NA) +
+
+
+
+  # top cluster titles
+
+  annotate("text",
+
+           x = 4.5, y = 10.98,
+
+           label = "Dominant pose cluster (8/10)",
+
+           size = 5.2, fontface = "bold") +
+
+
+
+  annotate("text",
+
+           x = 9.5, y = 10.98,
+
+           label = "Alternative\ncluster (2/10)",
+
+           size = 4.2, fontface = "bold", lineheight = 0.92) +
+
+
+
+  # explanatory annotation boxes on right
+
+  annotate("label",
+
+           x = 13.0, y = 8.2,
+
+           label = paste0("Within dominant cluster\n",
+
+                          sprintf("%.2f", dom_min), "\u2013", sprintf("%.2f", dom_max), " \u00C5"),
+
+           size = 4.9, hjust = 0, vjust = 0.5,
+
+           label.size = 0.5, fill = "white") +
+
+
+
+  annotate("label",
+
+           x = 13.0, y = 5.8,
+
+           label = paste0("Between clusters\n",
+
+                          sprintf("%.2f", bet_min), "\u2013", sprintf("%.2f", bet_max), " \u00C5"),
+
+           size = 4.9, hjust = 0, vjust = 0.5,
+
+           label.size = 0.5, fill = "white") +
+
+
+
+  annotate("label",
+
+           x = 13.0, y = 3.5,
+
+           label = paste0("Within alternative cluster\n",
+
+                          sprintf("%.2f", alt_min), "\u2013", sprintf("%.2f", alt_max), " \u00C5"),
+
+           size = 4.9, hjust = 0, vjust = 0.5,
+
+           label.size = 0.5, fill = "white") +
+
+
+
+  # manual centered x-axis title under heatmap only
+
+  annotate("text",
+
+           x = 5.5, y = -0.85,
+
+           label = "Best pose from Vina seed",
+
+           size = 8.0, fontface = "bold") +
+
+
+
+  # footnote
+
+  annotate("text",
+
+           x = 5.5, y = -0.38,
+
+           label = "Each cell compares the top-ranked ISO pose from the row seed with the top-ranked pose from the column seed.\nDiagonal = self-comparison (0 Å); * seed 9009 = representative dominant pose.",
+
+           size = 4.5, lineheight = 1.05) +
+
+
+
+  # fill scale
+
+  scale_fill_gradient2(
+
+    low = "#2166AC",
+
+    mid = "#F7F7F7",
+
+    high = "#B2182B",
+
+    midpoint = 2.0,
+
+    limits = c(0, 7.4),
+
+    name = "Pairwise pose RMSD (\u00C5)"
+
+  ) +
+
+
+
+  # axes
+
+  scale_x_continuous(
+
+    breaks = 1:10,
+
+    labels = axis_labels,
+
+    limits = c(0.5, 16.8),
+
+    expand = c(0, 0)
+
+  ) +
+
+  scale_y_continuous(
+
+    breaks = 10:1,
+
+    labels = axis_labels,
+
+    limits = c(-1.1, 11.15),
+
+    expand = c(0, 0)
+
+  ) +
+
+
+
+  labs(
+
+    x = NULL,
+
+    y = "Best pose from Vina seed"
+
+  ) +
+
+
+
+  coord_fixed(ratio = 1) +
+
+
+
+  theme_minimal(base_size = 16) +
+
+  theme(
+
+    panel.grid = element_blank(),
+
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, size = 13),
+
+    axis.text.y = element_text(size = 13),
+
+    axis.title.x = element_blank(),
+
+    axis.title.y = element_text(size = 20, face = "bold"),
+
+    legend.title = element_text(size = 16, face = "bold"),
+
+    legend.text = element_text(size = 12),
+
+    legend.position = c(0.89, 0.56),
+
+    legend.justification = c(0.5, 0.5),
+
+    plot.margin = margin(30, 150, 55, 20)
+
+  ) +
+
+
+
+  guides(fill = guide_colorbar(
+
+    barheight = unit(3.5, "cm"),
+
+    barwidth  = unit(0.7, "cm"),
+
+    title.position = "top"
+
+  ))
+
+
+
+# ----------------------------
+
+# Save
+
+# ----------------------------
+
+ggsave(
+
+  filename = OUTPUT_PNG,
+
+  plot = p,
+
+  width = 14,
+
+  height = 8.5,
+
+  dpi = 300,
+
+  bg = "white"
+
+)
+
+
+
+cat("Saved cleaned panel to:\n", normalizePath(OUTPUT_PNG), "\n")
+
+END FILE: AK1_panelE_clean_v2.R
+
+================================================================================
+FILE: AK1_panelE_heatmap_clean.R
+Executable source: code/AK1_panelE_heatmap_clean.R
+================================================================================
+library(ggplot2)
+
+library(dplyr)
+
+library(tidyr)
+
+library(grid)
+
+
+
+# =========================
+
+# INPUT MATRIX
+
+# =========================
+
+seed_order <- c("10101","1001","2002","5005","3003","9009*","4004","7007","6006","8008")
+
+
+
+mat <- matrix(c(
+
+  0.00,0.07,0.04,0.05,0.06,0.05,0.10,0.09,7.35,7.35,
+
+  0.07,0.00,0.05,0.05,0.04,0.04,0.06,0.08,7.35,7.35,
+
+  0.04,0.05,0.00,0.03,0.03,0.02,0.07,0.06,7.35,7.35,
+
+  0.05,0.05,0.03,0.00,0.03,0.03,0.06,0.04,7.35,7.34,
+
+  0.06,0.04,0.03,0.03,0.00,0.02,0.05,0.06,7.36,7.35,
+
+  0.05,0.04,0.02,0.03,0.02,0.00,0.05,0.06,7.35,7.35,
+
+  0.10,0.06,0.07,0.06,0.05,0.05,0.00,0.06,7.36,7.35,
+
+  0.09,0.08,0.06,0.04,0.06,0.06,0.06,0.00,7.34,7.33,
+
+  7.35,7.35,7.35,7.35,7.36,7.35,7.36,7.34,0.00,0.06,
+
+  7.35,7.35,7.35,7.34,7.35,7.35,7.35,7.33,0.06,0.00
+
+), nrow = 10, byrow = TRUE)
+
+
+
+rownames(mat) <- seed_order
+
+colnames(mat) <- seed_order
+
+
+
+df <- as.data.frame(mat)
+
+df$RowSeed <- factor(rownames(df), levels = rev(seed_order))
+
+
+
+df_long <- df %>%
+
+  pivot_longer(-RowSeed, names_to = "ColSeed", values_to = "RMSD") %>%
+
+  mutate(
+
+    ColSeed = factor(ColSeed, levels = seed_order),
+
+    RowNum = as.numeric(RowSeed),
+
+    ColNum = as.numeric(ColSeed)
+
+  )
+
+
+
+# Convert to plotting positions
+
+df_long$RowPlot <- factor(df_long$RowSeed, levels = rev(seed_order))
+
+df_long$ColPlot <- factor(df_long$ColSeed, levels = seed_order)
+
+
+
+# =========================
+
+# BASIC NUMBERS
+
+# =========================
+
+n_total <- 10
+
+n_dom <- 8
+
+n_alt <- 2
+
+
+
+# Centers of top labels
+
+dom_center <- (1 + n_dom) / 2        # 4.5
+
+alt_center <- (n_dom + 1 + n_total) / 2   # 9.5
+
+
+
+# Top annotation positions
+
+bar_y <- 10.35
+
+text_y <- 10.72
+
+
+
+# =========================
+
+# PLOT
+
+# =========================
+
+p <- ggplot(df_long, aes(x = ColPlot, y = RowPlot, fill = RMSD)) +
+
+  geom_tile(color = "white", linewidth = 0.7) +
+
+  geom_text(aes(label = sprintf("%.2f", RMSD)), size = 4.8) +
+
+
+
+  scale_fill_gradient2(
+
+    low = "#2E6EB5",
+
+    mid = "#F4E6D7",
+
+    high = "#C5162F",
+
+    midpoint = 2,
+
+    name = "Pairwise pose RMSD (Å)"
+
+  ) +
+
+
+
+  # Thick black separator lines between dominant and alternative clusters
+
+  geom_vline(xintercept = 8.5, linewidth = 1.6, color = "black") +
+
+  geom_hline(yintercept = 2.5, linewidth = 1.6, color = "black") +
+
+
+
+  # Top colored bars
+
+  annotate("segment", x = 0.5, xend = 8.5, y = bar_y, yend = bar_y,
+
+           color = "#E69F00", linewidth = 6, lineend = "butt") +
+
+  annotate("segment", x = 8.5, xend = 10.5, y = bar_y, yend = bar_y,
+
+           color = "#56B4E9", linewidth = 6, lineend = "butt") +
+
+
+
+  # Top cluster labels - MOVED UPWARD
+
+  annotate("text", x = dom_center, y = text_y,
+
+           label = "Dominant pose cluster (8/10)",
+
+           size = 7.2, fontface = "bold") +
+
+  annotate("text", x = alt_center, y = text_y,
+
+           label = "Alternative\ncluster (2/10)",
+
+           size = 6.1, fontface = "bold", lineheight = 0.95) +
+
+
+
+  # Right-side explanatory boxes
+
+  annotate("label", x = 12.2, y = 8.0,
+
+           label = "Within dominant cluster\n0.02–0.10 Å",
+
+           hjust = 0, size = 6.2, label.size = 0.6, fill = "white") +
+
+  annotate("label", x = 12.2, y = 5.7,
+
+           label = "Between clusters\n7.33–7.36 Å",
+
+           hjust = 0, size = 6.2, label.size = 0.6, fill = "white") +
+
+  annotate("label", x = 12.2, y = 3.5,
+
+           label = "Within alternative cluster\n0.06–0.06 Å",
+
+           hjust = 0, size = 6.2, label.size = 0.6, fill = "white") +
+
+
+
+  labs(
+
+    x = "Best pose from Vina seed",
+
+    y = "Best pose from Vina seed"
+
+  ) +
+
+
+
+  coord_cartesian(
+
+    xlim = c(0.5, 15.5),
+
+    ylim = c(0.5, 11.0),
+
+    clip = "off"
+
+  ) +
+
+
+
+  theme_minimal(base_size = 18) +
+
+  theme(
+
+    panel.grid = element_blank(),
+
+    axis.title.x = element_text(
+
+      size = 20, face = "bold",
+
+      hjust = 0.5,                # center the bottom title
+
+      margin = margin(t = 18)     # give it a bit of space from axis text
+
+    ),
+
+    axis.title.y = element_text(
+
+      size = 20, face = "bold",
+
+      margin = margin(r = 14)
+
+    ),
+
+    axis.text.x = element_text(
+
+      size = 12,
+
+      angle = 45, hjust = 1, vjust = 1
+
+    ),
+
+    axis.text.y = element_text(size = 12),
+
+    legend.title = element_text(size = 18, face = "bold"),
+
+    legend.text = element_text(size = 12),
+
+    legend.position = c(0.90, 0.53),
+
+    plot.margin = margin(35, 120, 25, 25)  # extra top and right space
+
+  ) +
+
+  guides(fill = guide_colorbar(
+
+    title.position = "top",
+
+    title.hjust = 0.5,
+
+    barheight = unit(100, "pt"),
+
+    barwidth = unit(18, "pt")
+
+  ))
+
+
+
+# Save
+
+ggsave(
+
+  filename = "../results/AK1_panelE_pose_RMSD_heatmap_clean.png",
+
+  plot = p,
+
+  width = 14,
+
+  height = 9,
+
+  dpi = 300,
+
+  bg = "white"
+
+)
+
+END FILE: AK1_panelE_heatmap_clean.R
+
+================================================================================
+FILE: AK1_panelE_paper_final.R
+Executable source: code/AK1_panelE_paper_final.R
+================================================================================
+library(ggplot2)
+
+library(dplyr)
+
+library(tidyr)
+
+library(grid)
+
+
+
+# =========================
+
+# INPUT MATRIX
+
+# =========================
+
+seed_order <- c("10101","1001","2002","5005","3003","9009*","4004","7007","6006","8008")
+
+
+
+mat <- matrix(c(
+
+  0.00,0.07,0.04,0.05,0.06,0.05,0.10,0.09,7.35,7.35,
+
+  0.07,0.00,0.05,0.05,0.04,0.04,0.06,0.08,7.35,7.35,
+
+  0.04,0.05,0.00,0.03,0.03,0.02,0.07,0.06,7.35,7.35,
+
+  0.05,0.05,0.03,0.00,0.03,0.03,0.06,0.04,7.35,7.34,
+
+  0.06,0.04,0.03,0.03,0.00,0.02,0.05,0.06,7.36,7.35,
+
+  0.05,0.04,0.02,0.03,0.02,0.00,0.05,0.06,7.35,7.35,
+
+  0.10,0.06,0.07,0.06,0.05,0.05,0.00,0.06,7.36,7.35,
+
+  0.09,0.08,0.06,0.04,0.06,0.06,0.06,0.00,7.34,7.33,
+
+  7.35,7.35,7.35,7.35,7.36,7.35,7.36,7.34,0.00,0.06,
+
+  7.35,7.35,7.35,7.34,7.35,7.35,7.35,7.33,0.06,0.00
+
+), nrow = 10, byrow = TRUE)
+
+
+
+rownames(mat) <- seed_order
+
+colnames(mat) <- seed_order
+
+
+
+df <- as.data.frame(mat)
+
+df$RowSeed <- factor(rownames(df), levels = rev(seed_order))
+
+
+
+df_long <- df %>%
+
+  pivot_longer(-RowSeed, names_to = "ColSeed", values_to = "RMSD") %>%
+
+  mutate(
+
+    ColSeed = factor(ColSeed, levels = seed_order),
+
+    RowNum = as.numeric(RowSeed),
+
+    ColNum = as.numeric(ColSeed)
+
+  )
+
+
+
+# Convert to plotting positions
+
+df_long$RowPlot <- factor(df_long$RowSeed, levels = rev(seed_order))
+
+df_long$ColPlot <- factor(df_long$ColSeed, levels = seed_order)
+
+
+
+# =========================
+
+# BASIC NUMBERS
+
+# =========================
+
+n_total <- 10
+
+n_dom <- 8
+
+n_alt <- 2
+
+
+
+# Centers of top labels
+
+dom_center <- (1 + n_dom) / 2        # 4.5
+
+alt_center <- (n_dom + 1 + n_total) / 2   # 9.5
+
+
+
+# Top annotation positions
+
+bar_y <- 10.35
+
+text_y <- 10.72
+
+
+
+# =========================
+
+# PLOT
+
+# =========================
+
+p <- ggplot(df_long, aes(x = ColPlot, y = RowPlot, fill = RMSD)) +
+
+  geom_tile(color = "white", linewidth = 0.7) +
+
+  geom_text(aes(label = sprintf("%.2f", RMSD)), size = 4.8) +
+
+
+
+  scale_fill_gradient2(
+
+    low = "#2E6EB5",
+
+    mid = "#F4E6D7",
+
+    high = "#C5162F",
+
+    midpoint = 2,
+
+    name = "Pairwise pose RMSD (Å)"
+
+  ) +
+
+
+
+  # Thick black separator lines between dominant and alternative clusters
+
+  geom_vline(xintercept = 8.5, linewidth = 1.6, color = "black") +
+
+  geom_hline(yintercept = 2.5, linewidth = 1.6, color = "black") +
+
+
+
+  # Top colored bars
+
+  annotate("segment", x = 0.5, xend = 8.5, y = bar_y, yend = bar_y,
+
+           color = "#E69F00", linewidth = 6, lineend = "butt") +
+
+  annotate("segment", x = 8.5, xend = 10.5, y = bar_y, yend = bar_y,
+
+           color = "#56B4E9", linewidth = 6, lineend = "butt") +
+
+
+
+  # Top cluster labels - MOVED UPWARD
+
+  annotate("text", x = dom_center, y = text_y,
+
+           label = "Dominant pose cluster (8/10)",
+
+           size = 7.2, fontface = "bold") +
+
+  annotate("text", x = alt_center, y = text_y,
+
+           label = "Alternative\ncluster (2/10)",
+
+           size = 6.1, fontface = "bold", lineheight = 0.95) +
+
+
+
+  # Right-side explanatory boxes
+
+  annotate("label", x = 12.2, y = 8.0,
+
+           label = "Within dominant cluster\n0.02–0.10 Å",
+
+           hjust = 0, size = 6.2, label.size = 0.6, fill = "white") +
+
+  annotate("label", x = 12.2, y = 5.7,
+
+           label = "Between clusters\n7.33–7.36 Å",
+
+           hjust = 0, size = 6.2, label.size = 0.6, fill = "white") +
+
+  annotate("label", x = 12.2, y = 3.5,
+
+           label = "Within alternative cluster\n0.06–0.06 Å",
+
+           hjust = 0, size = 6.2, label.size = 0.6, fill = "white") +
+
+
+
+  labs(
+
+    x = "Best pose from Vina seed",
+
+    y = "Best pose from Vina seed"
+
+  ) +
+
+
+
+  coord_cartesian(
+
+    xlim = c(0.5, 15.5),
+
+    ylim = c(0.5, 11.0),
+
+    clip = "off"
+
+  ) +
+
+
+
+  theme_minimal(base_size = 18) +
+
+  theme(
+
+    panel.grid = element_blank(),
+
+    axis.title.x = element_text(
+
+      size = 20, face = "bold",
+
+      hjust = 0.5,                # center the bottom title
+
+      margin = margin(t = 18)     # give it a bit of space from axis text
+
+    ),
+
+    axis.title.y = element_text(
+
+      size = 20, face = "bold",
+
+      margin = margin(r = 14)
+
+    ),
+
+    axis.text.x = element_text(
+
+      size = 12,
+
+      angle = 45, hjust = 1, vjust = 1
+
+    ),
+
+    axis.text.y = element_text(size = 12),
+
+    legend.title = element_text(size = 18, face = "bold"),
+
+    legend.text = element_text(size = 12),
+
+    legend.position = c(0.90, 0.53),
+
+    plot.margin = margin(35, 120, 25, 25)  # extra top and right space
+
+  ) +
+
+  guides(fill = guide_colorbar(
+
+    title.position = "top",
+
+    title.hjust = 0.5,
+
+    barheight = unit(100, "pt"),
+
+    barwidth = unit(18, "pt")
+
+  ))
+
+
+
+# Save
+
+ggsave(
+
+  filename = "../results/AK1_panelE_pose_RMSD_heatmap_clean.png",
+
+  plot = p,
+
+  width = 14,
+
+  height = 9,
+
+  dpi = 300,
+
+  bg = "white"
+
+)
+
+END FILE: AK1_panelE_paper_final.R
+
+================================================================================
+FILE: AK1_pose_convergence.py
+Executable source: code/AK1_pose_convergence.py
+================================================================================
+from pathlib import Path
+
+import re
+
+import math
+
+import csv
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+DOCKING = PROJECT / "docking"
+
+RESULTS = PROJECT / "results"
+
+
+
+FILES = sorted(
+
+    DOCKING.glob("AK1_ISO_seed*.pdbqt"),
+
+    key=lambda p: int(re.search(r"seed(\d+)", p.name).group(1))
+
+)
+
+
+
+
+
+def read_best_pose_heavy_atoms(path):
+
+    coords = []
+
+    in_model_1 = False
+
+    model_seen = False
+
+
+
+    with open(path, "r") as f:
+
+        for line in f:
+
+
+
+            if line.startswith("MODEL"):
+
+                model_number = int(line.split()[1])
+
+
+
+                if model_number == 1:
+
+                    in_model_1 = True
+
+                    model_seen = True
+
+                    continue
+
+
+
+                elif in_model_1:
+
+                    break
+
+
+
+            if line.startswith("ENDMDL") and in_model_1:
+
+                break
+
+
+
+            # Some Vina files may not explicitly use MODEL
+
+            if not model_seen and (
+
+                line.startswith("ATOM") or line.startswith("HETATM")
+
+            ):
+
+                in_model_1 = True
+
+
+
+            if in_model_1 and (
+
+                line.startswith("ATOM") or line.startswith("HETATM")
+
+            ):
+
+
+
+                x = float(line[30:38])
+
+                y = float(line[38:46])
+
+                z = float(line[46:54])
+
+
+
+                # AutoDock atom type is normally the last field
+
+                atom_type = line.split()[-1].upper()
+
+
+
+                # exclude hydrogens
+
+                if atom_type.startswith("H"):
+
+                    continue
+
+
+
+                coords.append((x, y, z))
+
+
+
+    return coords
+
+
+
+
+
+def rmsd(coords1, coords2):
+
+
+
+    if len(coords1) != len(coords2):
+
+        raise ValueError(
+
+            f"Different atom counts: {len(coords1)} vs {len(coords2)}"
+
+        )
+
+
+
+    squared = 0.0
+
+
+
+    for a, b in zip(coords1, coords2):
+
+
+
+        dx = a[0] - b[0]
+
+        dy = a[1] - b[1]
+
+        dz = a[2] - b[2]
+
+
+
+        squared += dx*dx + dy*dy + dz*dz
+
+
+
+    return math.sqrt(squared / len(coords1))
+
+
+
+
+
+poses = {}
+
+
+
+for file in FILES:
+
+
+
+    seed = int(re.search(r"seed(\d+)", file.name).group(1))
+
+
+
+    poses[seed] = read_best_pose_heavy_atoms(file)
+
+
+
+    print(
+
+        f"Seed {seed}: "
+
+        f"{len(poses[seed])} heavy atoms"
+
+    )
+
+
+
+
+
+seeds = sorted(poses)
+
+
+
+matrix = []
+
+
+
+all_pairwise = []
+
+
+
+for seed1 in seeds:
+
+
+
+    row = []
+
+
+
+    for seed2 in seeds:
+
+
+
+        value = rmsd(
+
+            poses[seed1],
+
+            poses[seed2]
+
+        )
+
+
+
+        row.append(value)
+
+
+
+        if seed2 > seed1:
+
+            all_pairwise.append(value)
+
+
+
+    matrix.append(row)
+
+
+
+
+
+# ------------------------------------------------------------
+
+# Average RMSD of each pose to all other poses
+
+# ------------------------------------------------------------
+
+
+
+average_to_others = {}
+
+
+
+for i, seed in enumerate(seeds):
+
+
+
+    values = [
+
+        matrix[i][j]
+
+        for j in range(len(seeds))
+
+        if i != j
+
+    ]
+
+
+
+    average_to_others[seed] = sum(values) / len(values)
+
+
+
+
+
+representative_seed = min(
+
+    average_to_others,
+
+    key=average_to_others.get
+
+)
+
+
+
+
+
+# ------------------------------------------------------------
+
+# Output CSV matrix
+
+# ------------------------------------------------------------
+
+
+
+matrix_file = RESULTS / "AK1_ISO_pose_RMSD_matrix.csv"
+
+
+
+with open(matrix_file, "w", newline="") as f:
+
+
+
+    writer = csv.writer(f)
+
+
+
+    writer.writerow(
+
+        ["Seed"] + seeds
+
+    )
+
+
+
+    for seed, row in zip(seeds, matrix):
+
+
+
+        writer.writerow(
+
+            [seed] +
+
+            [round(x, 3) for x in row]
+
+        )
+
+
+
+
+
+# ------------------------------------------------------------
+
+# Summary
+
+# ------------------------------------------------------------
+
+
+
+mean_pairwise = sum(all_pairwise) / len(all_pairwise)
+
+
+
+minimum_pairwise = min(all_pairwise)
+
+maximum_pairwise = max(all_pairwise)
+
+
+
+
+
+print()
+
+print("=" * 60)
+
+print("AK1 ISO POSE CONVERGENCE")
+
+print("=" * 60)
+
+
+
+print(
+
+    "Number of best poses:",
+
+    len(seeds)
+
+)
+
+
+
+print(
+
+    "Pairwise comparisons:",
+
+    len(all_pairwise)
+
+)
+
+
+
+print(
+
+    f"Mean pairwise RMSD: {mean_pairwise:.3f} A"
+
+)
+
+
+
+print(
+
+    f"Minimum pairwise RMSD: {minimum_pairwise:.3f} A"
+
+)
+
+
+
+print(
+
+    f"Maximum pairwise RMSD: {maximum_pairwise:.3f} A"
+
+)
+
+
+
+print()
+
+
+
+print(
+
+    "Most representative pose:"
+
+)
+
+
+
+print(
+
+    f"Seed {representative_seed}"
+
+)
+
+
+
+print(
+
+    f"Mean RMSD to other poses: "
+
+    f"{average_to_others[representative_seed]:.3f} A"
+
+)
+
+
+
+print()
+
+
+
+print(
+
+    "RMSD matrix saved to:"
+
+)
+
+
+
+print(matrix_file)
+
+END FILE: AK1_pose_convergence.py
+
+================================================================================
+FILE: AK1_rotate_ISO_orange.pml
+Executable source: code/AK1_rotate_ISO_orange.pml
+================================================================================
+reinitialize
+
+bg_color white
+
+set ray_opaque_background, off
+
+set antialias, 2
+
+set orthoscopic, on
+
+
+
+# -----------------------------
+
+# Load structures
+
+# -----------------------------
+
+load ..\receptors\AK1_chainA_FIXED.pdb, AK1
+
+load ..\ligand\AK1_native_AP5_chainA.pdb, AP5_native
+
+
+
+# IMPORTANT:
+
+# Replace this filename if your extracted representative pose has another name.
+
+# I assume you extracted seed 9009 best pose as an SDF.
+
+load ..\docking\AK1_ISO_seed9009_bestpose.sdf, ISO
+
+
+
+remove solvent
+
+hide everything
+
+
+
+# -----------------------------
+
+# Protein style
+
+# -----------------------------
+
+show cartoon, AK1
+
+color gray70, AK1
+
+set cartoon_transparency, 0.35, AK1
+
+
+
+# -----------------------------
+
+# Native ligand (reference) = cyan
+
+# -----------------------------
+
+show sticks, AP5_native
+
+color cyan, AP5_native
+
+set stick_radius, 0.16, AP5_native
+
+
+
+# -----------------------------
+
+# Docked ISO = bright orange/yellow and thicker
+
+# -----------------------------
+
+show sticks, ISO
+
+color tv_orange, ISO and elem C
+
+color red, ISO and elem O
+
+color blue, ISO and elem N
+
+set stick_radius, 0.24, ISO
+
+
+
+# -----------------------------
+
+# Pocket residues
+
+# -----------------------------
+
+select pocket, byres ((AP5_native or ISO) around 4.0)
+
+show sticks, pocket
+
+color palegreen, pocket
+
+set stick_radius, 0.14, pocket
+
+
+
+# Optional: make ISO slightly "pop" more
+
+set stick_transparency, 0.00, ISO
+
+set stick_transparency, 0.15, AP5_native
+
+set stick_transparency, 0.10, pocket
+
+
+
+# -----------------------------
+
+# View/orientation
+
+# -----------------------------
+
+orient AP5_native or ISO
+
+zoom AP5_native or ISO or pocket, 11
+
+
+
+# -----------------------------
+
+# Save one static PNG first
+
+# -----------------------------
+
+ray 2200,2200
+
+png ..\results\AK1_rotate_ISO_orange\AK1_ISO_orange_static.png, dpi=300
+
+
+
+# -----------------------------
+
+# Movie frames
+
+# -----------------------------
+
+mset 1 x120
+
+python
+
+for i in range(1, 121):
+
+    cmd.mdo(i, "turn y, 3")
+
+python end
+
+
+
+set ray_trace_frames, 1
+
+mpng ..\results\AK1_rotate_ISO_orange\frames\frame_
+
+END FILE: AK1_rotate_ISO_orange.pml
+
+================================================================================
+FILE: AK1_rotate_orange_same_style.pml
+Executable source: code/AK1_rotate_orange_same_style.pml
+================================================================================
+load ..\receptors\AK1_chainA_FIXED.pdb, AK1
+
+remove solvent
+
+hide everything
+
+
+
+# -----------------------------
+
+# AK1 protein
+
+# -----------------------------
+
+show cartoon, AK1
+
+color gray70, AK1
+
+set cartoon_transparency, 0.35, AK1
+
+
+
+# -----------------------------
+
+# Native AP5
+
+# -----------------------------
+
+load ..\ligand\AK1_native_AP5_chainA.pdb, AP5_native
+
+show sticks, AP5_native
+
+color cyan, AP5_native
+
+
+
+# -----------------------------
+
+# Redocked AP5
+
+# -----------------------------
+
+load ..\docking\AK1_AP5_redock_bestpose.sdf, AP5_redocked
+
+show sticks, AP5_redocked
+
+color magenta, AP5_redocked
+
+
+
+# -----------------------------
+
+# Docked isorhamnetin
+
+# -----------------------------
+
+load ..\docking\AK1_ISO_bestpose.sdf, ISO
+
+show sticks, ISO
+
+color tv_orange, ISO
+
+
+
+# -----------------------------
+
+# Binding-pocket residues
+
+# -----------------------------
+
+select pocket, byres (AP5_native around 4.0)
+
+show sticks, pocket
+
+color palegreen, pocket
+
+
+
+# recolor ISO after pocket coloring so it remains visible
+
+color tv_orange, ISO
+
+
+
+set stick_radius, 0.18
+
+set stick_radius, 0.24, ISO
+
+
+
+# -----------------------------
+
+# Appearance
+
+# -----------------------------
+
+bg_color white
+
+set ray_opaque_background, on
+
+set antialias, 2
+
+
+
+# -----------------------------
+
+# IMPORTANT: wider framing
+
+# -----------------------------
+
+viewport 1600, 1600
+
+
+
+orient AK1
+
+center AK1
+
+
+
+# 15 A buffer around whole AK1
+
+zoom AK1, 15
+
+
+
+# -----------------------------
+
+# Static figure
+
+# -----------------------------
+
+ray 2400, 2400
+
+png ..\results\AK1_rotate_ISO_orange\AK1_ISO_AP5_overlay_orange.png, dpi=300
+
+
+
+# -----------------------------
+
+# Rotating movie
+
+# -----------------------------
+
+mset 1 x120
+
+
+
+python
+
+for i in range(1, 121):
+
+    cmd.mdo(i, "turn y, 3")
+
+python end
+
+
+
+set ray_trace_frames, 1
+
+
+
+mpng ..\results\AK1_rotate_ISO_orange\frames\frame_
+
+END FILE: AK1_rotate_orange_same_style.pml
+
+================================================================================
+FILE: build_AK1_comprehensive_excel.py
+Executable source: code/build_AK1_comprehensive_excel.py
+================================================================================
+from pathlib import Path
+
+import re
+
+import csv
+
+import statistics
+
+import numpy as np
+
+from scipy.cluster.hierarchy import linkage, fcluster
+
+from scipy.spatial.distance import squareform
+
+import xlsxwriter
+
+
+
+
+
+# ============================================================
+
+# PROJECT PATHS
+
+# ============================================================
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+
+
+DOCKING = PROJECT / "docking"
+
+RESULTS = PROJECT / "results"
+
+RECEPTORS = PROJECT / "receptors"
+
+LIGAND = PROJECT / "ligand"
+
+STRUCTURES = PROJECT / "structures"
+
+
+
+RESULTS.mkdir(exist_ok=True)
+
+
+
+OUTPUT = RESULTS / "AK1_ISO_COMPREHENSIVE_DOCKING_RESULTS.xlsx"
+
+
+
+RMSD_MATRIX_FILE = RESULTS / "AK1_ISO_pose_RMSD_matrix.csv"
+
+
+
+
+
+# ============================================================
+
+# FIXED EXPERIMENTAL / METHOD INFORMATION
+
+# ============================================================
+
+
+
+TARGET = "Human AK1"
+
+GENE = "AK1"
+
+
+
+STRUCTURE_ID = "PDB 1Z83"
+
+CHAIN = "A"
+
+
+
+NATIVE_LIGAND = "AP5"
+
+AP5_REDocking_RMSD = 1.776
+
+
+
+ISO_NAME = "Isorhamnetin"
+
+ISO_PUBCHEM_CID = "5281654"
+
+
+
+VINA_VERSION = "1.2.7"
+
+MEEKO_VERSION = "0.8.0"
+
+PYTHON_VERSION = "3.10"
+
+
+
+EXHAUSTIVENESS = 16
+
+NUM_MODES = 10
+
+
+
+# Docking box defined from crystallographic AP5 site
+
+CENTER_X = 25.044
+
+CENTER_Y = 44.571
+
+CENTER_Z = -3.708
+
+
+
+SIZE_X = 23.687
+
+SIZE_Y = 23.364
+
+SIZE_Z = 30.062
+
+
+
+# Primary clustering threshold
+
+CLUSTER_THRESHOLD = 2.0
+
+
+
+# Secondary threshold used to test stability
+
+SECONDARY_THRESHOLD = 3.0
+
+
+
+
+
+# ============================================================
+
+# HELPER: READ VINA PDBQT RESULTS
+
+# ============================================================
+
+
+
+def parse_vina_pdbqt(path):
+
+
+
+    poses = []
+
+
+
+    with open(path, encoding="utf-8") as f:
+
+
+
+        for line in f:
+
+
+
+            if line.startswith("REMARK VINA RESULT:"):
+
+
+
+                parts = line.split()
+
+
+
+                poses.append({
+
+                    "mode": len(poses) + 1,
+
+                    "score": float(parts[3]),
+
+                    "rmsd_lb": float(parts[4]),
+
+                    "rmsd_ub": float(parts[5])
+
+                })
+
+
+
+    return poses
+
+
+
+
+
+# ============================================================
+
+# FIND ALL 10 AK1 ISO RUNS
+
+# ============================================================
+
+
+
+pattern = re.compile(
+
+    r"AK1_ISO_seed(\d+)\.pdbqt$",
+
+    re.IGNORECASE
+
+)
+
+
+
+runs = []
+
+all_poses = []
+
+
+
+for file in DOCKING.glob("AK1_ISO_seed*.pdbqt"):
+
+
+
+    match = pattern.match(file.name)
+
+
+
+    if not match:
+
+        continue
+
+
+
+    seed = int(match.group(1))
+
+
+
+    poses = parse_vina_pdbqt(file)
+
+
+
+    if not poses:
+
+        print("WARNING: no Vina results in", file.name)
+
+        continue
+
+
+
+    best = poses[0]
+
+
+
+    runs.append({
+
+        "seed": seed,
+
+        "best_score": best["score"],
+
+        "file": file.name
+
+    })
+
+
+
+    for pose in poses:
+
+
+
+        all_poses.append({
+
+            "seed": seed,
+
+            "mode": pose["mode"],
+
+            "score": pose["score"],
+
+            "rmsd_lb": pose["rmsd_lb"],
+
+            "rmsd_ub": pose["rmsd_ub"],
+
+            "file": file.name
+
+        })
+
+
+
+
+
+runs = sorted(runs, key=lambda x: x["seed"])
+
+all_poses = sorted(all_poses, key=lambda x: (x["seed"], x["mode"]))
+
+
+
+
+
+if len(runs) != 10:
+
+    print()
+
+    print("WARNING:")
+
+    print(f"Expected 10 AK1 seed files, but found {len(runs)}.")
+
+    print()
+
+
+
+
+
+# ============================================================
+
+# MULTI-SEED SCORE STATISTICS
+
+# ============================================================
+
+
+
+scores = [x["best_score"] for x in runs]
+
+
+
+overall_best = min(scores)
+
+overall_worst = max(scores)
+
+overall_mean = statistics.mean(scores)
+
+overall_median = statistics.median(scores)
+
+overall_sd = statistics.stdev(scores)
+
+overall_range = overall_worst - overall_best
+
+
+
+best_run = min(runs, key=lambda x: x["best_score"])
+
+best_score_seed = best_run["seed"]
+
+
+
+
+
+# ============================================================
+
+# READ POSE RMSD MATRIX
+
+# ============================================================
+
+
+
+if not RMSD_MATRIX_FILE.exists():
+
+    raise FileNotFoundError(
+
+        f"Could not find RMSD matrix:\n{RMSD_MATRIX_FILE}\n"
+
+        "Run AK1_pose_convergence.py first."
+
+    )
+
+
+
+
+
+with open(RMSD_MATRIX_FILE, newline="") as f:
+
+
+
+    reader = csv.reader(f)
+
+
+
+    rows = list(reader)
+
+
+
+
+
+matrix_seeds = [int(x) for x in rows[0][1:]]
+
+
+
+rmsd_matrix = []
+
+
+
+for row in rows[1:]:
+
+
+
+    rmsd_matrix.append(
+
+        [float(x) for x in row[1:]]
+
+    )
+
+
+
+rmsd_matrix = np.array(rmsd_matrix, dtype=float)
+
+
+
+
+
+# ============================================================
+
+# GLOBAL POSE CONVERGENCE STATISTICS
+
+# ============================================================
+
+
+
+pairwise_values = []
+
+
+
+for i in range(len(matrix_seeds)):
+
+
+
+    for j in range(i + 1, len(matrix_seeds)):
+
+
+
+        pairwise_values.append(
+
+            rmsd_matrix[i, j]
+
+        )
+
+
+
+
+
+mean_pairwise_rmsd = statistics.mean(pairwise_values)
+
+median_pairwise_rmsd = statistics.median(pairwise_values)
+
+min_pairwise_rmsd = min(pairwise_values)
+
+max_pairwise_rmsd = max(pairwise_values)
+
+sd_pairwise_rmsd = statistics.stdev(pairwise_values)
+
+
+
+
+
+# ============================================================
+
+# HIERARCHICAL CLUSTERING
+
+# ============================================================
+
+
+
+condensed = squareform(
+
+    rmsd_matrix,
+
+    checks=False
+
+)
+
+
+
+Z = linkage(
+
+    condensed,
+
+    method="average"
+
+)
+
+
+
+
+
+def make_clusters(threshold):
+
+
+
+    labels = fcluster(
+
+        Z,
+
+        t=threshold,
+
+        criterion="distance"
+
+    )
+
+
+
+    clusters = {}
+
+
+
+    for seed, cluster_id in zip(matrix_seeds, labels):
+
+
+
+        clusters.setdefault(
+
+            int(cluster_id),
+
+            []
+
+        ).append(seed)
+
+
+
+    # Sort clusters largest first
+
+    ordered = sorted(
+
+        clusters.values(),
+
+        key=lambda x: len(x),
+
+        reverse=True
+
+    )
+
+
+
+    return ordered
+
+
+
+
+
+clusters_2A = make_clusters(CLUSTER_THRESHOLD)
+
+clusters_3A = make_clusters(SECONDARY_THRESHOLD)
+
+
+
+dominant_cluster = clusters_2A[0]
+
+
+
+alternative_seeds = [
+
+    seed
+
+    for cluster in clusters_2A[1:]
+
+    for seed in cluster
+
+]
+
+
+
+dominant_fraction = len(dominant_cluster) / len(matrix_seeds)
+
+
+
+
+
+# ============================================================
+
+# FIND REPRESENTATIVE POSE OF DOMINANT CLUSTER
+
+# ============================================================
+
+
+
+seed_to_index = {
+
+    seed: i
+
+    for i, seed in enumerate(matrix_seeds)
+
+}
+
+
+
+dominant_mean_rmsd = {}
+
+
+
+for seed in dominant_cluster:
+
+
+
+    i = seed_to_index[seed]
+
+
+
+    values = []
+
+
+
+    for other_seed in dominant_cluster:
+
+
+
+        if other_seed == seed:
+
+            continue
+
+
+
+        j = seed_to_index[other_seed]
+
+
+
+        values.append(
+
+            rmsd_matrix[i, j]
+
+        )
+
+
+
+    dominant_mean_rmsd[seed] = statistics.mean(values)
+
+
+
+
+
+representative_seed = min(
+
+    dominant_mean_rmsd,
+
+    key=dominant_mean_rmsd.get
+
+)
+
+
+
+representative_mean_rmsd = dominant_mean_rmsd[representative_seed]
+
+
+
+
+
+# ============================================================
+
+# CLUSTER SCORE STATISTICS
+
+# ============================================================
+
+
+
+score_by_seed = {
+
+    x["seed"]: x["best_score"]
+
+    for x in runs
+
+}
+
+
+
+
+
+def cluster_stats(seeds):
+
+
+
+    cluster_scores = [
+
+        score_by_seed[seed]
+
+        for seed in seeds
+
+    ]
+
+
+
+    return {
+
+        "n": len(cluster_scores),
+
+        "mean": statistics.mean(cluster_scores),
+
+        "median": statistics.median(cluster_scores),
+
+        "sd": (
+
+            statistics.stdev(cluster_scores)
+
+            if len(cluster_scores) > 1
+
+            else 0
+
+        ),
+
+        "best": min(cluster_scores),
+
+        "worst": max(cluster_scores),
+
+        "range": max(cluster_scores) - min(cluster_scores)
+
+    }
+
+
+
+
+
+dominant_stats = cluster_stats(dominant_cluster)
+
+
+
+alternative_stats = (
+
+    cluster_stats(alternative_seeds)
+
+    if alternative_seeds
+
+    else None
+
+)
+
+
+
+
+
+# ============================================================
+
+# PARSE AP5 REDOCKING SCORES
+
+# ============================================================
+
+
+
+AP5_FILE = DOCKING / "AK1_AP5_redock_seed1001.pdbqt"
+
+
+
+ap5_poses = []
+
+
+
+if AP5_FILE.exists():
+
+
+
+    ap5_poses = parse_vina_pdbqt(AP5_FILE)
+
+
+
+
+
+# ============================================================
+
+# CREATE WORKBOOK
+
+# ============================================================
+
+
+
+workbook = xlsxwriter.Workbook(OUTPUT)
+
+
+
+
+
+# ============================================================
+
+# FORMATS
+
+# ============================================================
+
+
+
+title_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_size": 16,
+
+    "font_color": "white",
+
+    "bg_color": "#1F4E78",
+
+    "align": "left",
+
+    "valign": "vcenter"
+
+})
+
+
+
+section_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_size": 12,
+
+    "font_color": "white",
+
+    "bg_color": "#5B9BD5",
+
+    "align": "left",
+
+    "valign": "vcenter"
+
+})
+
+
+
+header_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_color": "white",
+
+    "bg_color": "#4472C4",
+
+    "border": 1,
+
+    "align": "center",
+
+    "valign": "vcenter",
+
+    "text_wrap": True
+
+})
+
+
+
+normal_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "valign": "top"
+
+})
+
+
+
+center_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "align": "center",
+
+    "valign": "center"
+
+})
+
+
+
+decimal_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "num_format": "0.000",
+
+    "align": "center"
+
+})
+
+
+
+decimal4_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "num_format": "0.0000",
+
+    "align": "center"
+
+})
+
+
+
+percent_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "num_format": "0%",
+
+    "align": "center"
+
+})
+
+
+
+good_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "bg_color": "#E2F0D9",
+
+    "font_color": "#375623",
+
+    "text_wrap": True,
+
+    "valign": "top"
+
+})
+
+
+
+warning_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "bg_color": "#FFF2CC",
+
+    "font_color": "#7F6000",
+
+    "text_wrap": True,
+
+    "valign": "top"
+
+})
+
+
+
+note_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "bg_color": "#F2F2F2",
+
+    "text_wrap": True,
+
+    "valign": "top"
+
+})
+
+
+
+dominant_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "bg_color": "#E2F0D9",
+
+    "align": "center"
+
+})
+
+
+
+alternative_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "bg_color": "#FFF2CC",
+
+    "align": "center"
+
+})
+
+
+
+
+
+# ============================================================
+
+# SHEET 1 — EXECUTIVE SUMMARY
+
+# ============================================================
+
+
+
+ws = workbook.add_worksheet("01_AK1_Summary")
+
+
+
+ws.merge_range(
+
+    "A1:H1",
+
+    "AK1–Isorhamnetin Molecular Docking: Comprehensive Summary",
+
+    title_fmt
+
+)
+
+
+
+ws.set_row(0, 26)
+
+
+
+summary_data = [
+
+    ["Target", TARGET],
+
+    ["Structure", f"{STRUCTURE_ID}, chain {CHAIN}"],
+
+    ["Docked ligand", ISO_NAME],
+
+    ["Independent Vina seeds", len(runs)],
+
+    ["Total generated poses", len(all_poses)],
+
+    ["Best Mode-1 score", overall_best],
+
+    ["Seed with most negative score", best_score_seed],
+
+    ["Mean Mode-1 score", overall_mean],
+
+    ["Median Mode-1 score", overall_median],
+
+    ["SD across Mode-1 scores", overall_sd],
+
+    ["Score range", overall_range],
+
+    ["Native validation ligand", NATIVE_LIGAND],
+
+    ["Native-ligand redocking RMSD", AP5_REDocking_RMSD],
+
+    ["Dominant pose-cluster size", len(dominant_cluster)],
+
+    ["Dominant-cluster frequency", dominant_fraction],
+
+    ["Alternative pose count", len(alternative_seeds)],
+
+    ["Representative dominant pose", representative_seed],
+
+    ["Representative pose mean RMSD within dominant cluster",
+
+     representative_mean_rmsd],
+
+]
+
+
+
+ws.write("A3", "Metric", header_fmt)
+
+ws.write("B3", "Result", header_fmt)
+
+
+
+for i, (metric, value) in enumerate(summary_data, start=3):
+
+
+
+    ws.write(i, 0, metric, normal_fmt)
+
+
+
+    if isinstance(value, float):
+
+
+
+        if "frequency" in metric.lower():
+
+            ws.write_number(i, 1, value, percent_fmt)
+
+
+
+        else:
+
+            ws.write_number(i, 1, value, decimal_fmt)
+
+
+
+    else:
+
+        ws.write(i, 1, value, normal_fmt)
+
+
+
+
+
+# Interpretation block
+
+interpret_row = 23
+
+
+
+ws.merge_range(
+
+    interpret_row,
+
+    0,
+
+    interpret_row,
+
+    7,
+
+    "Interpretation",
+
+    section_fmt
+
+)
+
+
+
+interpretation = (
+
+    f"Across {len(runs)} independent AutoDock Vina runs, isorhamnetin showed "
+
+    f"highly reproducible AK1 docking scores (median {overall_median:.3f} kcal/mol; "
+
+    f"SD {overall_sd:.3f} kcal/mol). "
+
+    f"Hierarchical clustering of the top-ranked pose from each run identified "
+
+    f"a dominant structural cluster containing {len(dominant_cluster)}/{len(runs)} "
+
+    f"runs ({dominant_fraction*100:.0f}%). "
+
+    f"The representative pose of this dominant cluster was seed {representative_seed}, "
+
+    f"with a mean RMSD of only {representative_mean_rmsd:.3f} Å to the other "
+
+    f"dominant-cluster poses. "
+
+    f"The AK1 docking protocol was additionally supported by native AP5 redocking "
+
+    f"(RMSD {AP5_REDocking_RMSD:.3f} Å)."
+
+)
+
+
+
+ws.merge_range(
+
+    interpret_row + 1,
+
+    0,
+
+    interpret_row + 4,
+
+    7,
+
+    interpretation,
+
+    good_fmt
+
+)
+
+
+
+
+
+ws.merge_range(
+
+    interpret_row + 6,
+
+    0,
+
+    interpret_row + 6,
+
+    7,
+
+    "Important limitation",
+
+    section_fmt
+
+)
+
+
+
+limitation = (
+
+    "AutoDock Vina scores are computational docking scores, not experimentally "
+
+    "measured binding free energies, dissociation constants, inhibition constants, "
+
+    "or proof that isorhamnetin directly inhibits AK1. The small numerical score "
+
+    "difference between the dominant and alternative pose clusters should not be "
+
+    "interpreted as a meaningful energetic difference."
+
+)
+
+
+
+ws.merge_range(
+
+    interpret_row + 7,
+
+    0,
+
+    interpret_row + 10,
+
+    7,
+
+    limitation,
+
+    warning_fmt
+
+)
+
+
+
+ws.set_column("A:A", 45)
+
+ws.set_column("B:B", 24)
+
+ws.set_column("C:H", 15)
+
+
+
+ws.freeze_panes(3, 0)
+
+
+
+
+
+# ============================================================
+
+# CHART 1 — BEST SCORE BY SEED
+
+# ============================================================
+
+
+
+chart1 = workbook.add_chart({
+
+    "type": "column"
+
+})
+
+
+
+chart1.add_series({
+
+    "name": "Best Vina score",
+
+    "categories": [
+
+        "02_Seed_Results",
+
+        1,
+
+        0,
+
+        len(runs),
+
+        0
+
+    ],
+
+    "values": [
+
+        "02_Seed_Results",
+
+        1,
+
+        2,
+
+        len(runs),
+
+        2
+
+    ]
+
+})
+
+
+
+chart1.set_title({
+
+    "name": "Best AK1–ISO docking score by seed"
+
+})
+
+
+
+chart1.set_x_axis({
+
+    "name": "Seed"
+
+})
+
+
+
+chart1.set_y_axis({
+
+    "name": "Vina score (kcal/mol)"
+
+})
+
+
+
+chart1.set_legend({
+
+    "none": True
+
+})
+
+
+
+chart1.set_size({
+
+    "width": 620,
+
+    "height": 330
+
+})
+
+
+
+ws.insert_chart(
+
+    "D3",
+
+    chart1
+
+)
+
+
+
+
+
+# ============================================================
+
+# SHEET 2 — SEED RESULTS
+
+# ============================================================
+
+
+
+ws2 = workbook.add_worksheet("02_Seed_Results")
+
+
+
+ws2.merge_range(
+
+    "A1:H1",
+
+    "Mode-1 Results from 10 Independent AK1 Docking Runs",
+
+    title_fmt
+
+)
+
+
+
+headers = [
+
+    "Seed",
+
+    "Cluster",
+
+    "Best Vina score\n(kcal/mol)",
+
+    "Mean RMSD to dominant cluster\n(Å)",
+
+    "Representative dominant pose?",
+
+    "Most negative score overall?",
+
+    "Source PDBQT",
+
+    "Interpretation"
+
+]
+
+
+
+for col, h in enumerate(headers):
+
+    ws2.write(2, col, h, header_fmt)
+
+
+
+
+
+for row_index, run in enumerate(runs, start=3):
+
+
+
+    seed = run["seed"]
+
+
+
+    if seed in dominant_cluster:
+
+        cluster_name = "Dominant"
+
+        row_format = dominant_fmt
+
+        mean_dom = dominant_mean_rmsd[seed]
+
+
+
+    else:
+
+        cluster_name = "Alternative"
+
+        row_format = alternative_fmt
+
+        mean_dom = None
+
+
+
+    ws2.write_number(row_index, 0, seed, row_format)
+
+    ws2.write(row_index, 1, cluster_name, row_format)
+
+    ws2.write_number(
+
+        row_index,
+
+        2,
+
+        run["best_score"],
+
+        decimal_fmt
+
+    )
+
+
+
+    if mean_dom is not None:
+
+        ws2.write_number(
+
+            row_index,
+
+            3,
+
+            mean_dom,
+
+            decimal_fmt
+
+        )
+
+    else:
+
+        ws2.write(
+
+            row_index,
+
+            3,
+
+            "N/A",
+
+            row_format
+
+        )
+
+
+
+    ws2.write(
+
+        row_index,
+
+        4,
+
+        "YES" if seed == representative_seed else "",
+
+        row_format
+
+    )
+
+
+
+    ws2.write(
+
+        row_index,
+
+        5,
+
+        "YES" if seed == best_score_seed else "",
+
+        row_format
+
+    )
+
+
+
+    ws2.write(
+
+        row_index,
+
+        6,
+
+        run["file"],
+
+        normal_fmt
+
+    )
+
+
+
+    if seed == representative_seed:
+
+
+
+        interpretation_text = (
+
+            "Representative pose of dominant cluster"
+
+        )
+
+
+
+    elif seed in dominant_cluster:
+
+
+
+        interpretation_text = (
+
+            "Dominant consensus binding orientation"
+
+        )
+
+
+
+    else:
+
+
+
+        interpretation_text = (
+
+            "Alternative binding orientation"
+
+        )
+
+
+
+    ws2.write(
+
+        row_index,
+
+        7,
+
+        interpretation_text,
+
+        normal_fmt
+
+    )
+
+
+
+
+
+ws2.set_column("A:A", 12)
+
+ws2.set_column("B:B", 15)
+
+ws2.set_column("C:D", 24)
+
+ws2.set_column("E:F", 24)
+
+ws2.set_column("G:G", 35)
+
+ws2.set_column("H:H", 38)
+
+
+
+ws2.freeze_panes(3, 0)
+
+
+
+
+
+# ============================================================
+
+# SHEET 3 — ALL 100 POSES
+
+# ============================================================
+
+
+
+ws3 = workbook.add_worksheet("03_All_100_Poses")
+
+
+
+ws3.merge_range(
+
+    "A1:G1",
+
+    "All AutoDock Vina Poses from the 10 Independent Runs",
+
+    title_fmt
+
+)
+
+
+
+pose_headers = [
+
+    "Seed",
+
+    "Mode",
+
+    "Vina score (kcal/mol)",
+
+    "RMSD lower bound",
+
+    "RMSD upper bound",
+
+    "Is Mode 1?",
+
+    "Source file"
+
+]
+
+
+
+for col, h in enumerate(pose_headers):
+
+    ws3.write(2, col, h, header_fmt)
+
+
+
+
+
+for row_index, pose in enumerate(all_poses, start=3):
+
+
+
+    ws3.write_number(
+
+        row_index,
+
+        0,
+
+        pose["seed"],
+
+        center_fmt
+
+    )
+
+
+
+    ws3.write_number(
+
+        row_index,
+
+        1,
+
+        pose["mode"],
+
+        center_fmt
+
+    )
+
+
+
+    ws3.write_number(
+
+        row_index,
+
+        2,
+
+        pose["score"],
+
+        decimal_fmt
+
+    )
+
+
+
+    ws3.write_number(
+
+        row_index,
+
+        3,
+
+        pose["rmsd_lb"],
+
+        decimal_fmt
+
+    )
+
+
+
+    ws3.write_number(
+
+        row_index,
+
+        4,
+
+        pose["rmsd_ub"],
+
+        decimal_fmt
+
+    )
+
+
+
+    ws3.write(
+
+        row_index,
+
+        5,
+
+        "YES" if pose["mode"] == 1 else "",
+
+        center_fmt
+
+    )
+
+
+
+    ws3.write(
+
+        row_index,
+
+        6,
+
+        pose["file"],
+
+        normal_fmt
+
+    )
+
+
+
+
+
+ws3.set_column("A:B", 12)
+
+ws3.set_column("C:E", 21)
+
+ws3.set_column("F:F", 14)
+
+ws3.set_column("G:G", 38)
+
+
+
+ws3.freeze_panes(3, 0)
+
+
+
+ws3.autofilter(
+
+    2,
+
+    0,
+
+    2 + len(all_poses),
+
+    6
+
+)
+
+
+
+
+
+# ============================================================
+
+# SHEET 4 — POSE RMSD MATRIX
+
+# ============================================================
+
+
+
+ws4 = workbook.add_worksheet("04_Pose_RMSD_Matrix")
+
+
+
+ws4.merge_range(
+
+    "A1:L1",
+
+    "Pairwise RMSD Matrix of the 10 Best AK1–ISO Poses",
+
+    title_fmt
+
+)
+
+
+
+ws4.write(
+
+    2,
+
+    0,
+
+    "Seed",
+
+    header_fmt
+
+)
+
+
+
+for col, seed in enumerate(matrix_seeds, start=1):
+
+
+
+    ws4.write_number(
+
+        2,
+
+        col,
+
+        seed,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for row_idx, seed in enumerate(matrix_seeds, start=3):
+
+
+
+    ws4.write_number(
+
+        row_idx,
+
+        0,
+
+        seed,
+
+        header_fmt
+
+    )
+
+
+
+    for col_idx, value in enumerate(
+
+        rmsd_matrix[row_idx - 3],
+
+        start=1
+
+    ):
+
+
+
+        ws4.write_number(
+
+            row_idx,
+
+            col_idx,
+
+            value,
+
+            decimal_fmt
+
+        )
+
+
+
+
+
+# Heatmap
+
+ws4.conditional_format(
+
+    3,
+
+    1,
+
+    2 + len(matrix_seeds),
+
+    len(matrix_seeds),
+
+    {
+
+        "type": "3_color_scale",
+
+        "min_color": "#63BE7B",
+
+        "mid_color": "#FFEB84",
+
+        "max_color": "#F8696B"
+
+    }
+
+)
+
+
+
+
+
+summary_start = 15
+
+
+
+rmsd_summary = [
+
+    ["Number of best poses", len(matrix_seeds)],
+
+    ["Pairwise comparisons", len(pairwise_values)],
+
+    ["Mean pairwise RMSD", mean_pairwise_rmsd],
+
+    ["Median pairwise RMSD", median_pairwise_rmsd],
+
+    ["SD pairwise RMSD", sd_pairwise_rmsd],
+
+    ["Minimum pairwise RMSD", min_pairwise_rmsd],
+
+    ["Maximum pairwise RMSD", max_pairwise_rmsd],
+
+]
+
+
+
+ws4.write(
+
+    summary_start,
+
+    0,
+
+    "Global pose convergence",
+
+    section_fmt
+
+)
+
+
+
+ws4.write(
+
+    summary_start + 1,
+
+    0,
+
+    "Metric",
+
+    header_fmt
+
+)
+
+
+
+ws4.write(
+
+    summary_start + 1,
+
+    1,
+
+    "Value",
+
+    header_fmt
+
+)
+
+
+
+for i, (metric, value) in enumerate(
+
+    rmsd_summary,
+
+    start=summary_start + 2
+
+):
+
+
+
+    ws4.write(
+
+        i,
+
+        0,
+
+        metric,
+
+        normal_fmt
+
+    )
+
+
+
+    if isinstance(value, float):
+
+
+
+        ws4.write_number(
+
+            i,
+
+            1,
+
+            value,
+
+            decimal_fmt
+
+        )
+
+
+
+    else:
+
+
+
+        ws4.write_number(
+
+            i,
+
+            1,
+
+            value,
+
+            center_fmt
+
+        )
+
+
+
+
+
+ws4.set_column("A:A", 26)
+
+ws4.set_column("B:L", 12)
+
+
+
+ws4.freeze_panes(3, 1)
+
+
+
+
+
+# ============================================================
+
+# SHEET 5 — CLUSTER ANALYSIS
+
+# ============================================================
+
+
+
+ws5 = workbook.add_worksheet("05_Cluster_Analysis")
+
+
+
+ws5.merge_range(
+
+    "A1:H1",
+
+    "Structural Clustering of Mode-1 AK1–ISO Poses",
+
+    title_fmt
+
+)
+
+
+
+
+
+# 2 Å clustering
+
+ws5.merge_range(
+
+    "A3:H3",
+
+    f"Clustering at {CLUSTER_THRESHOLD:.1f} Å RMSD threshold",
+
+    section_fmt
+
+)
+
+
+
+cluster_headers = [
+
+    "Cluster",
+
+    "n poses",
+
+    "% of runs",
+
+    "Seeds",
+
+    "Mean score",
+
+    "Median score",
+
+    "SD score",
+
+    "Interpretation"
+
+]
+
+
+
+for col, h in enumerate(cluster_headers):
+
+    ws5.write(
+
+        3,
+
+        col,
+
+        h,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for i, cluster in enumerate(clusters_2A, start=4):
+
+
+
+    stats = cluster_stats(cluster)
+
+
+
+    cluster_name = (
+
+        "Dominant"
+
+        if i == 4
+
+        else f"Alternative {i-4}"
+
+    )
+
+
+
+    fmt = (
+
+        dominant_fmt
+
+        if i == 4
+
+        else alternative_fmt
+
+    )
+
+
+
+    ws5.write(
+
+        i,
+
+        0,
+
+        cluster_name,
+
+        fmt
+
+    )
+
+
+
+    ws5.write_number(
+
+        i,
+
+        1,
+
+        len(cluster),
+
+        center_fmt
+
+    )
+
+
+
+    ws5.write_number(
+
+        i,
+
+        2,
+
+        len(cluster) / len(runs),
+
+        percent_fmt
+
+    )
+
+
+
+    ws5.write(
+
+        i,
+
+        3,
+
+        ", ".join(map(str, cluster)),
+
+        normal_fmt
+
+    )
+
+
+
+    ws5.write_number(
+
+        i,
+
+        4,
+
+        stats["mean"],
+
+        decimal_fmt
+
+    )
+
+
+
+    ws5.write_number(
+
+        i,
+
+        5,
+
+        stats["median"],
+
+        decimal_fmt
+
+    )
+
+
+
+    ws5.write_number(
+
+        i,
+
+        6,
+
+        stats["sd"],
+
+        decimal_fmt
+
+    )
+
+
+
+    ws5.write(
+
+        i,
+
+        7,
+
+        (
+
+            "Main reproducible binding orientation"
+
+            if i == 4
+
+            else "Minor alternative binding orientation"
+
+        ),
+
+        normal_fmt
+
+    )
+
+
+
+
+
+# 3 Å clustering stability check
+
+row3A = 9
+
+
+
+ws5.merge_range(
+
+    row3A,
+
+    0,
+
+    row3A,
+
+    7,
+
+    f"Clustering stability check at {SECONDARY_THRESHOLD:.1f} Å",
+
+    section_fmt
+
+)
+
+
+
+ws5.write(
+
+    row3A + 1,
+
+    0,
+
+    "Cluster",
+
+    header_fmt
+
+)
+
+
+
+ws5.write(
+
+    row3A + 1,
+
+    1,
+
+    "n poses",
+
+    header_fmt
+
+)
+
+
+
+ws5.write(
+
+    row3A + 1,
+
+    2,
+
+    "Seeds",
+
+    header_fmt
+
+)
+
+
+
+for i, cluster in enumerate(
+
+    clusters_3A,
+
+    start=row3A + 2
+
+):
+
+
+
+    ws5.write(
+
+        i,
+
+        0,
+
+        f"Cluster {i-(row3A+1)}",
+
+        normal_fmt
+
+    )
+
+
+
+    ws5.write_number(
+
+        i,
+
+        1,
+
+        len(cluster),
+
+        center_fmt
+
+    )
+
+
+
+    ws5.write(
+
+        i,
+
+        2,
+
+        ", ".join(map(str, cluster)),
+
+        normal_fmt
+
+    )
+
+
+
+
+
+# Representative dominant pose
+
+rep_row = 15
+
+
+
+ws5.merge_range(
+
+    rep_row,
+
+    0,
+
+    rep_row,
+
+    7,
+
+    "Dominant-cluster representative pose",
+
+    section_fmt
+
+)
+
+
+
+rep_headers = [
+
+    "Seed",
+
+    "Mean RMSD to other dominant poses (Å)",
+
+    "Vina score (kcal/mol)",
+
+    "Representative?"
+
+]
+
+
+
+for col, h in enumerate(rep_headers):
+
+    ws5.write(
+
+        rep_row + 1,
+
+        col,
+
+        h,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for r, seed in enumerate(
+
+    sorted(dominant_cluster),
+
+    start=rep_row + 2
+
+):
+
+
+
+    ws5.write_number(
+
+        r,
+
+        0,
+
+        seed,
+
+        center_fmt
+
+    )
+
+
+
+    ws5.write_number(
+
+        r,
+
+        1,
+
+        dominant_mean_rmsd[seed],
+
+        decimal_fmt
+
+    )
+
+
+
+    ws5.write_number(
+
+        r,
+
+        2,
+
+        score_by_seed[seed],
+
+        decimal_fmt
+
+    )
+
+
+
+    ws5.write(
+
+        r,
+
+        3,
+
+        "YES" if seed == representative_seed else "",
+
+        dominant_fmt if seed == representative_seed else normal_fmt
+
+    )
+
+
+
+
+
+ws5.set_column("A:A", 22)
+
+ws5.set_column("B:C", 24)
+
+ws5.set_column("D:D", 50)
+
+ws5.set_column("E:G", 18)
+
+ws5.set_column("H:H", 40)
+
+
+
+
+
+# ============================================================
+
+# SHEET 6 — AP5 VALIDATION
+
+# ============================================================
+
+
+
+ws6 = workbook.add_worksheet("06_AP5_Validation")
+
+
+
+ws6.merge_range(
+
+    "A1:G1",
+
+    "AK1 Native-Ligand Redocking Validation",
+
+    title_fmt
+
+)
+
+
+
+validation_rows = [
+
+    ["Protein", TARGET],
+
+    ["Crystal structure", f"{STRUCTURE_ID}, chain {CHAIN}"],
+
+    ["Native ligand", NATIVE_LIGAND],
+
+    ["Redocking RMSD", AP5_REDocking_RMSD],
+
+    ["Validation interpretation",
+
+     "Redocking reproduced the crystallographic AP5 pose with an RMSD below 2 Å, supporting use of the AK1 docking setup."],
+
+]
+
+
+
+ws6.write("A3", "Parameter", header_fmt)
+
+ws6.write("B3", "Result", header_fmt)
+
+
+
+for row, (parameter, value) in enumerate(
+
+    validation_rows,
+
+    start=3
+
+):
+
+
+
+    ws6.write(
+
+        row,
+
+        0,
+
+        parameter,
+
+        normal_fmt
+
+    )
+
+
+
+    if isinstance(value, float):
+
+
+
+        ws6.write_number(
+
+            row,
+
+            1,
+
+            value,
+
+            decimal_fmt
+
+        )
+
+
+
+    else:
+
+
+
+        ws6.write(
+
+            row,
+
+            1,
+
+            value,
+
+            normal_fmt
+
+        )
+
+
+
+
+
+if ap5_poses:
+
+
+
+    ws6.write(
+
+        10,
+
+        0,
+
+        "AP5 redocking modes",
+
+        section_fmt
+
+    )
+
+
+
+    ap5_headers = [
+
+        "Mode",
+
+        "Vina score (kcal/mol)",
+
+        "RMSD lower bound",
+
+        "RMSD upper bound"
+
+    ]
+
+
+
+    for col, h in enumerate(ap5_headers):
+
+        ws6.write(
+
+            11,
+
+            col,
+
+            h,
+
+            header_fmt
+
+        )
+
+
+
+    for row, pose in enumerate(
+
+        ap5_poses,
+
+        start=12
+
+    ):
+
+
+
+        ws6.write_number(
+
+            row,
+
+            0,
+
+            pose["mode"],
+
+            center_fmt
+
+        )
+
+
+
+        ws6.write_number(
+
+            row,
+
+            1,
+
+            pose["score"],
+
+            decimal_fmt
+
+        )
+
+
+
+        ws6.write_number(
+
+            row,
+
+            2,
+
+            pose["rmsd_lb"],
+
+            decimal_fmt
+
+        )
+
+
+
+        ws6.write_number(
+
+            row,
+
+            3,
+
+            pose["rmsd_ub"],
+
+            decimal_fmt
+
+        )
+
+
+
+
+
+ws6.set_column("A:A", 30)
+
+ws6.set_column("B:B", 75)
+
+ws6.set_column("C:G", 20)
+
+
+
+
+
+# ============================================================
+
+# SHEET 7 — METHODS & PARAMETERS
+
+# ============================================================
+
+
+
+ws7 = workbook.add_worksheet("07_Methods_Parameters")
+
+
+
+ws7.merge_range(
+
+    "A1:D1",
+
+    "Computational Docking Parameters and Reproducibility Information",
+
+    title_fmt
+
+)
+
+
+
+method_data = [
+
+    ["Target protein", TARGET, "Protein identity"],
+
+    ["Gene symbol", GENE, "Target identity"],
+
+    ["Crystal structure", STRUCTURE_ID, "Experimental protein structure"],
+
+    ["Protein chain", CHAIN, "Chain used for docking"],
+
+    ["Native ligand", NATIVE_LIGAND, "Used to define and validate binding site"],
+
+    ["Docked ligand", ISO_NAME, "Test ligand"],
+
+    ["PubChem CID", ISO_PUBCHEM_CID, "Ligand identifier"],
+
+    ["Docking engine", f"AutoDock Vina {VINA_VERSION}", "Docking search/scoring"],
+
+    ["Meeko", MEEKO_VERSION, "PDBQT preparation"],
+
+    ["Python environment", PYTHON_VERSION, "Computational environment"],
+
+    ["Receptor preparation",
+
+     "Chain extraction; PDBFixer repair of missing atoms on present residues; hydrogens added at pH 7.4; Meeko PDBQT preparation",
+
+     "Whole missing residues/loops were not reconstructed"],
+
+    ["Binding-site definition",
+
+     "Crystallographic AP5-binding region",
+
+     "Pocket-based docking"],
+
+    ["Center X", CENTER_X, "Å"],
+
+    ["Center Y", CENTER_Y, "Å"],
+
+    ["Center Z", CENTER_Z, "Å"],
+
+    ["Size X", SIZE_X, "Å"],
+
+    ["Size Y", SIZE_Y, "Å"],
+
+    ["Size Z", SIZE_Z, "Å"],
+
+    ["Exhaustiveness", EXHAUSTIVENESS, "Vina search parameter"],
+
+    ["Number of modes/run", NUM_MODES, "Vina output parameter"],
+
+    ["Independent seeds", len(runs), "Random-search replicates"],
+
+    ["Primary clustering threshold", CLUSTER_THRESHOLD, "Å"],
+
+    ["Secondary clustering threshold", SECONDARY_THRESHOLD, "Å"],
+
+    ["Clustering method", "Average-linkage hierarchical clustering", "Based on pairwise pose RMSD"],
+
+]
+
+
+
+method_headers = [
+
+    "Parameter",
+
+    "Value",
+
+    "Notes"
+
+]
+
+
+
+for col, h in enumerate(method_headers):
+
+    ws7.write(
+
+        2,
+
+        col,
+
+        h,
+
+        header_fmt
+
+    )
+
+
+
+for row, values in enumerate(
+
+    method_data,
+
+    start=3
+
+):
+
+
+
+    for col, value in enumerate(values):
+
+
+
+        if isinstance(value, float):
+
+
+
+            ws7.write_number(
+
+                row,
+
+                col,
+
+                value,
+
+                decimal_fmt
+
+            )
+
+
+
+        elif isinstance(value, int):
+
+
+
+            ws7.write_number(
+
+                row,
+
+                col,
+
+                value,
+
+                center_fmt
+
+            )
+
+
+
+        else:
+
+
+
+            ws7.write(
+
+                row,
+
+                col,
+
+                value,
+
+                normal_fmt
+
+            )
+
+
+
+
+
+ws7.set_column("A:A", 32)
+
+ws7.set_column("B:B", 70)
+
+ws7.set_column("C:C", 42)
+
+ws7.set_column("D:D", 15)
+
+
+
+
+
+# ============================================================
+
+# SHEET 8 — FILE PROVENANCE
+
+# ============================================================
+
+
+
+ws8 = workbook.add_worksheet("08_File_Provenance")
+
+
+
+ws8.merge_range(
+
+    "A1:D1",
+
+    "AK1 Docking Input and Output Files",
+
+    title_fmt
+
+)
+
+
+
+file_rows = [
+
+    [
+
+        "Original AK1 structure",
+
+        STRUCTURES / "AK1_1Z83.pdb",
+
+        "Input",
+
+        "Downloaded PDB structure"
+
+    ],
+
+    [
+
+        "AK1 chain A",
+
+        RECEPTORS / "AK1_chainA.pdb",
+
+        "Intermediate",
+
+        "Protein chain extracted from 1Z83"
+
+    ],
+
+    [
+
+        "Fixed AK1 structure",
+
+        RECEPTORS / "AK1_chainA_FIXED.pdb",
+
+        "Intermediate",
+
+        "PDBFixer-prepared receptor"
+
+    ],
+
+    [
+
+        "Docking receptor",
+
+        RECEPTORS / "AK1.pdbqt",
+
+        "Input",
+
+        "Meeko-prepared AK1 receptor"
+
+    ],
+
+    [
+
+        "Isorhamnetin 3D structure",
+
+        LIGAND / "isorhamnetin_3D.sdf",
+
+        "Input",
+
+        "PubChem CID 5281654"
+
+    ],
+
+    [
+
+        "Isorhamnetin docking ligand",
+
+        LIGAND / "isorhamnetin.pdbqt",
+
+        "Input",
+
+        "Meeko-prepared ligand"
+
+    ],
+
+    [
+
+        "Native AP5",
+
+        LIGAND / "AK1_native_AP5_chainA.pdb",
+
+        "Validation",
+
+        "Crystallographic native ligand"
+
+    ],
+
+    [
+
+        "AP5 redocking",
+
+        AP5_FILE,
+
+        "Validation",
+
+        "Native ligand redocking result"
+
+    ],
+
+    [
+
+        "Pose RMSD matrix",
+
+        RMSD_MATRIX_FILE,
+
+        "Analysis",
+
+        "10 × 10 best-pose RMSD matrix"
+
+    ],
+
+]
+
+
+
+for run in runs:
+
+
+
+    file_rows.append([
+
+        f"ISO seed {run['seed']}",
+
+        DOCKING / run["file"],
+
+        "Docking output",
+
+        "10 Vina modes"
+
+    ])
+
+
+
+
+
+file_headers = [
+
+    "File / dataset",
+
+    "Path",
+
+    "Role",
+
+    "Description"
+
+]
+
+
+
+for col, h in enumerate(file_headers):
+
+    ws8.write(
+
+        2,
+
+        col,
+
+        h,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for row, values in enumerate(
+
+    file_rows,
+
+    start=3
+
+):
+
+
+
+    ws8.write(
+
+        row,
+
+        0,
+
+        values[0],
+
+        normal_fmt
+
+    )
+
+
+
+    ws8.write(
+
+        row,
+
+        1,
+
+        str(values[1]),
+
+        normal_fmt
+
+    )
+
+
+
+    ws8.write(
+
+        row,
+
+        2,
+
+        values[2],
+
+        normal_fmt
+
+    )
+
+
+
+    ws8.write(
+
+        row,
+
+        3,
+
+        values[3],
+
+        normal_fmt
+
+    )
+
+
+
+
+
+ws8.set_column("A:A", 30)
+
+ws8.set_column("B:B", 85)
+
+ws8.set_column("C:C", 20)
+
+ws8.set_column("D:D", 45)
+
+
+
+
+
+# ============================================================
+
+# SHEET 9 — REPORT-READY TEXT
+
+# ============================================================
+
+
+
+ws9 = workbook.add_worksheet("09_Report_Ready_Text")
+
+
+
+ws9.merge_range(
+
+    "A1:F1",
+
+    "Report-Ready AK1 Docking Statements",
+
+    title_fmt
+
+)
+
+
+
+report_sections = [
+
+
+
+    (
+
+        "Validation",
+
+        f"Redocking of the crystallographic native ligand AP5 into the "
+
+        f"AK1 binding pocket reproduced the experimental binding orientation "
+
+        f"with an RMSD of {AP5_REDocking_RMSD:.3f} Å, supporting the validity "
+
+        f"of the docking protocol."
+
+    ),
+
+
+
+    (
+
+        "Multi-seed docking",
+
+        f"Isorhamnetin was docked to AK1 using {len(runs)} independent random "
+
+        f"seeds. The best-ranked poses showed a median AutoDock Vina score of "
+
+        f"{overall_median:.3f} kcal/mol, a mean score of {overall_mean:.3f} "
+
+        f"kcal/mol, and a standard deviation of {overall_sd:.3f} kcal/mol."
+
+    ),
+
+
+
+    (
+
+        "Pose clustering",
+
+        f"Hierarchical clustering of the top-ranked pose from each independent "
+
+        f"run identified a dominant pose family containing "
+
+        f"{len(dominant_cluster)} of {len(runs)} runs "
+
+        f"({dominant_fraction*100:.0f}%). The same {len(dominant_cluster)}:"
+
+        f"{len(alternative_seeds)} cluster partition was retained at both "
+
+        f"{CLUSTER_THRESHOLD:.1f} Å and {SECONDARY_THRESHOLD:.1f} Å RMSD "
+
+        f"thresholds."
+
+    ),
+
+
+
+    (
+
+        "Representative pose",
+
+        f"Seed {representative_seed} was selected as the representative "
+
+        f"dominant-cluster pose because it had the lowest mean RMSD "
+
+        f"({representative_mean_rmsd:.3f} Å) to the other poses within "
+
+        f"the dominant cluster."
+
+    ),
+
+
+
+    (
+
+        "Interpretation limitation",
+
+        "The calculated AutoDock Vina scores represent computational docking "
+
+        "scores and should not be interpreted as experimentally measured "
+
+        "binding free energies, Kd/Ki values, or direct evidence of AK1 "
+
+        "inhibition."
+
+    )
+
+]
+
+
+
+
+
+ws9.write(
+
+    2,
+
+    0,
+
+    "Section",
+
+    header_fmt
+
+)
+
+
+
+ws9.write(
+
+    2,
+
+    1,
+
+    "Suggested text",
+
+    header_fmt
+
+)
+
+
+
+
+
+for row, (section, text) in enumerate(
+
+    report_sections,
+
+    start=3
+
+):
+
+
+
+    ws9.write(
+
+        row,
+
+        0,
+
+        section,
+
+        normal_fmt
+
+    )
+
+
+
+    ws9.write(
+
+        row,
+
+        1,
+
+        text,
+
+        normal_fmt
+
+    )
+
+
+
+
+
+ws9.set_column("A:A", 28)
+
+ws9.set_column("B:B", 120)
+
+ws9.set_default_row(55)
+
+
+
+
+
+# ============================================================
+
+# FINAL WORKBOOK SETTINGS
+
+# ============================================================
+
+
+
+for sheet in [
+
+    ws, ws2, ws3, ws4, ws5,
+
+    ws6, ws7, ws8, ws9
+
+]:
+
+
+
+    sheet.hide_gridlines(2)
+
+
+
+
+
+workbook.close()
+
+
+
+
+
+# ============================================================
+
+# TERMINAL SUMMARY
+
+# ============================================================
+
+
+
+print()
+
+print("=" * 70)
+
+print("AK1 COMPREHENSIVE DOCKING WORKBOOK CREATED")
+
+print("=" * 70)
+
+
+
+print()
+
+print("Output file:")
+
+print(OUTPUT)
+
+
+
+print()
+
+print("MULTI-SEED SCORES")
+
+print("-----------------")
+
+print(f"n seeds       : {len(runs)}")
+
+print(f"Total poses   : {len(all_poses)}")
+
+print(f"Best score    : {overall_best:.3f} kcal/mol")
+
+print(f"Best-score seed: {best_score_seed}")
+
+print(f"Mean          : {overall_mean:.3f} kcal/mol")
+
+print(f"Median        : {overall_median:.3f} kcal/mol")
+
+print(f"SD            : {overall_sd:.3f} kcal/mol")
+
+
+
+print()
+
+print("POSE CONVERGENCE")
+
+print("----------------")
+
+print(f"Mean pairwise RMSD : {mean_pairwise_rmsd:.3f} A")
+
+print(f"Minimum RMSD       : {min_pairwise_rmsd:.3f} A")
+
+print(f"Maximum RMSD       : {max_pairwise_rmsd:.3f} A")
+
+
+
+print()
+
+print("CLUSTERING")
+
+print("----------")
+
+print(
+
+    f"Dominant cluster: {len(dominant_cluster)}/{len(runs)} "
+
+    f"({dominant_fraction*100:.0f}%)"
+
+)
+
+print("Seeds:", dominant_cluster)
+
+
+
+print(
+
+    f"Alternative poses: {len(alternative_seeds)}"
+
+)
+
+print("Seeds:", alternative_seeds)
+
+
+
+print()
+
+print("REPRESENTATIVE POSE")
+
+print("-------------------")
+
+print(f"Seed: {representative_seed}")
+
+print(
+
+    f"Mean RMSD within dominant cluster: "
+
+    f"{representative_mean_rmsd:.3f} A"
+
+)
+
+
+
+print()
+
+print("VALIDATION")
+
+print("----------")
+
+print(
+
+    f"AP5 redocking RMSD: "
+
+    f"{AP5_REDocking_RMSD:.3f} A"
+
+)
+
+
+
+print()
+
+print("=" * 70)
+
+END FILE: build_AK1_comprehensive_excel.py
+
+================================================================================
+FILE: build_docking_results.py
+Executable source: code/build_docking_results.py
+================================================================================
+from pathlib import Path
+
+import re
+
+import statistics
+
+import xlsxwriter
+
+
+
+# ============================================================
+
+# PROJECT PATHS
+
+# ============================================================
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+
+
+DOCKING = PROJECT / "docking"
+
+RESULTS = PROJECT / "results"
+
+
+
+RESULTS.mkdir(exist_ok=True)
+
+
+
+OUTPUT = RESULTS / "ISO_AK_Docking_Master_Results.xlsx"
+
+
+
+
+
+# ============================================================
+
+# CURRENT AK1 VALIDATION INFORMATION
+
+# ============================================================
+
+
+
+validation = {
+
+    "AK1": {
+
+        "structure": "PDB 1Z83 chain A",
+
+        "validation_ligand": "AP5",
+
+        "redocking_rmsd_A": 1.776,
+
+        "box_center_x": 25.044,
+
+        "box_center_y": 44.571,
+
+        "box_center_z": -3.708,
+
+        "box_size_x": 23.687,
+
+        "box_size_y": 23.364,
+
+        "box_size_z": 30.062,
+
+    }
+
+}
+
+
+
+
+
+# ============================================================
+
+# READ VINA PDBQT FILES
+
+# ============================================================
+
+
+
+def parse_vina_pdbqt(path):
+
+
+
+    results = []
+
+
+
+    with open(path, encoding="utf-8") as f:
+
+
+
+        for line in f:
+
+
+
+            if line.startswith("REMARK VINA RESULT:"):
+
+
+
+                parts = line.split()
+
+
+
+                score = float(parts[3])
+
+                rmsd_lb = float(parts[4])
+
+                rmsd_ub = float(parts[5])
+
+
+
+                results.append({
+
+                    "mode": len(results) + 1,
+
+                    "score": score,
+
+                    "rmsd_lb": rmsd_lb,
+
+                    "rmsd_ub": rmsd_ub
+
+                })
+
+
+
+    return results
+
+
+
+
+
+# ============================================================
+
+# FIND ALL ISO MULTI-SEED RESULTS AUTOMATICALLY
+
+# Example:
+
+# AK1_ISO_seed1001.pdbqt
+
+# ============================================================
+
+
+
+pattern = re.compile(
+
+    r"(.+)_ISO_seed(\d+)\.pdbqt$",
+
+    re.IGNORECASE
+
+)
+
+
+
+all_runs = []
+
+all_modes = []
+
+
+
+for file in sorted(DOCKING.glob("*_ISO_seed*.pdbqt")):
+
+
+
+    match = pattern.match(file.name)
+
+
+
+    if not match:
+
+        continue
+
+
+
+    target = match.group(1)
+
+    seed = int(match.group(2))
+
+
+
+    poses = parse_vina_pdbqt(file)
+
+
+
+    if not poses:
+
+        print("WARNING: no Vina result found in", file.name)
+
+        continue
+
+
+
+    best = poses[0]
+
+
+
+    all_runs.append({
+
+        "target": target,
+
+        "seed": seed,
+
+        "best_score": best["score"],
+
+        "file": file.name
+
+    })
+
+
+
+    for pose in poses:
+
+
+
+        all_modes.append({
+
+            "target": target,
+
+            "seed": seed,
+
+            "mode": pose["mode"],
+
+            "score": pose["score"],
+
+            "rmsd_lb": pose["rmsd_lb"],
+
+            "rmsd_ub": pose["rmsd_ub"],
+
+            "file": file.name
+
+        })
+
+
+
+
+
+# ============================================================
+
+# SUMMARY BY TARGET
+
+# ============================================================
+
+
+
+targets = sorted(set(x["target"] for x in all_runs))
+
+
+
+summary = []
+
+
+
+for target in targets:
+
+
+
+    scores = [
+
+        x["best_score"]
+
+        for x in all_runs
+
+        if x["target"] == target
+
+    ]
+
+
+
+    info = validation.get(target, {})
+
+
+
+    summary.append({
+
+        "target": target,
+
+        "structure": info.get("structure", ""),
+
+        "n_runs": len(scores),
+
+        "best_score": min(scores),
+
+        "mean_score": statistics.mean(scores),
+
+        "median_score": statistics.median(scores),
+
+        "sd_score": statistics.stdev(scores) if len(scores) > 1 else None,
+
+        "min_score": min(scores),
+
+        "max_score": max(scores),
+
+        "score_range": max(scores) - min(scores),
+
+        "validation_ligand": info.get("validation_ligand", ""),
+
+        "redocking_rmsd": info.get("redocking_rmsd_A", None)
+
+    })
+
+
+
+
+
+# More negative median score = stronger predicted docking
+
+summary.sort(key=lambda x: x["median_score"])
+
+
+
+for rank, row in enumerate(summary, start=1):
+
+    row["rank"] = rank
+
+
+
+
+
+# ============================================================
+
+# CREATE EXCEL WORKBOOK
+
+# ============================================================
+
+
+
+workbook = xlsxwriter.Workbook(OUTPUT)
+
+
+
+
+
+# ----------------------------
+
+# FORMATS
+
+# ----------------------------
+
+
+
+title = workbook.add_format({
+
+    "bold": True,
+
+    "font_size": 15,
+
+    "font_color": "white",
+
+    "bg_color": "#1F4E78",
+
+    "align": "left",
+
+    "valign": "vcenter"
+
+})
+
+
+
+header = workbook.add_format({
+
+    "bold": True,
+
+    "font_color": "white",
+
+    "bg_color": "#4472C4",
+
+    "border": 1,
+
+    "align": "center",
+
+    "valign": "vcenter",
+
+    "text_wrap": True
+
+})
+
+
+
+normal = workbook.add_format({
+
+    "border": 1
+
+})
+
+
+
+decimal = workbook.add_format({
+
+    "border": 1,
+
+    "num_format": "0.000"
+
+})
+
+
+
+warning = workbook.add_format({
+
+    "bg_color": "#FFF2CC",
+
+    "border": 1,
+
+    "text_wrap": True,
+
+    "valign": "top"
+
+})
+
+
+
+
+
+# ============================================================
+
+# SHEET 1 — SUMMARY
+
+# ============================================================
+
+
+
+ws = workbook.add_worksheet("Summary")
+
+
+
+ws.merge_range(
+
+    "A1:L1",
+
+    "ISO–AK Family Docking: Automatically Parsed Results",
+
+    title
+
+)
+
+
+
+headers = [
+
+    "Rank",
+
+    "Target / domain",
+
+    "Structure",
+
+    "n independent seeds",
+
+    "Best score",
+
+    "Mean best score",
+
+    "Median best score",
+
+    "SD",
+
+    "Worst best score",
+
+    "Range",
+
+    "Validation ligand",
+
+    "Redocking RMSD (Å)"
+
+]
+
+
+
+for col, h in enumerate(headers):
+
+    ws.write(2, col, h, header)
+
+
+
+for row_i, x in enumerate(summary, start=3):
+
+
+
+    values = [
+
+        x["rank"],
+
+        x["target"],
+
+        x["structure"],
+
+        x["n_runs"],
+
+        x["best_score"],
+
+        x["mean_score"],
+
+        x["median_score"],
+
+        x["sd_score"],
+
+        x["max_score"],
+
+        x["score_range"],
+
+        x["validation_ligand"],
+
+        x["redocking_rmsd"]
+
+    ]
+
+
+
+    for col, value in enumerate(values):
+
+
+
+        if col in [4, 5, 6, 7, 8, 9, 11] and value is not None:
+
+            ws.write_number(row_i, col, value, decimal)
+
+        else:
+
+            ws.write(row_i, col, value, normal)
+
+
+
+
+
+note_row = len(summary) + 5
+
+
+
+ws.write(note_row, 0, "Interpretation", header)
+
+
+
+ws.merge_range(
+
+    note_row,
+
+    1,
+
+    note_row + 2,
+
+    11,
+
+    "More negative Vina scores indicate more favorable predicted docking "
+
+    "within the same standardized protocol. Final target ranking should use "
+
+    "the distribution of best scores across independent seeds, especially "
+
+    "the median and variability, together with pose convergence and validation. "
+
+    "Docking scores are not experimental binding affinities.",
+
+    warning
+
+)
+
+
+
+ws.set_column("A:A", 10)
+
+ws.set_column("B:B", 20)
+
+ws.set_column("C:C", 26)
+
+ws.set_column("D:D", 20)
+
+ws.set_column("E:J", 18)
+
+ws.set_column("K:L", 20)
+
+
+
+ws.freeze_panes(3, 0)
+
+
+
+
+
+# ============================================================
+
+# SHEET 2 — SEED-BY-SEED RESULTS
+
+# ============================================================
+
+
+
+ws2 = workbook.add_worksheet("ISO_Runs")
+
+
+
+headers2 = [
+
+    "Target",
+
+    "Seed",
+
+    "Best Vina score (kcal/mol)",
+
+    "Source file"
+
+]
+
+
+
+for col, h in enumerate(headers2):
+
+    ws2.write(0, col, h, header)
+
+
+
+sorted_runs = sorted(
+
+    all_runs,
+
+    key=lambda x: (x["target"], x["seed"])
+
+)
+
+
+
+for row_i, x in enumerate(sorted_runs, start=1):
+
+
+
+    ws2.write(row_i, 0, x["target"], normal)
+
+    ws2.write_number(row_i, 1, x["seed"], normal)
+
+    ws2.write_number(row_i, 2, x["best_score"], decimal)
+
+    ws2.write(row_i, 3, x["file"], normal)
+
+
+
+ws2.set_column("A:A", 20)
+
+ws2.set_column("B:B", 14)
+
+ws2.set_column("C:C", 26)
+
+ws2.set_column("D:D", 42)
+
+
+
+ws2.freeze_panes(1, 0)
+
+
+
+
+
+# ============================================================
+
+# SHEET 3 — ALL 100 POSES
+
+# ============================================================
+
+
+
+ws3 = workbook.add_worksheet("All_Poses")
+
+
+
+headers3 = [
+
+    "Target",
+
+    "Seed",
+
+    "Mode",
+
+    "Vina score (kcal/mol)",
+
+    "RMSD lower bound",
+
+    "RMSD upper bound",
+
+    "Source file"
+
+]
+
+
+
+for col, h in enumerate(headers3):
+
+    ws3.write(0, col, h, header)
+
+
+
+sorted_modes = sorted(
+
+    all_modes,
+
+    key=lambda x: (
+
+        x["target"],
+
+        x["seed"],
+
+        x["mode"]
+
+    )
+
+)
+
+
+
+for row_i, x in enumerate(sorted_modes, start=1):
+
+
+
+    ws3.write(row_i, 0, x["target"], normal)
+
+    ws3.write_number(row_i, 1, x["seed"], normal)
+
+    ws3.write_number(row_i, 2, x["mode"], normal)
+
+    ws3.write_number(row_i, 3, x["score"], decimal)
+
+    ws3.write_number(row_i, 4, x["rmsd_lb"], decimal)
+
+    ws3.write_number(row_i, 5, x["rmsd_ub"], decimal)
+
+    ws3.write(row_i, 6, x["file"], normal)
+
+
+
+ws3.set_column("A:A", 18)
+
+ws3.set_column("B:C", 13)
+
+ws3.set_column("D:F", 22)
+
+ws3.set_column("G:G", 42)
+
+
+
+ws3.freeze_panes(1, 0)
+
+
+
+
+
+# ============================================================
+
+# SHEET 4 — AK1 VALIDATION + BOX
+
+# ============================================================
+
+
+
+ws4 = workbook.add_worksheet("Validation_and_Box")
+
+
+
+headers4 = [
+
+    "Target",
+
+    "Structure",
+
+    "Validation ligand",
+
+    "Redocking RMSD (Å)",
+
+    "Center X",
+
+    "Center Y",
+
+    "Center Z",
+
+    "Size X",
+
+    "Size Y",
+
+    "Size Z"
+
+]
+
+
+
+for col, h in enumerate(headers4):
+
+    ws4.write(0, col, h, header)
+
+
+
+for row_i, (target, x) in enumerate(validation.items(), start=1):
+
+
+
+    vals = [
+
+        target,
+
+        x.get("structure"),
+
+        x.get("validation_ligand"),
+
+        x.get("redocking_rmsd_A"),
+
+        x.get("box_center_x"),
+
+        x.get("box_center_y"),
+
+        x.get("box_center_z"),
+
+        x.get("box_size_x"),
+
+        x.get("box_size_y"),
+
+        x.get("box_size_z")
+
+    ]
+
+
+
+    for col, value in enumerate(vals):
+
+
+
+        if col >= 3 and value is not None:
+
+            ws4.write_number(row_i, col, value, decimal)
+
+        else:
+
+            ws4.write(row_i, col, value, normal)
+
+
+
+ws4.set_column("A:C", 24)
+
+ws4.set_column("D:J", 18)
+
+
+
+
+
+# ============================================================
+
+# SHEET 5 — METHODS / COMPUTATIONAL SETTINGS
+
+# ============================================================
+
+
+
+ws5 = workbook.add_worksheet("Methods")
+
+
+
+ws5.merge_range(
+
+    "A1:B1",
+
+    "AK1 Docking Computational Parameters",
+
+    title
+
+)
+
+
+
+method_rows = [
+
+    ["Target", "Human adenylate kinase 1 (AK1)"],
+
+    ["Structure", "PDB 1Z83, chain A"],
+
+    ["Docking ligand", "Isorhamnetin"],
+
+    ["Isorhamnetin source", "PubChem CID 5281654"],
+
+    ["Native ligand", "AP5"],
+
+    ["Docking engine", "AutoDock Vina 1.2.7"],
+
+    ["Receptor preparation", "PDBFixer followed by Meeko"],
+
+    ["Meeko version", "0.8.0"],
+
+    ["Docking exhaustiveness", 16],
+
+    ["Number of modes per seed", 10],
+
+    ["Independent seeds", len([x for x in all_runs if x["target"] == "AK1"])],
+
+    ["Binding-site definition", "Box centered on crystallographic AP5 binding region"],
+
+    ["AP5 redocking RMSD", "1.776 Å"],
+
+    ["Interpretation caution",
+
+     "Vina scores are predicted docking scores and should not be interpreted as experimental binding free energies."]
+
+]
+
+
+
+for row, item in enumerate(method_rows, start=2):
+
+    ws5.write(row, 0, item[0], header)
+
+    ws5.write(row, 1, item[1], normal)
+
+
+
+ws5.set_column("A:A", 28)
+
+ws5.set_column("B:B", 65)
+
+
+
+
+
+# ============================================================
+
+# SCORE DISTRIBUTION CHART
+
+# ============================================================
+
+
+
+if all_runs:
+
+
+
+    chart = workbook.add_chart({
+
+        "type": "column"
+
+    })
+
+
+
+    nrows = len(sorted_runs)
+
+
+
+    chart.add_series({
+
+        "name": "Best Vina score",
+
+        "categories": [
+
+            "ISO_Runs",
+
+            1,
+
+            1,
+
+            nrows,
+
+            1
+
+        ],
+
+        "values": [
+
+            "ISO_Runs",
+
+            1,
+
+            2,
+
+            nrows,
+
+            2
+
+        ]
+
+    })
+
+
+
+    chart.set_title({
+
+        "name": "AK1 ISO docking score across independent seeds"
+
+    })
+
+
+
+    chart.set_x_axis({
+
+        "name": "Seed"
+
+    })
+
+
+
+    chart.set_y_axis({
+
+        "name": "Vina score (kcal/mol)"
+
+    })
+
+
+
+    chart.set_legend({
+
+        "none": True
+
+    })
+
+
+
+    ws.insert_chart(
+
+        "N3",
+
+        chart,
+
+        {
+
+            "x_scale": 1.4,
+
+            "y_scale": 1.3
+
+        }
+
+    )
+
+
+
+
+
+# ============================================================
+
+# SAVE
+
+# ============================================================
+
+
+
+workbook.close()
+
+
+
+
+
+print()
+
+print("=" * 60)
+
+print("DOCKING WORKBOOK SUCCESSFULLY CREATED")
+
+print("=" * 60)
+
+
+
+print("Output:")
+
+print(OUTPUT)
+
+
+
+print()
+
+
+
+print("Targets found:", targets)
+
+print("ISO docking runs found:", len(all_runs))
+
+print("Individual poses found:", len(all_modes))
+
+
+
+print()
+
+
+
+if summary:
+
+
+
+    for x in summary:
+
+
+
+        print(
+
+            x["target"],
+
+            "| n =", x["n_runs"],
+
+            "| best =", round(x["best_score"], 3),
+
+            "| mean =", round(x["mean_score"], 3),
+
+            "| median =", round(x["median_score"], 3),
+
+            "| SD =",
+
+            round(x["sd_score"], 3)
+
+            if x["sd_score"] is not None
+
+            else "N/A"
+
+        )
+
+
+
+print()
+
+END FILE: build_docking_results.py
+
+================================================================================
+FILE: extract_AK1_seed9009_best.py
+Executable source: code/extract_AK1_seed9009_best.py
+================================================================================
+from rdkit import Chem
+
+from pathlib import Path
+
+
+
+inp = Path(r"..\results\AK1_repr9009\AK1_ISO_seed9009_allposes.sdf")
+
+out = Path(r"..\results\AK1_repr9009\AK1_ISO_seed9009_best.sdf")
+
+
+
+supplier = Chem.SDMolSupplier(str(inp), removeHs=False)
+
+
+
+best = None
+
+for mol in supplier:
+
+    if mol is not None:
+
+        best = mol
+
+        break
+
+
+
+if best is None:
+
+    raise RuntimeError("No valid molecule found in SDF.")
+
+
+
+writer = Chem.SDWriter(str(out))
+
+writer.write(best)
+
+writer.close()
+
+
+
+print("Best pose saved to:")
+
+print(out)
+
+END FILE: extract_AK1_seed9009_best.py
+
+================================================================================
+FILE: extract_best_pose.py
+Executable source: code/extract_best_pose.py
+================================================================================
+from rdkit import Chem
+
+
+
+jobs = [
+
+    (r"..\docking\AK1_ISO_seed1001.sdf", r"..\docking\AK1_ISO_bestpose.sdf"),
+
+    (r"..\docking\AK1_AP5_redock_seed1001.sdf", r"..\docking\AK1_AP5_redock_bestpose.sdf"),
+
+]
+
+
+
+for infile, outfile in jobs:
+
+    suppl = Chem.SDMolSupplier(infile, removeHs=False)
+
+    mol = None
+
+    for m in suppl:
+
+        if m is not None:
+
+            mol = m
+
+            break
+
+
+
+    if mol is None:
+
+        raise ValueError(f"No valid molecule found in {infile}")
+
+
+
+    writer = Chem.SDWriter(outfile)
+
+    writer.write(mol)
+
+    writer.close()
+
+
+
+    print("Saved:", outfile)
+
+END FILE: extract_best_pose.py
+
+================================================================================
+FILE: make_AK1_gif.py
+Executable source: code/make_AK1_gif.py
+================================================================================
+import imageio.v2 as imageio
+
+from pathlib import Path
+
+
+
+frame_dir = Path(r"..\results\AK1_rotate")
+
+frames = sorted(frame_dir.glob("frame_*.png"))
+
+
+
+if not frames:
+
+    raise ValueError("No PNG frames found.")
+
+
+
+images = [imageio.imread(f) for f in frames]
+
+
+
+outfile = r"..\results\AK1_ISO_rotation.gif"
+
+imageio.mimsave(outfile, images, duration=0.08, loop=0)
+
+
+
+print("Saved:", outfile)
+
+END FILE: make_AK1_gif.py
+
+================================================================================
+FILE: make_AK1_gif_clean.py
+Executable source: code/make_AK1_gif_clean.py
+================================================================================
+from pathlib import Path
+
+from PIL import Image
+
+
+
+frame_dir = Path(r"..\results\AK1_rotate")
+
+frames = sorted(frame_dir.glob("frame_*.png"))
+
+
+
+if not frames:
+
+    raise ValueError("No PNG frames found.")
+
+
+
+images = [Image.open(f).convert("RGB") for f in frames]
+
+
+
+outfile = r"..\results\AK1_ISO_rotation_clean.gif"
+
+
+
+images[0].save(
+
+    outfile,
+
+    save_all=True,
+
+    append_images=images[1:],
+
+    duration=80,      # milliseconds per frame
+
+    loop=0,
+
+    disposal=2,       # important: clear previous frame
+
+    optimize=False
+
+)
+
+
+
+print("Saved:", outfile)
+
+END FILE: make_AK1_gif_clean.py
+
+================================================================================
+FILE: make_AK1_gif_v2.py
+Executable source: code/make_AK1_gif_v2.py
+================================================================================
+from pathlib import Path
+
+import imageio.v2 as imageio
+
+
+
+# folder containing the PNG frames
+
+frame_dir = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking\results\AK1_rotate")
+
+
+
+# output GIF path
+
+gif_path = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking\results\AK1_rotate_v2.gif")
+
+
+
+# collect and sort frames
+
+frames = sorted(frame_dir.glob("frame_*.png"))
+
+
+
+if not frames:
+
+    raise FileNotFoundError("No PNG frames found in the AK1_rotate folder.")
+
+
+
+images = []
+
+for f in frames:
+
+    images.append(imageio.imread(f))
+
+
+
+# duration = seconds per frame
+
+# 0.08 = fairly smooth
+
+imageio.mimsave(gif_path, images, duration=0.08, loop=0)
+
+
+
+print("GIF saved to:")
+
+print(gif_path)
+
+print(f"Frames used: {len(frames)}")
+
+END FILE: make_AK1_gif_v2.py
+
+================================================================================
+FILE: make_AK1_orange_gif_clean.py
+Executable source: code/make_AK1_orange_gif_clean.py
+================================================================================
+from pathlib import Path
+
+from PIL import Image
+
+
+
+frame_dir = Path(r"..\results\AK1_rotate_ISO_orange\frames")
+
+frames = sorted(frame_dir.glob("frame_*.png"))
+
+
+
+if not frames:
+
+    raise ValueError("No PNG frames found.")
+
+
+
+images = [Image.open(f).convert("RGB") for f in frames]
+
+
+
+outfile = r"..\results\AK1_rotate_ISO_orange\AK1_ISO_orange_rotation_clean.gif"
+
+
+
+images[0].save(
+
+    outfile,
+
+    save_all=True,
+
+    append_images=images[1:],
+
+    duration=80,
+
+    loop=0,
+
+    disposal=2,
+
+    optimize=False
+
+)
+
+
+
+print("Saved:", outfile)
+
+END FILE: make_AK1_orange_gif_clean.py
+
+================================================================================
+FILE: make_AK1_visuals.pml
+Executable source: code/make_AK1_visuals.pml
+================================================================================
+load ..\receptors\AK1_chainA_FIXED.pdb, AK1
+
+remove solvent
+
+hide everything
+
+
+
+# -----------------------------
+
+# AK1 protein
+
+# -----------------------------
+
+show cartoon, AK1
+
+color gray70, AK1
+
+set cartoon_transparency, 0.35, AK1
+
+
+
+# -----------------------------
+
+# Native AP5
+
+# -----------------------------
+
+load ..\ligand\AK1_native_AP5_chainA.pdb, AP5_native
+
+show sticks, AP5_native
+
+color cyan, AP5_native
+
+
+
+# -----------------------------
+
+# Redocked AP5
+
+# -----------------------------
+
+load ..\docking\AK1_AP5_redock_bestpose.sdf, AP5_redocked
+
+show sticks, AP5_redocked
+
+color magenta, AP5_redocked
+
+
+
+# -----------------------------
+
+# Docked isorhamnetin
+
+# -----------------------------
+
+load ..\docking\AK1_ISO_bestpose.sdf, ISO
+
+show sticks, ISO
+
+color yellow, ISO
+
+
+
+# -----------------------------
+
+# Binding-pocket residues
+
+# -----------------------------
+
+select pocket, byres (AP5_native around 4.0)
+
+show sticks, pocket
+
+color palegreen, pocket
+
+
+
+set stick_radius, 0.18
+
+
+
+# -----------------------------
+
+# Appearance
+
+# -----------------------------
+
+bg_color white
+
+set ray_opaque_background, on
+
+set antialias, 2
+
+
+
+# -----------------------------
+
+# IMPORTANT: wider framing
+
+# -----------------------------
+
+viewport 1600, 1600
+
+
+
+orient AK1
+
+center AK1
+
+
+
+# 15 A buffer around whole AK1
+
+zoom AK1, 15
+
+
+
+# -----------------------------
+
+# Static figure
+
+# -----------------------------
+
+ray 2400, 2400
+
+png ..\results\AK1_ISO_AP5_overlay.png, dpi=300
+
+
+
+# -----------------------------
+
+# Rotating movie
+
+# -----------------------------
+
+mset 1 x120
+
+
+
+python
+
+for i in range(1, 121):
+
+    cmd.mdo(i, "turn y, 3")
+
+python end
+
+
+
+set ray_trace_frames, 1
+
+
+
+mpng ..\results\AK1_rotate\frame_
+
+END FILE: make_AK1_visuals.pml
+
+================================================================================
+FILE: prepare_AK1_dominant_visuals.py
+Executable source: code/prepare_AK1_dominant_visuals.py
+================================================================================
+from pathlib import Path
+
+import subprocess
+
+import sys
+
+
+
+from rdkit import Chem
+
+
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+
+
+DOCKING = PROJECT / "docking"
+
+RESULTS = PROJECT / "results"
+
+
+
+VISUALS = RESULTS / "AK1_final_visuals"
+
+POSES = VISUALS / "poses"
+
+FRAMES = VISUALS / "rotation_frames"
+
+
+
+VISUALS.mkdir(exist_ok=True)
+
+POSES.mkdir(exist_ok=True)
+
+FRAMES.mkdir(exist_ok=True)
+
+
+
+
+
+# Dominant 8-pose cluster
+
+SEEDS = [
+
+    1001,
+
+    2002,
+
+    3003,
+
+    4004,
+
+    5005,
+
+    7007,
+
+    9009,
+
+    10101
+
+]
+
+
+
+
+
+meeko_export = (
+
+    Path(sys.prefix)
+
+    / "Lib"
+
+    / "site-packages"
+
+    / "meeko"
+
+    / "cli"
+
+    / "mk_export.py"
+
+)
+
+
+
+
+
+for seed in SEEDS:
+
+
+
+    pdbqt = DOCKING / f"AK1_ISO_seed{seed}.pdbqt"
+
+
+
+    all_sdf = POSES / f"AK1_ISO_seed{seed}_ALL.sdf"
+
+
+
+    best_sdf = POSES / f"AK1_ISO_seed{seed}_best.sdf"
+
+
+
+    print()
+
+    print("=" * 60)
+
+    print(f"Preparing seed {seed}")
+
+    print("=" * 60)
+
+
+
+    subprocess.run(
+
+        [
+
+            sys.executable,
+
+            str(meeko_export),
+
+            str(pdbqt),
+
+            "-s",
+
+            str(all_sdf)
+
+        ],
+
+        check=True
+
+    )
+
+
+
+    supplier = Chem.SDMolSupplier(
+
+        str(all_sdf),
+
+        removeHs=False
+
+    )
+
+
+
+    first_molecule = None
+
+
+
+    for mol in supplier:
+
+
+
+        if mol is not None:
+
+            first_molecule = mol
+
+            break
+
+
+
+    if first_molecule is None:
+
+        raise RuntimeError(
+
+            f"Could not extract best pose from seed {seed}"
+
+        )
+
+
+
+    writer = Chem.SDWriter(
+
+        str(best_sdf)
+
+    )
+
+
+
+    writer.write(first_molecule)
+
+    writer.close()
+
+
+
+    print("Best pose saved:")
+
+    print(best_sdf)
+
+
+
+
+
+print()
+
+print("=" * 60)
+
+print("ALL 8 DOMINANT POSES PREPARED")
+
+print("=" * 60)
+
+print()
+
+print("Representative pose = seed 9009")
+
+END FILE: prepare_AK1_dominant_visuals.py
+
+================================================================================
+FILE: run_AK1_multiseed.py
+Executable source: code/run_AK1_multiseed.py
+================================================================================
+import subprocess
+
+from pathlib import Path
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+
+
+VINA = Path(r"C:\Users\akidi\Desktop\Docking tools\vina_win.exe")
+
+RECEPTOR = PROJECT / "receptors" / "AK1.pdbqt"
+
+LIGAND = PROJECT / "ligand" / "isorhamnetin.pdbqt"
+
+OUTPUT_DIR = PROJECT / "docking"
+
+
+
+# Same experimentally defined AP5 pocket used for seed 1001
+
+CENTER_X = 25.044
+
+CENTER_Y = 44.571
+
+CENTER_Z = -3.708
+
+
+
+SIZE_X = 23.687
+
+SIZE_Y = 23.364
+
+SIZE_Z = 30.062
+
+
+
+# Ten independent seeds
+
+SEEDS = [
+
+    1001,
+
+    2002,
+
+    3003,
+
+    4004,
+
+    5005,
+
+    6006,
+
+    7007,
+
+    8008,
+
+    9009,
+
+    10101
+
+]
+
+
+
+for seed in SEEDS:
+
+
+
+    output_file = OUTPUT_DIR / f"AK1_ISO_seed{seed}.pdbqt"
+
+
+
+    # Protect completed runs from accidental overwrite
+
+    if output_file.exists():
+
+        print()
+
+        print("=" * 60)
+
+        print(f"Seed {seed} already exists - SKIPPING")
+
+        print("=" * 60)
+
+        continue
+
+
+
+    print()
+
+    print("=" * 60)
+
+    print(f"STARTING AK1 + ISO : SEED {seed}")
+
+    print("=" * 60)
+
+
+
+    command = [
+
+        str(VINA),
+
+
+
+        "--receptor", str(RECEPTOR),
+
+        "--ligand", str(LIGAND),
+
+
+
+        "--center_x", str(CENTER_X),
+
+        "--center_y", str(CENTER_Y),
+
+        "--center_z", str(CENTER_Z),
+
+
+
+        "--size_x", str(SIZE_X),
+
+        "--size_y", str(SIZE_Y),
+
+        "--size_z", str(SIZE_Z),
+
+
+
+        "--exhaustiveness", "16",
+
+        "--num_modes", "10",
+
+
+
+        "--seed", str(seed),
+
+
+
+        "--out", str(output_file)
+
+    ]
+
+
+
+    subprocess.run(command, check=True)
+
+
+
+    print()
+
+    print(f"FINISHED SEED {seed}")
+
+    print(f"Saved: {output_file}")
+
+
+
+
+
+print()
+
+print("=" * 60)
+
+print("ALL AVAILABLE AK1 MULTI-SEED RUNS FINISHED")
+
+print("=" * 60)
+
+END FILE: run_AK1_multiseed.py
+
+
+SCRIPTS SELECTED FOR EXECUTION
+The preparation helper selects the following scripts for the working project.
+
+================================================================================
+FILE: code/portable/AK1_rotate_ISO_orange.pml
+Purpose: Load the representative seed9009 pose and render the structural view.
+================================================================================
+reinitialize
+bg_color white
+set ray_opaque_background, off
+set antialias, 2
+set orthoscopic, on
+
+# -----------------------------
+# Load structures
+# -----------------------------
+load ..\receptors\AK1_chainA_FIXED.pdb, AK1
+load ..\ligand\AK1_native_AP5_chainA.pdb, AP5_native
+
+# IMPORTANT:
+# Replace this filename if your extracted representative pose has another name.
+# I assume you extracted seed 9009 best pose as an SDF.
+load ..\results\AK1_repr9009\AK1_ISO_seed9009_best.sdf, ISO
+
+remove solvent
+hide everything
+
+# -----------------------------
+# Protein style
+# -----------------------------
+show cartoon, AK1
+color gray70, AK1
+set cartoon_transparency, 0.35, AK1
+
+# -----------------------------
+# Native ligand (reference) = cyan
+# -----------------------------
+show sticks, AP5_native
+color cyan, AP5_native
+set stick_radius, 0.16, AP5_native
+
+# -----------------------------
+# Docked ISO = bright orange/yellow and thicker
+# -----------------------------
+show sticks, ISO
+color tv_orange, ISO and elem C
+color red, ISO and elem O
+color blue, ISO and elem N
+set stick_radius, 0.24, ISO
+
+# -----------------------------
+# Pocket residues
+# -----------------------------
+select pocket, byres ((AP5_native or ISO) around 4.0)
+show sticks, pocket
+color palegreen, pocket
+set stick_radius, 0.14, pocket
+
+# Optional: make ISO slightly "pop" more
+set stick_transparency, 0.00, ISO
+set stick_transparency, 0.15, AP5_native
+set stick_transparency, 0.10, pocket
+
+# -----------------------------
+# View/orientation
+# -----------------------------
+orient AP5_native or ISO
+zoom AP5_native or ISO or pocket, 11
+
+# -----------------------------
+# Save one static PNG first
+# -----------------------------
+ray 2200,2200
+png ..\results\AK1_rotate_ISO_orange\AK1_ISO_orange_static.png, dpi=300
+
+# -----------------------------
+# Movie frames
+# -----------------------------
+mset 1 x120
+python
+for i in range(1, 121):
+    cmd.mdo(i, "turn y, 3")
+python end
+
+set ray_trace_frames, 1
+mpng ..\results\AK1_rotate_ISO_orange\frames\frame_
+END FILE: AK1_rotate_ISO_orange.pml
+
+
+================================================================================
+EXECUTION SCRIPT: build_docking_results.py
+Purpose: Build the primary docking workbook from the neutral 1Z83 AK1_ISO_seed files. Zinc and receptor-ensemble results are analyzed in their respective chapters.
+================================================================================
+from pathlib import Path
+import re
+import statistics
+import xlsxwriter
+
+# ============================================================
+# PROJECT PATHS
+# ============================================================
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+DOCKING = PROJECT / "docking"
+RESULTS = PROJECT / "results"
+
+RESULTS.mkdir(exist_ok=True)
+
+OUTPUT = RESULTS / "ISO_AK_Docking_Master_Results.xlsx"
+
+
+# ============================================================
+# CURRENT AK1 VALIDATION INFORMATION
+# ============================================================
+
+validation = {
+    "AK1": {
+        "structure": "PDB 1Z83 chain A",
+        "validation_ligand": "AP5",
+        "redocking_rmsd_A": 1.776,
+        "box_center_x": 25.044,
+        "box_center_y": 44.571,
+        "box_center_z": -3.708,
+        "box_size_x": 23.687,
+        "box_size_y": 23.364,
+        "box_size_z": 30.062,
+    }
+}
+
+
+# ============================================================
+# READ VINA PDBQT FILES
+# ============================================================
+
+def parse_vina_pdbqt(path):
+
+    results = []
+
+    with open(path, encoding="utf-8") as f:
+
+        for line in f:
+
+            if line.startswith("REMARK VINA RESULT:"):
+
+                parts = line.split()
+
+                score = float(parts[3])
+                rmsd_lb = float(parts[4])
+                rmsd_ub = float(parts[5])
+
+                results.append({
+                    "mode": len(results) + 1,
+                    "score": score,
+                    "rmsd_lb": rmsd_lb,
+                    "rmsd_ub": rmsd_ub
+                })
+
+    return results
+
+
+# ============================================================
+# FIND ALL ISO MULTI-SEED RESULTS AUTOMATICALLY
+# Example:
+# AK1_ISO_seed1001.pdbqt
+# ============================================================
+
+pattern = re.compile(
+    r"(.+)_ISO_seed(\d+)\.pdbqt$",
+    re.IGNORECASE
+)
+
+all_runs = []
+all_modes = []
+
+for file in sorted(DOCKING.glob("AK1_ISO_seed*.pdbqt")):
+
+    match = pattern.match(file.name)
+
+    if not match:
+        continue
+
+    target = match.group(1)
+    seed = int(match.group(2))
+
+    poses = parse_vina_pdbqt(file)
+
+    if not poses:
+        print("WARNING: no Vina result found in", file.name)
+        continue
+
+    best = poses[0]
+
+    all_runs.append({
+        "target": target,
+        "seed": seed,
+        "best_score": best["score"],
+        "file": file.name
+    })
+
+    for pose in poses:
+
+        all_modes.append({
+            "target": target,
+            "seed": seed,
+            "mode": pose["mode"],
+            "score": pose["score"],
+            "rmsd_lb": pose["rmsd_lb"],
+            "rmsd_ub": pose["rmsd_ub"],
+            "file": file.name
+        })
+
+
+# ============================================================
+# SUMMARY BY TARGET
+# ============================================================
+
+targets = sorted(set(x["target"] for x in all_runs))
+
+summary = []
+
+for target in targets:
+
+    scores = [
+        x["best_score"]
+        for x in all_runs
+        if x["target"] == target
+    ]
+
+    info = validation.get(target, {})
+
+    summary.append({
+        "target": target,
+        "structure": info.get("structure", ""),
+        "n_runs": len(scores),
+        "best_score": min(scores),
+        "mean_score": statistics.mean(scores),
+        "median_score": statistics.median(scores),
+        "sd_score": statistics.stdev(scores) if len(scores) > 1 else None,
+        "min_score": min(scores),
+        "max_score": max(scores),
+        "score_range": max(scores) - min(scores),
+        "validation_ligand": info.get("validation_ligand", ""),
+        "redocking_rmsd": info.get("redocking_rmsd_A", None)
+    })
+
+
+# More negative median score = stronger predicted docking
+summary.sort(key=lambda x: x["median_score"])
+
+for rank, row in enumerate(summary, start=1):
+    row["rank"] = rank
+
+
+# ============================================================
+# CREATE EXCEL WORKBOOK
+# ============================================================
+
+workbook = xlsxwriter.Workbook(OUTPUT)
+
+
+# ----------------------------
+# FORMATS
+# ----------------------------
+
+title = workbook.add_format({
+    "bold": True,
+    "font_size": 15,
+    "font_color": "white",
+    "bg_color": "#1F4E78",
+    "align": "left",
+    "valign": "vcenter"
+})
+
+header = workbook.add_format({
+    "bold": True,
+    "font_color": "white",
+    "bg_color": "#4472C4",
+    "border": 1,
+    "align": "center",
+    "valign": "vcenter",
+    "text_wrap": True
+})
+
+normal = workbook.add_format({
+    "border": 1
+})
+
+decimal = workbook.add_format({
+    "border": 1,
+    "num_format": "0.000"
+})
+
+warning = workbook.add_format({
+    "bg_color": "#FFF2CC",
+    "border": 1,
+    "text_wrap": True,
+    "valign": "top"
+})
+
+
+# ============================================================
+# SHEET 1 — SUMMARY
+# ============================================================
+
+ws = workbook.add_worksheet("Summary")
+
+ws.merge_range(
+    "A1:L1",
+    "ISO–AK Family Docking: Automatically Parsed Results",
+    title
+)
+
+headers = [
+    "Rank",
+    "Target / domain",
+    "Structure",
+    "n independent seeds",
+    "Best score",
+    "Mean best score",
+    "Median best score",
+    "SD",
+    "Worst best score",
+    "Range",
+    "Validation ligand",
+    "Redocking RMSD (Å)"
+]
+
+for col, h in enumerate(headers):
+    ws.write(2, col, h, header)
+
+for row_i, x in enumerate(summary, start=3):
+
+    values = [
+        x["rank"],
+        x["target"],
+        x["structure"],
+        x["n_runs"],
+        x["best_score"],
+        x["mean_score"],
+        x["median_score"],
+        x["sd_score"],
+        x["max_score"],
+        x["score_range"],
+        x["validation_ligand"],
+        x["redocking_rmsd"]
+    ]
+
+    for col, value in enumerate(values):
+
+        if col in [4, 5, 6, 7, 8, 9, 11] and value is not None:
+            ws.write_number(row_i, col, value, decimal)
+        else:
+            ws.write(row_i, col, value, normal)
+
+
+note_row = len(summary) + 5
+
+ws.write(note_row, 0, "Interpretation", header)
+
+ws.merge_range(
+    note_row,
+    1,
+    note_row + 2,
+    11,
+    "More negative Vina scores indicate more favorable predicted docking "
+    "within the same standardized protocol. Final target ranking should use "
+    "the distribution of best scores across independent seeds, especially "
+    "the median and variability, together with pose convergence and validation. "
+    "Docking scores are not experimental binding affinities.",
+    warning
+)
+
+ws.set_column("A:A", 10)
+ws.set_column("B:B", 20)
+ws.set_column("C:C", 26)
+ws.set_column("D:D", 20)
+ws.set_column("E:J", 18)
+ws.set_column("K:L", 20)
+
+ws.freeze_panes(3, 0)
+
+
+# ============================================================
+# SHEET 2 — SEED-BY-SEED RESULTS
+# ============================================================
+
+ws2 = workbook.add_worksheet("ISO_Runs")
+
+headers2 = [
+    "Target",
+    "Seed",
+    "Best Vina score (kcal/mol)",
+    "Source file"
+]
+
+for col, h in enumerate(headers2):
+    ws2.write(0, col, h, header)
+
+sorted_runs = sorted(
+    all_runs,
+    key=lambda x: (x["target"], x["seed"])
+)
+
+for row_i, x in enumerate(sorted_runs, start=1):
+
+    ws2.write(row_i, 0, x["target"], normal)
+    ws2.write_number(row_i, 1, x["seed"], normal)
+    ws2.write_number(row_i, 2, x["best_score"], decimal)
+    ws2.write(row_i, 3, x["file"], normal)
+
+ws2.set_column("A:A", 20)
+ws2.set_column("B:B", 14)
+ws2.set_column("C:C", 26)
+ws2.set_column("D:D", 42)
+
+ws2.freeze_panes(1, 0)
+
+
+# ============================================================
+# SHEET 3 — ALL 100 POSES
+# ============================================================
+
+ws3 = workbook.add_worksheet("All_Poses")
+
+headers3 = [
+    "Target",
+    "Seed",
+    "Mode",
+    "Vina score (kcal/mol)",
+    "RMSD lower bound",
+    "RMSD upper bound",
+    "Source file"
+]
+
+for col, h in enumerate(headers3):
+    ws3.write(0, col, h, header)
+
+sorted_modes = sorted(
+    all_modes,
+    key=lambda x: (
+        x["target"],
+        x["seed"],
+        x["mode"]
+    )
+)
+
+for row_i, x in enumerate(sorted_modes, start=1):
+
+    ws3.write(row_i, 0, x["target"], normal)
+    ws3.write_number(row_i, 1, x["seed"], normal)
+    ws3.write_number(row_i, 2, x["mode"], normal)
+    ws3.write_number(row_i, 3, x["score"], decimal)
+    ws3.write_number(row_i, 4, x["rmsd_lb"], decimal)
+    ws3.write_number(row_i, 5, x["rmsd_ub"], decimal)
+    ws3.write(row_i, 6, x["file"], normal)
+
+ws3.set_column("A:A", 18)
+ws3.set_column("B:C", 13)
+ws3.set_column("D:F", 22)
+ws3.set_column("G:G", 42)
+
+ws3.freeze_panes(1, 0)
+
+
+# ============================================================
+# SHEET 4 — AK1 VALIDATION + BOX
+# ============================================================
+
+ws4 = workbook.add_worksheet("Validation_and_Box")
+
+headers4 = [
+    "Target",
+    "Structure",
+    "Validation ligand",
+    "Redocking RMSD (Å)",
+    "Center X",
+    "Center Y",
+    "Center Z",
+    "Size X",
+    "Size Y",
+    "Size Z"
+]
+
+for col, h in enumerate(headers4):
+    ws4.write(0, col, h, header)
+
+for row_i, (target, x) in enumerate(validation.items(), start=1):
+
+    vals = [
+        target,
+        x.get("structure"),
+        x.get("validation_ligand"),
+        x.get("redocking_rmsd_A"),
+        x.get("box_center_x"),
+        x.get("box_center_y"),
+        x.get("box_center_z"),
+        x.get("box_size_x"),
+        x.get("box_size_y"),
+        x.get("box_size_z")
+    ]
+
+    for col, value in enumerate(vals):
+
+        if col >= 3 and value is not None:
+            ws4.write_number(row_i, col, value, decimal)
+        else:
+            ws4.write(row_i, col, value, normal)
+
+ws4.set_column("A:C", 24)
+ws4.set_column("D:J", 18)
+
+
+# ============================================================
+# SHEET 5 — METHODS / COMPUTATIONAL SETTINGS
+# ============================================================
+
+ws5 = workbook.add_worksheet("Methods")
+
+ws5.merge_range(
+    "A1:B1",
+    "AK1 Docking Computational Parameters",
+    title
+)
+
+method_rows = [
+    ["Target", "Human adenylate kinase 1 (AK1)"],
+    ["Structure", "PDB 1Z83, chain A"],
+    ["Docking ligand", "Isorhamnetin"],
+    ["Isorhamnetin source", "PubChem CID 5281654"],
+    ["Native ligand", "AP5"],
+    ["Docking engine", "AutoDock Vina 1.2.7"],
+    ["Receptor preparation", "PDBFixer followed by Meeko"],
+    ["Meeko version", "0.8.0"],
+    ["Docking exhaustiveness", 16],
+    ["Number of modes per seed", 10],
+    ["Independent seeds", len([x for x in all_runs if x["target"] == "AK1"])],
+    ["Binding-site definition", "Box centered on crystallographic AP5 binding region"],
+    ["AP5 redocking RMSD", "1.776 Å"],
+    ["Interpretation caution",
+     "Vina scores are predicted docking scores and should not be interpreted as experimental binding free energies."]
+]
+
+for row, item in enumerate(method_rows, start=2):
+    ws5.write(row, 0, item[0], header)
+    ws5.write(row, 1, item[1], normal)
+
+ws5.set_column("A:A", 28)
+ws5.set_column("B:B", 65)
+
+
+# ============================================================
+# SCORE DISTRIBUTION CHART
+# ============================================================
+
+if all_runs:
+
+    chart = workbook.add_chart({
+        "type": "column"
+    })
+
+    nrows = len(sorted_runs)
+
+    chart.add_series({
+        "name": "Best Vina score",
+        "categories": [
+            "ISO_Runs",
+            1,
+            1,
+            nrows,
+            1
+        ],
+        "values": [
+            "ISO_Runs",
+            1,
+            2,
+            nrows,
+            2
+        ]
+    })
+
+    chart.set_title({
+        "name": "AK1 ISO docking score across independent seeds"
+    })
+
+    chart.set_x_axis({
+        "name": "Seed"
+    })
+
+    chart.set_y_axis({
+        "name": "Vina score (kcal/mol)"
+    })
+
+    chart.set_legend({
+        "none": True
+    })
+
+    ws.insert_chart(
+        "N3",
+        chart,
+        {
+            "x_scale": 1.4,
+            "y_scale": 1.3
+        }
+    )
+
+
+# ============================================================
+# SAVE
+# ============================================================
+
+workbook.close()
+
+
+print()
+print("=" * 60)
+print("DOCKING WORKBOOK SUCCESSFULLY CREATED")
+print("=" * 60)
+
+print("Output:")
+print(OUTPUT)
+
+print()
+
+print("Targets found:", targets)
+print("ISO docking runs found:", len(all_runs))
+print("Individual poses found:", len(all_modes))
+
+print()
+
+if summary:
+
+    for x in summary:
+
+        print(
+            x["target"],
+            "| n =", x["n_runs"],
+            "| best =", round(x["best_score"], 3),
+            "| mean =", round(x["mean_score"], 3),
+            "| median =", round(x["median_score"], 3),
+            "| SD =",
+            round(x["sd_score"], 3)
+            if x["sd_score"] is not None
+            else "N/A"
+        )
+
+print()
+END FILE: build_docking_results.py

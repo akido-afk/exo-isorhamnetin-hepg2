@@ -1,0 +1,11 @@
+{
+  "AK1_rotate_ISO_orange.pml": "03_ISO_Targeted_Docking_and_Convergence/code/portable/AK1_rotate_ISO_orange.pml",
+  "AK1_panelF_contact_stability.R": "04_Interactions_and_Contact_Recurrence/code/portable/AK1_panelF_contact_stability.R",
+  "run_AK1_AP5_10seeds.bat": "02_AP5_Redocking_and_Validation/code/portable/run_AK1_AP5_10seeds.bat",
+  "run_AK1_ZN601_10seeds.bat": "05_Zinc_Sensitivity/code/portable/run_AK1_ZN601_10seeds.bat",
+  "run_AK1_ISO_protonation_sensitivity.bat": "06_Protonation_State_Sensitivity/code/portable/run_AK1_ISO_protonation_sensitivity.bat",
+  "AK1_run_7X7S_ensemble_docking.bat": "07_Receptor_Ensemble_Sensitivity/code/portable/AK1_run_7X7S_ensemble_docking.bat",
+  "AK1_panelG_contact_recurrence.R": "04_Interactions_and_Contact_Recurrence/code/portable/AK1_panelG_contact_recurrence.R",
+  "build_docking_results.py": "03_ISO_Targeted_Docking_and_Convergence/code/portable/build_docking_results.py",
+  "AK1_run_blind_remaining9.bat": "08_Blind_Docking_Validation/code/portable/AK1_run_blind_remaining9.bat"
+}

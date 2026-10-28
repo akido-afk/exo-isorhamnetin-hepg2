@@ -1,0 +1,146 @@
+# ============================================================================
+# TAC DIFFERENTIAL EXPRESSION INPUTS 
+# ============================================================================
+# This script made to prepare feature-level DEG evidence from the 6 TAC comparisons.
+# It retains exact transcript-cluster IDs, maps qualifying features to their
+# annotated genes and selects one representative feature per gene/contrast.
+# The nominal TAC p-value cutoff is 0.05; the absolute linear FC cutoff is 1.30.
+#
+# HOW TO RUN THIS CODE?
+# In R or RStudio, enter: source(file.choose(), encoding = "UTF-8")
+# Select this TXT, then choose All Expressions.txt from Input_Source_Files.
+# The other 6 TAC comparison TXT files must be in the same input directory.
+#
+# REQUIRED INPUTS
+# All Expressions.txt
+# Ctr Vs NC ALL.txt
+# Ctr Vs FREE ISO ALL.txt
+# EXO-ISO Vs Ctrl ALL.txt
+# EXO-ISO Vs FREE ISO ALL.txt
+# EXO-ISO Vs NC ALL.txt
+# FREE ISO Vs NC ALL.txt
+#
+# OUTPUTS
+# The 4 tables are saved in TAC_DEG_FC1p30_Results and copied to the directory
+# containing All Expressions.txt for the subsequent S8–S9 analysis.
+# ============================================================================
+
+options(stringsAsFactors = FALSE)
+FC_THRESHOLD <- 1.30
+P_THRESHOLD <- 0.05
+
+message("Choose All Expressions.txt from Input_Source_Files.")
+expression_file <- normalizePath(file.choose(), winslash = "/", mustWork = TRUE)
+if (basename(expression_file) != "All Expressions.txt")
+  stop("Please choose the file named All Expressions.txt.")
+input_dir <- dirname(expression_file)
+project_dir <- if (basename(input_dir) == "Input_Source_Files") dirname(input_dir) else input_dir
+output_dir <- file.path(project_dir, "TAC_DEG_FC1p30_Results")
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+
+comparison_definitions <- data.frame(
+  Comparison = c("Control_vs_NC", "FreeISO_vs_Control", "EXOISO_vs_Control",
+                 "EXOISO_vs_FreeISO", "EXOISO_vs_NC", "FreeISO_vs_NC"),
+  File = c("Ctr Vs NC ALL.txt", "Ctr Vs FREE ISO ALL.txt", "EXO-ISO Vs Ctrl ALL.txt",
+           "EXO-ISO Vs FREE ISO ALL.txt", "EXO-ISO Vs NC ALL.txt", "FREE ISO Vs NC ALL.txt"),
+  Orientation = c(1, -1, 1, 1, 1, 1), stringsAsFactors = FALSE
+)
+required_files <- c(expression_file, file.path(input_dir, comparison_definitions$File))
+missing_files <- required_files[!file.exists(required_files)]
+if (length(missing_files)) stop("Missing original TAC files:\n", paste(missing_files, collapse = "\n"))
+
+read_tac <- function(path) {
+  first <- readLines(path, n = 30L, warn = FALSE, encoding = "UTF-8")
+  header <- which(grepl("^ID\\t", sub("^\\ufeff", "", first)))[1L]
+  if (is.na(header)) stop("Cannot find the TAC ID header in: ", basename(path))
+  utils::read.delim(path, skip = header - 1L, header = TRUE,
+                    check.names = FALSE, quote = "", comment.char = "",
+                    stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
+}
+expand_symbols <- function(x) {
+  x <- ifelse(is.na(x), "", as.character(x))
+  lapply(x, function(s) {
+    tokens <- trimws(unlist(strsplit(gsub("///|//|;|,", "|", s), "|", fixed = TRUE)))
+    unique(tokens[nzchar(tokens) & !tokens %in% c("---", "NA", "-")])
+  })
+}
+save_for_next <- function(data, filename) {
+  results_path <- file.path(output_dir, filename)
+  next_path <- file.path(input_dir, filename)
+  utils::write.csv(data, results_path, row.names = FALSE, na = "")
+  if (!identical(normalizePath(output_dir, winslash = "/"),
+                 normalizePath(input_dir, winslash = "/"))) {
+    if (!file.copy(results_path, next_path, overwrite = TRUE))
+      stop("Unable to write the next analysis input: ", next_path)
+  }
+  if (!identical(unname(tools::md5sum(results_path)), unname(tools::md5sum(next_path))))
+    stop("Input copy differs from its generated result: ", filename)
+  message("Ready: ", next_path)
+}
+
+samples <- read_tac(expression_file)
+if (!all(c("ID", "Gene Symbol") %in% names(samples)))
+  stop("All Expressions.txt must contain ID and Gene Symbol columns.")
+if (anyDuplicated(samples$ID)) stop("Duplicate transcript-cluster IDs in expression file.")
+
+all_features <- vector("list", nrow(comparison_definitions))
+all_genes <- vector("list", nrow(comparison_definitions))
+for (i in seq_len(nrow(comparison_definitions))) {
+  spec <- comparison_definitions[i, ]
+  data <- read_tac(file.path(input_dir, spec$File))
+  cols <- c("ID", "Fold Change", "P-val", "FDR P-val", "Gene Symbol")
+  if (!all(cols %in% names(data)))
+    stop("Missing comparison columns: ", spec$File, " (", paste(setdiff(cols, names(data)), collapse = ", "), ")")
+  if (anyDuplicated(data$ID)) stop("Duplicate feature IDs in ", spec$File)
+  if (!setequal(as.character(data$ID), as.character(samples$ID)))
+    stop("The feature IDs do not match All Expressions.txt in ", spec$File)
+  fc <- suppressWarnings(as.numeric(data$`Fold Change`))
+  pv <- suppressWarnings(as.numeric(data$`P-val`))
+  fdr <- suppressWarnings(as.numeric(data$`FDR P-val`))
+  eligible <- is.finite(pv) & pv < P_THRESHOLD & is.finite(fc) & abs(fc) >= FC_THRESHOLD
+  selected <- data[eligible, , drop = FALSE]
+  signed_fc <- fc[eligible] * spec$Orientation
+  evidence <- data.frame(ID = selected$ID, Comparison = spec$Comparison,
+                         Signed_FC = signed_fc, Abs_FC = abs(signed_fc),
+                         Signed_log2FC = sign(signed_fc) * log2(abs(signed_fc)),
+                         P_value = pv[eligible], FDR_P_value = fdr[eligible],
+                         Original_Gene_Symbol = selected$`Gene Symbol`,
+                         stringsAsFactors = FALSE)
+  evidence$Direction <- ifelse(evidence$Signed_FC > 0, "UP", "DOWN")
+  all_features[[i]] <- evidence
+  symbols <- expand_symbols(evidence$Original_Gene_Symbol)
+  gene_rows <- evidence[rep(seq_len(nrow(evidence)), lengths(symbols)), , drop = FALSE]
+  gene_rows$Gene <- unlist(symbols, use.names = FALSE)
+  all_genes[[i]] <- gene_rows[nzchar(gene_rows$Gene), , drop = FALSE]
+}
+feature_evidence <- do.call(rbind, all_features)
+gene_membership <- do.call(rbind, all_genes)
+row.names(feature_evidence) <- NULL
+row.names(gene_membership) <- NULL
+if (!nrow(gene_membership)) stop("No qualifying gene memberships. Check TAC inputs.")
+
+# A gene may have multiple qualifying transcript clusters in one comparison.
+# Conflicting directions are retained in the evidence table. The representative
+# direction uses the feature with greatest absolute FC, then p, then feature ID.
+key <- paste(gene_membership$Gene, gene_membership$Comparison, sep = "||")
+multiple_keys <- unique(key[duplicated(key)])
+conflicts <- do.call(rbind, lapply(multiple_keys, function(k) {
+  subset <- gene_membership[key == k, , drop = FALSE]
+  if (length(unique(subset$Direction)) < 2L) return(NULL)
+  subset
+}))
+if (is.null(conflicts)) conflicts <- gene_membership[0, , drop = FALSE]
+order_rows <- order(gene_membership$Gene, gene_membership$Comparison,
+                    -gene_membership$Abs_FC, gene_membership$P_value, gene_membership$ID)
+canonical <- gene_membership[order_rows, , drop = FALSE]
+canonical <- canonical[!duplicated(paste(canonical$Gene, canonical$Comparison)), , drop = FALSE]
+
+save_for_next(feature_evidence, "TAC_qualifying_feature_DEGs_ALL.csv")
+save_for_next(gene_membership, "TAC_qualifying_feature_gene_membership_ALL.csv")
+save_for_next(canonical, "S8_one_direction_per_gene_and_contrast.csv")
+save_for_next(conflicts, "S8_ambiguous_feature_directions.csv")
+write.csv(data.frame(File = basename(required_files),
+                     MD5 = unname(tools::md5sum(required_files))),
+          file.path(output_dir, "Input_file_checksums.csv"), row.names = FALSE)
+writeLines(capture.output(sessionInfo()), file.path(output_dir, "sessionInfo.txt"))
+message("TAC DEG preparation completed. The 4 required tables are in Input_Source_Files.")

@@ -1,0 +1,285 @@
+07 Receptor Ensemble Sensitivity
+INPUTS AND OUTPUTS
+
+Paths below use the original project layout. The preparation helper reconstructs these locations from the chapter folders.
+
+AK1_7X7S_pairwise_overlays_v2.pml
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_ensemble_sensitivity/7X7S_selected_models/AK1_7X7S_V2_closed_vs_least_open.png
+  results/AK1_ensemble_sensitivity/7X7S_selected_models/AK1_7X7S_V2_closed_vs_medoid.png
+  results/AK1_ensemble_sensitivity/7X7S_selected_models/AK1_7X7S_V2_closed_vs_most_open.png
+
+AK1_7X7S_selected_overlay.pml
+Inputs:
+Outputs:
+  results/AK1_ensemble_sensitivity/7X7S_selected_models/AK1_1Z83_vs_7X7S_selected_overlay.png
+Other file references in the original source:
+  results/AK1_ensemble_sensitivity/7X7S_selected_models/AK1_1Z83_vs_7X7S_selected_overlay.png
+
+AK1_analyze_7X7S_ensemble_docking.py
+Inputs:
+  docking/AK1_7X7S_model1_most_open_ISO_seed1001.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed10101.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed2002.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed3003.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed4004.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed5005.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed6006.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed7007.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed8008.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed9009.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed1001.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed10101.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed2002.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed3003.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed4004.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed5005.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed6006.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed7007.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed8008.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed9009.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed1001.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed10101.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed2002.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed3003.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed4004.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed5005.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed6006.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed7007.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed8008.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed9009.pdbqt
+  docking/AK1_ISO_seed1001.pdbqt
+  docking/AK1_ISO_seed10101.pdbqt
+  docking/AK1_ISO_seed2002.pdbqt
+  docking/AK1_ISO_seed3003.pdbqt
+  docking/AK1_ISO_seed4004.pdbqt
+  docking/AK1_ISO_seed5005.pdbqt
+  docking/AK1_ISO_seed6006.pdbqt
+  docking/AK1_ISO_seed7007.pdbqt
+  docking/AK1_ISO_seed8008.pdbqt
+  docking/AK1_ISO_seed9009.pdbqt
+  ligand/AK1_native_AP5_chainA.pdb
+  ligand/isorhamnetin.pdbqt
+Outputs:
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_1Z83_closed_pairwise_RMSD.csv
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_AP5_region_metrics.csv
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_ENSEMBLE_DOCKING_ANALYSIS.xlsx
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_cross_family_RMSD.csv
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_ensemble_seed_results.csv
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_ensemble_summary.csv
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_least_open_pairwise_RMSD.csv
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_medoid_pairwise_RMSD.csv
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_most_open_pairwise_RMSD.csv
+Other file references in the original source:
+  ligand/AK1_native_AP5_chainA.pdb
+  ligand/isorhamnetin.pdbqt
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_AP5_region_metrics.csv
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_ENSEMBLE_DOCKING_ANALYSIS.xlsx
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_cross_family_RMSD.csv
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_ensemble_seed_results.csv
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_ensemble_summary.csv
+
+AK1_extract_ensemble_mapped_contacts.py
+Inputs:
+  docking/AK1_7X7S_model1_most_open_ISO_seed1001.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed10101.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed2002.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed3003.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed4004.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed5005.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed6006.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed7007.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed8008.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed9009.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed1001.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed10101.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed2002.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed3003.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed4004.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed5005.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed6006.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed7007.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed8008.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed9009.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed1001.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed10101.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed2002.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed3003.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed4004.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed5005.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed6006.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed7007.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed8008.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed9009.pdbqt
+  docking/AK1_ISO_seed1001.pdbqt
+  docking/AK1_ISO_seed10101.pdbqt
+  docking/AK1_ISO_seed2002.pdbqt
+  docking/AK1_ISO_seed3003.pdbqt
+  docking/AK1_ISO_seed4004.pdbqt
+  docking/AK1_ISO_seed5005.pdbqt
+  docking/AK1_ISO_seed7007.pdbqt
+  docking/AK1_ISO_seed9009.pdbqt
+  receptors/AK1_7X7S_model1_most_open_FIXED.pdb
+  receptors/AK1_7X7S_model20_least_open_FIXED.pdb
+  receptors/AK1_7X7S_model8_ensemble_medoid_FIXED.pdb
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_ensemble_sensitivity/7X7S_selected_models/AK1_7X7S_to_1Z83_sequence_mapping.csv
+Outputs:
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ENSEMBLE_MAPPED_CONTACT_FINGERPRINTS.xlsx
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ensemble_all_pose_contacts_mapped_to_1Z83.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ensemble_contact_comparison_matrix.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ensemble_contact_overlap_vs_closed.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ensemble_contact_recurrence_mapped_to_1Z83.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ensemble_recurrent_ANY_contacts_80pct.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ensemble_recurrent_POLAR_contacts_80pct.csv
+Other file references in the original source:
+  receptors/AK1_7X7S_model1_most_open_FIXED.pdb
+  receptors/AK1_7X7S_model20_least_open_FIXED.pdb
+  receptors/AK1_7X7S_model8_ensemble_medoid_FIXED.pdb
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_ensemble_sensitivity/7X7S_selected_models/AK1_7X7S_to_1Z83_sequence_mapping.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ENSEMBLE_MAPPED_CONTACT_FINGERPRINTS.xlsx
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ensemble_all_pose_contacts_mapped_to_1Z83.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ensemble_contact_comparison_matrix.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ensemble_contact_overlap_vs_closed.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ensemble_contact_recurrence_mapped_to_1Z83.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ensemble_recurrent_ANY_contacts_80pct.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ensemble_recurrent_POLAR_contacts_80pct.csv
+
+AK1_fix_7X7S_selected_receptors.py
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_ensemble_sensitivity/receptor_preparation/AK1_7X7S_RECEPTOR_PREPARATION.xlsx
+  results/AK1_ensemble_sensitivity/receptor_preparation/AK1_7X7S_receptor_preparation_summary.csv
+  structures/AK1_7X7S_model1_most_open_ALIGNED_1Z83.pdb
+  structures/AK1_7X7S_model20_least_open_ALIGNED_1Z83.pdb
+  structures/AK1_7X7S_model8_ensemble_medoid_ALIGNED_1Z83.pdb
+
+AK1_inspect_7X7S_ensemble.py
+Inputs:
+Outputs:
+  [console output]
+Other file references in the original source:
+  results/AK1_ensemble_sensitivity/7X7S_inspection/AK1_7X7S_ENSEMBLE_INSPECTION.xlsx
+  results/AK1_ensemble_sensitivity/7X7S_inspection/AK1_7X7S_candidate_conformers.csv
+  results/AK1_ensemble_sensitivity/7X7S_inspection/AK1_7X7S_model_summary.csv
+  results/AK1_ensemble_sensitivity/7X7S_inspection/AK1_7X7S_pairwise_CA_RMSD.csv
+  structures/AK1_1Z83.pdb
+  structures/AK1_7X7S_NMR.pdb
+
+AK1_plot_ensemble_Jaccard_similarity.R
+Inputs:
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ensemble_contact_overlap_vs_closed.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_Jaccard_similarity_plot_data.csv
+Outputs:
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_Jaccard_similarity.png
+Other file references in the original source:
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ensemble_contact_overlap_vs_closed.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_Jaccard_similarity.pdf
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_Jaccard_similarity.png
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_Jaccard_similarity_plot_data.csv
+
+AK1_plot_ensemble_contact_fingerprint.R
+Inputs:
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ensemble_contact_overlap_vs_closed.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ensemble_contact_recurrence_mapped_to_1Z83.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_closed_fingerprint_retention_plot_data.csv
+Outputs:
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_ANY_contact_heatmap.pdf
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_ANY_contact_heatmap.png
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_ANY_contact_heatmap_plot_data.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_Jaccard_similarity.pdf
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_Jaccard_similarity.png
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_Jaccard_similarity_plot_data.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_POLAR_contact_heatmap.pdf
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_POLAR_contact_heatmap.png
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_POLAR_contact_heatmap_plot_data.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_closed_fingerprint_retention.pdf
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_closed_fingerprint_retention.png
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_closed_fingerprint_retention_plot_data.csv
+Other file references in the original source:
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ensemble_contact_overlap_vs_closed.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/AK1_ensemble_contact_recurrence_mapped_to_1Z83.csv
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_closed_fingerprint_retention.pdf
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_closed_fingerprint_retention.png
+  results/AK1_ensemble_sensitivity/mapped_contact_fingerprint_v1/figures/AK1_ensemble_closed_fingerprint_retention_plot_data.csv
+
+AK1_plot_ensemble_quantitative_ABC.R
+Inputs:
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_AP5_region_metrics.csv
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_ensemble_seed_results.csv
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_ensemble_summary.csv
+  results/AK1_ensemble_sensitivity/quantitative_figure_v2/AK1_ensemble_quantitative_figure_summary.csv
+Outputs:
+  results/AK1_ensemble_sensitivity/quantitative_figure_v2/figures/AK1_ensemble_panelA_opening_metric.png
+  results/AK1_ensemble_sensitivity/quantitative_figure_v2/figures/AK1_ensemble_panelB_Vina_scores.png
+  results/AK1_ensemble_sensitivity/quantitative_figure_v2/figures/AK1_ensemble_panelC_AP5_localization.png
+Other file references in the original source:
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_AP5_region_metrics.csv
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_ensemble_seed_results.csv
+  results/AK1_ensemble_sensitivity/docking_analysis_v1/AK1_7X7S_ensemble_summary.csv
+  results/AK1_ensemble_sensitivity/quantitative_figure_v2/AK1_ensemble_quantitative_figure_summary.csv
+  results/AK1_ensemble_sensitivity/quantitative_figure_v2/figures/AK1_ensemble_panelA_opening_metric.pdf
+  results/AK1_ensemble_sensitivity/quantitative_figure_v2/figures/AK1_ensemble_panelA_opening_metric.png
+  results/AK1_ensemble_sensitivity/quantitative_figure_v2/figures/AK1_ensemble_panelB_Vina_scores.pdf
+  results/AK1_ensemble_sensitivity/quantitative_figure_v2/figures/AK1_ensemble_panelB_Vina_scores.png
+  results/AK1_ensemble_sensitivity/quantitative_figure_v2/figures/AK1_ensemble_panelC_AP5_localization.pdf
+  results/AK1_ensemble_sensitivity/quantitative_figure_v2/figures/AK1_ensemble_panelC_AP5_localization.png
+  results/AK1_ensemble_sensitivity/quantitative_figure_v2/figures/AK1_ensemble_quantitative_ABC_combined.pdf
+  results/AK1_ensemble_sensitivity/quantitative_figure_v2/figures/AK1_ensemble_quantitative_ABC_combined.png
+
+AK1_prepare_7X7S_selected_models.py
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_ensemble_sensitivity/7X7S_selected_models/AK1_7X7S_SELECTED_MODEL_PREPARATION_V2.xlsx
+  results/AK1_ensemble_sensitivity/7X7S_selected_models/AK1_7X7S_pocket_residue_mapping.csv
+  results/AK1_ensemble_sensitivity/7X7S_selected_models/AK1_7X7S_selected_model_alignment_summary.csv
+  results/AK1_ensemble_sensitivity/7X7S_selected_models/AK1_7X7S_to_1Z83_sequence_mapping.csv
+  structures/AK1_1Z83.pdb
+  structures/AK1_7X7S_NMR.pdb
+
+AK1_run_7X7S_ensemble_docking.bat
+Inputs:
+  ligand/isorhamnetin.pdbqt
+  receptors/AK1_7X7S_model*_*.pdbqt (corresponding model)
+Outputs:
+  docking/AK1_7X7S_model1_most_open_ISO_seed1001.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed10101.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed2002.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed3003.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed4004.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed5005.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed6006.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed7007.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed8008.pdbqt
+  docking/AK1_7X7S_model1_most_open_ISO_seed9009.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed1001.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed10101.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed2002.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed3003.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed4004.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed5005.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed6006.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed7007.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed8008.pdbqt
+  docking/AK1_7X7S_model20_least_open_ISO_seed9009.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed1001.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed10101.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed2002.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed3003.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed4004.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed5005.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed6006.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed7007.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed8008.pdbqt
+  docking/AK1_7X7S_model8_ensemble_medoid_ISO_seed9009.pdbqt
+Other file references in the original source:
+  ligand/isorhamnetin.pdbqt
+  receptors/AK1_7X7S_model1_most_open.pdbqt
+  receptors/AK1_7X7S_model20_least_open.pdbqt
+  receptors/AK1_7X7S_model8_ensemble_medoid.pdbqt

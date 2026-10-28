@@ -1,0 +1,5 @@
+Candidate_type,Model,Mean_opening_distance_A,Mean_pairwise_CA_RMSD_A,Reason
+Ensemble medoid,8,27.381053285128786,0.723687497436512,Lowest mean C-alpha RMSD to the other 7X7S conformers.
+Least-open ensemble member,20,26.35979278998339,0.756286149716591,Smallest mean of V47-R132 and V47-T145 C-alpha distances.
+Most-open ensemble member,1,29.111559813551487,0.910631389756655,Largest mean of V47-R132 and V47-T145 C-alpha distances.
+Farthest from ensemble medoid,15,27.75098972292594,0.8672792929983452,Largest whole-chain C-alpha RMSD from the ensemble medoid.

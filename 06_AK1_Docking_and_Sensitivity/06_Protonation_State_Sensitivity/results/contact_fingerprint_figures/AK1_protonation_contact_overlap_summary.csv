@@ -1,0 +1,5 @@
+"Comparison","Contact_type","Reference_n","Test_n","Shared_n","Reference_retained_percent","Jaccard"
+"Monoanion vs neutral alternative","Any",11,11,11,100,1
+"Monoanion vs neutral alternative","Polar",5,5,5,100,1
+"Dianion vs neutral dominant","Any",13,13,12,92.3076923076923,0.857142857142857
+"Dianion vs neutral dominant","Polar",6,8,5,83.3333333333333,0.555555555555556

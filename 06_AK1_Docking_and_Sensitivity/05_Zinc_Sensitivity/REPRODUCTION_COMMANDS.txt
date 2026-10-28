@@ -1,0 +1,40 @@
+05 Zinc Sensitivity
+RECOMMENDED REPRODUCTION STEPS
+
+Run these commands from the working project's structures/ directory after completing the setup in the docking README. The optional new-search sections run new docking calculations.
+
+ZN601 INPUT PREPARATION
+Prepared ZN601 receptor inputs are supplied. To rebuild in an independent working copy:
+python ..\run_analysis.py build_AK1_FIXED_ZN601.py
+python "%CONDA_PREFIX%\Lib\site-packages\meeko\cli\mk_prepare_receptor.py" --read_pdb "..\receptors\AK1_chainA_FIXED_ZN601.pdb" -o "..\receptors\AK1_ZN601" -p
+
+OPTIONAL NEW SEARCH (prepare with --fresh-docking)
+python ..\run_analysis.py --allow-docking run_AK1_ZN601_10seeds.bat
+
+ANALYSIS FROM SAVED OR NEW POSES
+python ..\run_analysis.py AK1_ZN601_10seed_comprehensive.py
+python ..\run_analysis.py AK1_panelI_ZN601_sensitivity.R
+
+OTHER SUPPLIED SOURCES
+The following list includes alternative versions; it is not a required sequence.
+05 Zinc Sensitivity
+REPRODUCTION COMMANDS
+
+First use the preparation helper described in the root README.txt to create a new working copy. Run commands from that copy's structures/ directory.
+Use the relevant steps below; alternative plotting scripts are separate versions, not a sequence that must all be run. Saved docking outputs are supplied for downstream analysis. New docking searches must write to a separate empty output folder.
+
+python ..\run_analysis.py AK1_combine_panelH.py
+python ..\run_analysis.py AK1_inspect_Zn_environment.py
+python ..\run_analysis.py AK1_panelH1_ZN601_clean.pml
+python ..\run_analysis.py AK1_panelH2_ZN641_clean.pml
+python ..\run_analysis.py AK1_panelH_Zn_environment.pml
+python ..\run_analysis.py AK1_panelI_ZN601_sensitivity.R
+python ..\run_analysis.py AK1_panelJ_Znfree_vs_ZN601_overlay.pml
+python ..\run_analysis.py AK1_ZN601_10seed_comprehensive.py
+python ..\run_analysis.py AK1_ZN601_classify_pose.py
+python ..\run_analysis.py AK1_ZN601_pilot_compare.py
+python ..\run_analysis.py AK1_Zn_environment_to_excel.py
+python ..\run_analysis.py build_AK1_FIXED_ZN601.py
+python ..\run_analysis.py --allow-docking run_AK1_ZN601_10seeds.bat
+
+The preparation helper uses the portable execution sources listed in README.txt. Run the same script filenames from the independent structures/ directory. To repeat a docking search, prepare that working copy with --fresh-docking.

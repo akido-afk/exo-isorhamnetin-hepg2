@@ -1,0 +1,11 @@
+"State","Observed_family","n","Percent","Label"
+"Neutral","Alternative",2,20,"2/10
+20%"
+"Neutral","Dominant",8,80,"8/10
+80%"
+"7-O⁻ monoanion","Alternative",10,100,"10/10
+100%"
+"7-O⁻ monoanion","Dominant",0,0,""
+"7-O⁻/4′-O⁻ dianion","Alternative",0,0,""
+"7-O⁻/4′-O⁻ dianion","Dominant",10,100,"10/10
+100%"

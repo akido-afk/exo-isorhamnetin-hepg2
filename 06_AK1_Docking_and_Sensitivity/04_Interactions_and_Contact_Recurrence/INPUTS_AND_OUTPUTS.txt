@@ -1,0 +1,219 @@
+04 Interactions and Contact Recurrence
+INPUTS AND OUTPUTS
+
+Paths below use the original project layout. The preparation helper reconstructs these locations from the chapter folders.
+
+AK1_AP5_ISO_fingerprint_compare.py
+Inputs:
+  ligand/AK1_native_AP5_chainA.pdb
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_dominant8_contact_frequency/AK1_dominant8_contact_frequency.csv
+Outputs:
+  results/AK1_AP5_ISO_fingerprint/AK1_AP5_vs_ISO_residue_fingerprint.csv
+  ../Workbooks/04_AP5_vs_ISO_residue_fingerprint.xlsx
+Other file references in the original source:
+  ligand/AK1_native_AP5_chainA.pdb
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_AP5_ISO_fingerprint/AK1_AP5_vs_ISO_residue_fingerprint.csv
+  ../Workbooks/04_AP5_vs_ISO_residue_fingerprint.xlsx
+  results/AK1_dominant8_contact_frequency/AK1_dominant8_contact_frequency.csv
+
+AK1_dominant8_contact_frequency.py
+Inputs:
+  docking/AK1_ISO_seed1001.pdbqt
+  docking/AK1_ISO_seed10101.pdbqt
+  docking/AK1_ISO_seed2002.pdbqt
+  docking/AK1_ISO_seed3003.pdbqt
+  docking/AK1_ISO_seed4004.pdbqt
+  docking/AK1_ISO_seed5005.pdbqt
+  docking/AK1_ISO_seed7007.pdbqt
+  docking/AK1_ISO_seed9009.pdbqt
+  receptors/AK1_chainA_FIXED.pdb
+Outputs:
+  results/AK1_dominant8_contact_frequency/AK1_dominant8_contact_frequency.csv
+  ../Workbooks/04_dominant8_contact_frequency.xlsx
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed1001_all.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed1001_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed10101_all.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed10101_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed2002_all.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed2002_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed3003_all.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed3003_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed4004_all.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed4004_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed5005_all.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed5005_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed7007_all.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed7007_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed9009_all.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed9009_best.sdf
+Other file references in the original source:
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_dominant8_contact_frequency/AK1_dominant8_contact_frequency.csv
+  ../Workbooks/04_dominant8_contact_frequency.xlsx
+
+AK1_export_recurrent_contact_distances.py
+Inputs:
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_dominant8_contact_frequency/AK1_dominant8_contact_frequency.csv
+Outputs:
+  ../Workbooks/04_dominant8_recurrent_polar_distances.xlsx
+  results/AK1_dominant8_contact_frequency/AK1_dominant8_recurrent_polar_distances_long.csv
+Other file references in the original source:
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_dominant8_contact_frequency/AK1_dominant8_contact_frequency.csv
+  ../Workbooks/04_dominant8_recurrent_polar_distances.xlsx
+  results/AK1_dominant8_contact_frequency/AK1_dominant8_recurrent_polar_distances_long.csv
+
+AK1_extract_ISO_contacts.py
+Inputs:
+  receptors/AK1_chainA_FIXED.pdb
+Outputs:
+  ../Workbooks/04_ISO_seed9009_contact_analysis.xlsx
+  results/AK1_panelB/AK1_ISO_seed9009_polar_contacts.csv
+Other file references in the original source:
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed9009_best.sdf
+  ../Workbooks/04_ISO_seed9009_contact_analysis.xlsx
+  results/AK1_panelB/AK1_ISO_seed9009_polar_contacts.csv
+  results/AK1_repr9009/AK1_ISO_seed9009_best.sdf
+
+AK1_panelB_closeup.pml
+Inputs:
+Outputs:
+Other file references in the original source:
+  ligand/AK1_native_AP5_chainA.pdb
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_panelB/AK1_panelB_closeup_seed9009.png
+  results/AK1_repr9009/AK1_ISO_seed9009_best.sdf
+
+AK1_panelB_refined_v2.pml
+Inputs:
+Outputs:
+Other file references in the original source:
+  ligand/AK1_native_AP5_chainA.pdb
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_panelB/AK1_panelB_seed9009_REFINED_V2.png
+  results/AK1_repr9009/AK1_ISO_seed9009_best.sdf
+
+AK1_panelF_contact_stability.R
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_dominant8_contact_frequency/AK1_dominant8_recurrent_polar_distances_long.csv
+
+AK1_panelF_contact_stability_v2.R
+Inputs:
+  results/AK1_dominant8_contact_frequency/AK1_dominant8_recurrent_polar_distances_long.csv
+Outputs:
+  results/AK1_panelF/AK1_panelF_recurrent_polar_contact_stability_V2.png
+Other file references in the original source:
+  results/AK1_dominant8_contact_frequency/AK1_dominant8_recurrent_polar_distances_long.csv
+  results/AK1_panelF/AK1_panelF_recurrent_polar_contact_stability_V2.pdf
+  results/AK1_panelF/AK1_panelF_recurrent_polar_contact_stability_V2.png
+
+AK1_panelG_AP5_ISO_fingerprint.R
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_AP5_ISO_fingerprint/AK1_AP5_vs_ISO_residue_fingerprint.csv
+  results/AK1_panelG/AK1_panelG_AP5_ISO_polar_fingerprint.pdf
+  results/AK1_panelG/AK1_panelG_AP5_ISO_polar_fingerprint.png
+
+AK1_panelG_contact_recurrence.R
+Inputs:
+Outputs:
+Other file references in the original source:
+  results/AK1_dominant8_contact_frequency/AK1_dominant8_contact_frequency.csv
+
+AK1_panelK_contact_recurrence.R
+Inputs:
+  results/AK1_dominant8_contact_frequency/AK1_dominant8_contact_frequency.csv
+  results/AK1_panelK_contact_recurrence/AK1_panelK_dominant8_contact_recurrence_data.csv
+  ../Workbooks/04_panelK_dominant8_contact_recurrence.xlsx
+Outputs:
+  results/AK1_panelK_contact_recurrence/AK1_panelK_dominant8_contact_recurrence.png
+Other file references in the original source:
+  results/AK1_dominant8_contact_frequency/AK1_dominant8_contact_frequency.csv
+  results/AK1_panelK_contact_recurrence/AK1_panelK_dominant8_contact_recurrence.pdf
+  results/AK1_panelK_contact_recurrence/AK1_panelK_dominant8_contact_recurrence.png
+  results/AK1_panelK_contact_recurrence/AK1_panelK_dominant8_contact_recurrence_data.csv
+  ../Workbooks/04_panelK_dominant8_contact_recurrence.xlsx
+
+AK1_panelL_native_ligand_fingerprint.R
+Inputs:
+  results/AK1_panelL_native_ligand_fingerprint/AK1_panelL_any_contact_fingerprint.csv
+  results/AK1_panelL_native_ligand_fingerprint/AK1_panelL_fingerprint_overlap_summary.csv
+  ../Workbooks/04_panelL_native_ligand_fingerprint.xlsx
+  results/AK1_panelL_native_ligand_fingerprint/AK1_panelL_polar_contact_fingerprint.csv
+Outputs:
+  results/AK1_panelL_native_ligand_fingerprint/AK1_panelL_A_polar_contact_fingerprint.png
+  results/AK1_panelL_native_ligand_fingerprint/AK1_panelL_B_fingerprint_overlap.png
+Other file references in the original source:
+  results/AK1_panelL_native_ligand_fingerprint/AK1_panelL_A_polar_contact_fingerprint.pdf
+  results/AK1_panelL_native_ligand_fingerprint/AK1_panelL_A_polar_contact_fingerprint.png
+  results/AK1_panelL_native_ligand_fingerprint/AK1_panelL_B_fingerprint_overlap.pdf
+  results/AK1_panelL_native_ligand_fingerprint/AK1_panelL_B_fingerprint_overlap.png
+  results/AK1_panelL_native_ligand_fingerprint/AK1_panelL_any_contact_fingerprint.csv
+  results/AK1_panelL_native_ligand_fingerprint/AK1_panelL_fingerprint_overlap_summary.csv
+  ../Workbooks/04_panelL_native_ligand_fingerprint.xlsx
+  results/AK1_panelL_native_ligand_fingerprint/AK1_panelL_polar_contact_fingerprint.csv
+
+make_AK1_panelB.pml
+Inputs:
+Outputs:
+Other file references in the original source:
+  ligand/AK1_native_AP5_chainA.pdb
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_panelB/AK1_panelB_seed9009_FINAL.png
+  results/AK1_repr9009/AK1_ISO_seed9009_best.sdf
+
+make_AK1_panelB_callouts.pml
+Inputs:
+Outputs:
+Other file references in the original source:
+  ligand/AK1_native_AP5_chainA.pdb
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_panelB/AK1_panelB_seed9009_CALLOUTS.png
+  results/AK1_repr9009/AK1_ISO_seed9009_best.sdf
+
+make_AK1_panelB_callouts_v2.pml
+Inputs:
+  ligand/AK1_native_AP5_chainA.pdb
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_repr9009/AK1_ISO_seed9009_best.sdf
+Outputs:
+  results/AK1_panelB/AK1_panelB_seed9009_POLAR_CALLOUTS.png
+Other file references in the original source:
+  ligand/AK1_native_AP5_chainA.pdb
+  receptors/AK1_chainA_FIXED.pdb
+  results/AK1_Zn_sensitivity/ZN601_10seed/original_Znfree_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_Zn_sensitivity/original_10_reference_poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_dominant8_contact_frequency/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_final_visuals/poses/AK1_ISO_seed9009_best.sdf
+  results/AK1_panelB/AK1_panelB_seed9009_POLAR_CALLOUTS.png
+  results/AK1_repr9009/AK1_ISO_seed9009_best.sdf

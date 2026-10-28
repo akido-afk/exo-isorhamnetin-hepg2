@@ -1,0 +1,11 @@
+Seed,Modes_returned,Global_best_score,Mode1_nearest_family,Mode1_nearest_family_RMSD_A,Mode1_targeted_like_2A,Mode1_targeted_like_3A,Mode1_AP5_centroid_distance_A,Any_targeted_like_2A,Any_targeted_like_3A,Targeted_like_2A_n,Targeted_like_3A_n,First_targeted_like_2A_rank,First_targeted_like_3A_rank,Best_targeted_like_2A_score,Best_targeted_like_3A_score,Score_penalty_to_best_targeted_like_2A,Score_penalty_to_best_targeted_like_3A,Dominant_like_2A_n,Alternative_like_2A_n,AP5_centroid_within_6A_n
+1001,20,-8.733,Dominant,0.2433842908724356,True,True,3.3144556523526276,True,True,2,5,1,1,-8.733,-8.733,0.0,0.0,1,1,17
+2002,20,-8.728,Dominant,0.24913921374622428,True,True,3.3159516052434683,True,True,3,7,1,1,-8.728,-8.728,0.0,0.0,1,2,17
+3003,20,-8.735,Dominant,0.2294267904450418,True,True,3.325326771870286,True,True,3,7,1,1,-8.735,-8.735,0.0,0.0,1,2,17
+4004,20,-8.737,Dominant,0.23454961466421206,True,True,3.3208804481512795,True,True,2,5,1,1,-8.737,-8.737,0.0,0.0,1,1,17
+5005,20,-8.726,Dominant,0.24097014067235079,True,True,3.317690198762218,True,True,3,7,1,1,-8.726,-8.726,0.0,0.0,1,2,17
+6006,20,-8.809,Dominant,0.1303465281137334,True,True,3.4247431470333334,True,True,3,7,1,1,-8.809,-8.809,0.0,0.0,1,2,17
+7007,20,-8.777,Dominant,0.20206122619254427,True,True,3.345853738520959,True,True,3,6,1,1,-8.777,-8.777,0.0,0.0,1,2,17
+8008,20,-8.732,Dominant,0.23158677592343002,True,True,3.34427389122257,True,True,3,6,1,1,-8.732,-8.732,0.0,0.0,1,2,18
+9009,20,-8.721,Dominant,0.2543731425527737,True,True,3.317825520261278,True,True,4,6,1,1,-8.721,-8.721,0.0,0.0,2,2,17
+10101,20,-8.732,Dominant,0.24430460317078467,True,True,3.3159515429196724,True,True,3,6,1,1,-8.732,-8.732,0.0,0.0,2,1,17

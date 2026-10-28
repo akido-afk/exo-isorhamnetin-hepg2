@@ -1,0 +1,14153 @@
+Representative-pose polar contacts, contact recurrence and crystallographic AP5 footprint comparison
+Figure 8b,d; Figure S14b,c; Figure S15a–c. These panels show the representative interaction map, recurrent polar distances, broad/polar contact recurrence and ISO–AP5 footprint overlap.
+
+COMPLETE ORIGINAL SOURCE CODE
+
+Use the separate executable source files in code/. Each section below contains the complete original source for one file. This TXT is a readable record, not one combined executable script.
+
+================================================================================
+FILE: AK1_AP5_ISO_fingerprint_compare.py
+Executable source: code/AK1_AP5_ISO_fingerprint_compare.py
+================================================================================
+from pathlib import Path
+
+from collections import defaultdict
+
+import math
+
+import csv
+
+import xlsxwriter
+
+
+
+
+
+# ============================================================
+
+# PATHS
+
+# ============================================================
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+
+
+PROTEIN_FILE = PROJECT / "receptors" / "AK1_chainA_FIXED.pdb"
+
+
+
+AP5_FILE = PROJECT / "ligand" / "AK1_native_AP5_chainA.pdb"
+
+
+
+ISO_FREQ_FILE = (
+
+    PROJECT
+
+    / "results"
+
+    / "AK1_dominant8_contact_frequency"
+
+    / "AK1_dominant8_contact_frequency.csv"
+
+)
+
+
+
+OUTPUT_DIR = (
+
+    PROJECT
+
+    / "results"
+
+    / "AK1_AP5_ISO_fingerprint"
+
+)
+
+
+
+OUTPUT_DIR.mkdir(
+
+    parents=True,
+
+    exist_ok=True
+
+)
+
+
+
+CSV_OUTPUT = (
+
+    OUTPUT_DIR
+
+    / "AK1_AP5_vs_ISO_residue_fingerprint.csv"
+
+)
+
+
+
+XLSX_OUTPUT = (
+
+    OUTPUT_DIR
+
+    / "AK1_AP5_vs_ISO_residue_fingerprint.xlsx"
+
+)
+
+
+
+
+
+# ============================================================
+
+# DEFINITIONS
+
+# ============================================================
+
+
+
+ANY_CUTOFF = 4.0
+
+POLAR_CUTOFF = 3.6
+
+
+
+
+
+def distance(a, b):
+
+
+
+    return math.sqrt(
+
+        (a[0] - b[0]) ** 2
+
+        + (a[1] - b[1]) ** 2
+
+        + (a[2] - b[2]) ** 2
+
+    )
+
+
+
+
+
+# ============================================================
+
+# READ AK1 PROTEIN ATOMS
+
+# ============================================================
+
+
+
+protein_atoms = []
+
+
+
+with open(
+
+    PROTEIN_FILE,
+
+    "r"
+
+) as f:
+
+
+
+    for line in f:
+
+
+
+        if not line.startswith("ATOM"):
+
+            continue
+
+
+
+        atom_name = line[12:16].strip()
+
+        resname = line[17:20].strip()
+
+        resid = line[22:26].strip()
+
+        chain = line[21].strip()
+
+
+
+        x = float(line[30:38])
+
+        y = float(line[38:46])
+
+        z = float(line[46:54])
+
+
+
+        element = line[76:78].strip()
+
+
+
+        if not element:
+
+            element = atom_name[0]
+
+
+
+        element = element.upper()
+
+
+
+        if element == "H":
+
+            continue
+
+
+
+        residue = f"{resname}{resid}"
+
+
+
+        protein_atoms.append({
+
+            "residue": residue,
+
+            "atom": atom_name,
+
+            "element": element,
+
+            "chain": chain,
+
+            "coord": (x, y, z)
+
+        })
+
+
+
+
+
+# ============================================================
+
+# READ NATIVE AP5 ATOMS
+
+# ============================================================
+
+
+
+ap5_atoms = []
+
+
+
+with open(
+
+    AP5_FILE,
+
+    "r"
+
+) as f:
+
+
+
+    for line in f:
+
+
+
+        if not line.startswith("HETATM"):
+
+            continue
+
+
+
+        atom_name = line[12:16].strip()
+
+
+
+        x = float(line[30:38])
+
+        y = float(line[38:46])
+
+        z = float(line[46:54])
+
+
+
+        element = line[76:78].strip()
+
+
+
+        if not element:
+
+            element = atom_name[0]
+
+
+
+        element = element.upper()
+
+
+
+        if element == "H":
+
+            continue
+
+
+
+        ap5_atoms.append({
+
+            "atom": atom_name,
+
+            "element": element,
+
+            "coord": (x, y, z)
+
+        })
+
+
+
+
+
+# ============================================================
+
+# AP5 CONTACT FINGERPRINT
+
+# ============================================================
+
+
+
+ap5_any = {}
+
+ap5_polar = {}
+
+
+
+for p in protein_atoms:
+
+
+
+    residue = p["residue"]
+
+
+
+    for ligand_atom in ap5_atoms:
+
+
+
+        d = distance(
+
+            p["coord"],
+
+            ligand_atom["coord"]
+
+        )
+
+
+
+        # ----------------------------
+
+        # Any heavy-atom contact
+
+        # ----------------------------
+
+
+
+        if d <= ANY_CUTOFF:
+
+
+
+            if (
+
+                residue not in ap5_any
+
+                or d < ap5_any[residue]
+
+            ):
+
+                ap5_any[residue] = d
+
+
+
+        # ----------------------------
+
+        # Polar heavy-atom proximity
+
+        # ----------------------------
+
+
+
+        if (
+
+            p["element"] in {"O", "N", "S"}
+
+            and
+
+            ligand_atom["element"] in {"O", "N", "S"}
+
+            and
+
+            d <= POLAR_CUTOFF
+
+        ):
+
+
+
+            if (
+
+                residue not in ap5_polar
+
+                or d < ap5_polar[residue]
+
+            ):
+
+                ap5_polar[residue] = d
+
+
+
+
+
+# ============================================================
+
+# READ ISO DOMINANT-CLUSTER FREQUENCIES
+
+# ============================================================
+
+
+
+iso_rows = {}
+
+
+
+with open(
+
+    ISO_FREQ_FILE,
+
+    newline="",
+
+    encoding="utf-8"
+
+) as f:
+
+
+
+    reader = csv.DictReader(f)
+
+
+
+    for row in reader:
+
+
+
+        residue = row["Residue"]
+
+
+
+        iso_rows[residue] = {
+
+            "any_n": int(row["Any contact n"]),
+
+            "any_pct": float(row["Any contact %"]),
+
+            "polar_n": int(row["Polar contact n"]),
+
+            "polar_pct": float(row["Polar contact %"])
+
+        }
+
+
+
+
+
+# ============================================================
+
+# UNION OF ALL RESIDUES
+
+# ============================================================
+
+
+
+all_residues = sorted(
+
+    set(ap5_any.keys())
+
+    | set(ap5_polar.keys())
+
+    | set(iso_rows.keys()),
+
+    key=lambda r: int(
+
+        "".join(
+
+            c for c in r
+
+            if c.isdigit()
+
+        )
+
+    )
+
+)
+
+
+
+
+
+# ============================================================
+
+# BUILD COMPARISON TABLE
+
+# ============================================================
+
+
+
+rows = []
+
+
+
+for residue in all_residues:
+
+
+
+    ap5_any_yes = residue in ap5_any
+
+    ap5_polar_yes = residue in ap5_polar
+
+
+
+    iso_any_n = (
+
+        iso_rows.get(
+
+            residue,
+
+            {}
+
+        ).get(
+
+            "any_n",
+
+            0
+
+        )
+
+    )
+
+
+
+    iso_any_pct = (
+
+        iso_rows.get(
+
+            residue,
+
+            {}
+
+        ).get(
+
+            "any_pct",
+
+            0.0
+
+        )
+
+    )
+
+
+
+    iso_polar_n = (
+
+        iso_rows.get(
+
+            residue,
+
+            {}
+
+        ).get(
+
+            "polar_n",
+
+            0
+
+        )
+
+    )
+
+
+
+    iso_polar_pct = (
+
+        iso_rows.get(
+
+            residue,
+
+            {}
+
+        ).get(
+
+            "polar_pct",
+
+            0.0
+
+        )
+
+    )
+
+
+
+    iso_consensus_any = (
+
+        iso_any_n >= 6
+
+    )
+
+
+
+    iso_consensus_polar = (
+
+        iso_polar_n >= 6
+
+    )
+
+
+
+    if ap5_any_yes and iso_consensus_any:
+
+
+
+        any_class = "Shared"
+
+
+
+    elif ap5_any_yes:
+
+
+
+        any_class = "AP5 only"
+
+
+
+    elif iso_consensus_any:
+
+
+
+        any_class = "ISO only"
+
+
+
+    else:
+
+
+
+        any_class = "Neither consensus"
+
+
+
+
+
+    if ap5_polar_yes and iso_consensus_polar:
+
+
+
+        polar_class = "Shared"
+
+
+
+    elif ap5_polar_yes:
+
+
+
+        polar_class = "AP5 only"
+
+
+
+    elif iso_consensus_polar:
+
+
+
+        polar_class = "ISO only"
+
+
+
+    else:
+
+
+
+        polar_class = "Neither consensus"
+
+
+
+
+
+    rows.append({
+
+        "Residue": residue,
+
+
+
+        "AP5 any contact": int(
+
+            ap5_any_yes
+
+        ),
+
+
+
+        "AP5 any min distance (A)": (
+
+            ap5_any.get(residue)
+
+        ),
+
+
+
+        "ISO any contact n/8": (
+
+            iso_any_n
+
+        ),
+
+
+
+        "ISO any contact %": (
+
+            iso_any_pct
+
+        ),
+
+
+
+        "Any-contact class": (
+
+            any_class
+
+        ),
+
+
+
+        "AP5 polar contact": int(
+
+            ap5_polar_yes
+
+        ),
+
+
+
+        "AP5 polar min distance (A)": (
+
+            ap5_polar.get(residue)
+
+        ),
+
+
+
+        "ISO polar contact n/8": (
+
+            iso_polar_n
+
+        ),
+
+
+
+        "ISO polar contact %": (
+
+            iso_polar_pct
+
+        ),
+
+
+
+        "Polar-contact class": (
+
+            polar_class
+
+        )
+
+    })
+
+
+
+
+
+# ============================================================
+
+# SUMMARY SETS
+
+# ============================================================
+
+
+
+ap5_any_set = {
+
+    r for r in all_residues
+
+    if r in ap5_any
+
+}
+
+
+
+iso_consensus_any_set = {
+
+    r for r in all_residues
+
+    if iso_rows.get(
+
+        r,
+
+        {}
+
+    ).get(
+
+        "any_n",
+
+        0
+
+    ) >= 6
+
+}
+
+
+
+shared_any = (
+
+    ap5_any_set
+
+    & iso_consensus_any_set
+
+)
+
+
+
+ap5_only_any = (
+
+    ap5_any_set
+
+    - iso_consensus_any_set
+
+)
+
+
+
+iso_only_any = (
+
+    iso_consensus_any_set
+
+    - ap5_any_set
+
+)
+
+
+
+
+
+ap5_polar_set = {
+
+    r for r in all_residues
+
+    if r in ap5_polar
+
+}
+
+
+
+iso_consensus_polar_set = {
+
+    r for r in all_residues
+
+    if iso_rows.get(
+
+        r,
+
+        {}
+
+    ).get(
+
+        "polar_n",
+
+        0
+
+    ) >= 6
+
+}
+
+
+
+shared_polar = (
+
+    ap5_polar_set
+
+    & iso_consensus_polar_set
+
+)
+
+
+
+ap5_only_polar = (
+
+    ap5_polar_set
+
+    - iso_consensus_polar_set
+
+)
+
+
+
+iso_only_polar = (
+
+    iso_consensus_polar_set
+
+    - ap5_polar_set
+
+)
+
+
+
+
+
+# ============================================================
+
+# JACCARD OVERLAP
+
+# ============================================================
+
+
+
+def jaccard(a, b):
+
+
+
+    union = a | b
+
+
+
+    if not union:
+
+        return 0.0
+
+
+
+    return (
+
+        len(a & b)
+
+        / len(union)
+
+    )
+
+
+
+
+
+any_jaccard = jaccard(
+
+    ap5_any_set,
+
+    iso_consensus_any_set
+
+)
+
+
+
+polar_jaccard = jaccard(
+
+    ap5_polar_set,
+
+    iso_consensus_polar_set
+
+)
+
+
+
+
+
+# ============================================================
+
+# PRINT RESULTS
+
+# ============================================================
+
+
+
+print()
+
+print("=" * 90)
+
+print(
+
+    "AK1 NATIVE AP5 vs ISO DOMINANT-CLUSTER INTERACTION FINGERPRINT"
+
+)
+
+print("=" * 90)
+
+
+
+print()
+
+print("ANY HEAVY-ATOM CONTACTS")
+
+print("-----------------------")
+
+
+
+print(
+
+    "AP5 residues:",
+
+    sorted(ap5_any_set)
+
+)
+
+
+
+print(
+
+    "ISO consensus residues:",
+
+    sorted(iso_consensus_any_set)
+
+)
+
+
+
+print(
+
+    "Shared:",
+
+    sorted(shared_any)
+
+)
+
+
+
+print(
+
+    "AP5 only:",
+
+    sorted(ap5_only_any)
+
+)
+
+
+
+print(
+
+    "ISO only:",
+
+    sorted(iso_only_any)
+
+)
+
+
+
+print(
+
+    "Jaccard overlap:",
+
+    f"{any_jaccard:.3f}"
+
+)
+
+
+
+
+
+print()
+
+print("POLAR CONTACTS")
+
+print("--------------")
+
+
+
+print(
+
+    "AP5 residues:",
+
+    sorted(ap5_polar_set)
+
+)
+
+
+
+print(
+
+    "ISO consensus residues:",
+
+    sorted(iso_consensus_polar_set)
+
+)
+
+
+
+print(
+
+    "Shared:",
+
+    sorted(shared_polar)
+
+)
+
+
+
+print(
+
+    "AP5 only:",
+
+    sorted(ap5_only_polar)
+
+)
+
+
+
+print(
+
+    "ISO only:",
+
+    sorted(iso_only_polar)
+
+)
+
+
+
+print(
+
+    "Jaccard overlap:",
+
+    f"{polar_jaccard:.3f}"
+
+)
+
+
+
+
+
+# ============================================================
+
+# SAVE CSV
+
+# ============================================================
+
+
+
+headers = list(
+
+    rows[0].keys()
+
+)
+
+
+
+with open(
+
+    CSV_OUTPUT,
+
+    "w",
+
+    newline="",
+
+    encoding="utf-8"
+
+) as f:
+
+
+
+    writer = csv.DictWriter(
+
+        f,
+
+        fieldnames=headers
+
+    )
+
+
+
+    writer.writeheader()
+
+    writer.writerows(rows)
+
+
+
+
+
+# ============================================================
+
+# SAVE EXCEL
+
+# ============================================================
+
+
+
+workbook = xlsxwriter.Workbook(
+
+    XLSX_OUTPUT
+
+)
+
+
+
+title_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_size": 15,
+
+    "font_color": "white",
+
+    "bg_color": "#1F4E78"
+
+})
+
+
+
+header_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_color": "white",
+
+    "bg_color": "#4472C4",
+
+    "border": 1,
+
+    "align": "center",
+
+    "text_wrap": True
+
+})
+
+
+
+normal_fmt = workbook.add_format({
+
+    "border": 1
+
+})
+
+
+
+distance_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "num_format": "0.000"
+
+})
+
+
+
+shared_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "bg_color": "#E2F0D9"
+
+})
+
+
+
+ap5_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "bg_color": "#DDEBF7"
+
+})
+
+
+
+iso_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "bg_color": "#FFF2CC"
+
+})
+
+
+
+
+
+# ============================================================
+
+# SHEET 1 — RESIDUE FINGERPRINT
+
+# ============================================================
+
+
+
+ws = workbook.add_worksheet(
+
+    "Residue_Fingerprint"
+
+)
+
+
+
+ws.merge_range(
+
+    0,
+
+    0,
+
+    0,
+
+    len(headers) - 1,
+
+    "AK1 Native AP5 vs Isorhamnetin Interaction Fingerprint",
+
+    title_fmt
+
+)
+
+
+
+for col, header in enumerate(headers):
+
+
+
+    ws.write(
+
+        2,
+
+        col,
+
+        header,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for row_index, row in enumerate(
+
+    rows,
+
+    start=3
+
+):
+
+
+
+    class_value = row[
+
+        "Any-contact class"
+
+    ]
+
+
+
+    if class_value == "Shared":
+
+
+
+        row_fmt = shared_fmt
+
+
+
+    elif class_value == "AP5 only":
+
+
+
+        row_fmt = ap5_fmt
+
+
+
+    elif class_value == "ISO only":
+
+
+
+        row_fmt = iso_fmt
+
+
+
+    else:
+
+
+
+        row_fmt = normal_fmt
+
+
+
+
+
+    for col, header in enumerate(
+
+        headers
+
+    ):
+
+
+
+        value = row[header]
+
+
+
+        if value is None:
+
+
+
+            ws.write(
+
+                row_index,
+
+                col,
+
+                "",
+
+                row_fmt
+
+            )
+
+
+
+        elif isinstance(
+
+            value,
+
+            float
+
+        ) and "distance" in header.lower():
+
+
+
+            ws.write_number(
+
+                row_index,
+
+                col,
+
+                value,
+
+                distance_fmt
+
+            )
+
+
+
+        else:
+
+
+
+            ws.write(
+
+                row_index,
+
+                col,
+
+                value,
+
+                row_fmt
+
+            )
+
+
+
+
+
+ws.set_column(
+
+    0,
+
+    0,
+
+    15
+
+)
+
+
+
+ws.set_column(
+
+    1,
+
+    len(headers) - 1,
+
+    22
+
+)
+
+
+
+
+
+# ============================================================
+
+# SHEET 2 — SUMMARY
+
+# ============================================================
+
+
+
+ws2 = workbook.add_worksheet(
+
+    "Overlap_Summary"
+
+)
+
+
+
+summary_rows = [
+
+    [
+
+        "Any-contact AP5 residues",
+
+        ", ".join(
+
+            sorted(ap5_any_set)
+
+        )
+
+    ],
+
+    [
+
+        "Any-contact ISO consensus residues",
+
+        ", ".join(
+
+            sorted(
+
+                iso_consensus_any_set
+
+            )
+
+        )
+
+    ],
+
+    [
+
+        "Any-contact shared residues",
+
+        ", ".join(
+
+            sorted(shared_any)
+
+        )
+
+    ],
+
+    [
+
+        "Any-contact AP5-only residues",
+
+        ", ".join(
+
+            sorted(ap5_only_any)
+
+        )
+
+    ],
+
+    [
+
+        "Any-contact ISO-only residues",
+
+        ", ".join(
+
+            sorted(iso_only_any)
+
+        )
+
+    ],
+
+    [
+
+        "Any-contact Jaccard overlap",
+
+        any_jaccard
+
+    ],
+
+
+
+    [
+
+        "Polar AP5 residues",
+
+        ", ".join(
+
+            sorted(ap5_polar_set)
+
+        )
+
+    ],
+
+    [
+
+        "Polar ISO consensus residues",
+
+        ", ".join(
+
+            sorted(
+
+                iso_consensus_polar_set
+
+            )
+
+        )
+
+    ],
+
+    [
+
+        "Polar shared residues",
+
+        ", ".join(
+
+            sorted(shared_polar)
+
+        )
+
+    ],
+
+    [
+
+        "Polar AP5-only residues",
+
+        ", ".join(
+
+            sorted(ap5_only_polar)
+
+        )
+
+    ],
+
+    [
+
+        "Polar ISO-only residues",
+
+        ", ".join(
+
+            sorted(iso_only_polar)
+
+        )
+
+    ],
+
+    [
+
+        "Polar Jaccard overlap",
+
+        polar_jaccard
+
+    ]
+
+]
+
+
+
+
+
+ws2.write(
+
+    0,
+
+    0,
+
+    "Metric",
+
+    header_fmt
+
+)
+
+
+
+ws2.write(
+
+    0,
+
+    1,
+
+    "Value",
+
+    header_fmt
+
+)
+
+
+
+
+
+for row_index, values in enumerate(
+
+    summary_rows,
+
+    start=1
+
+):
+
+
+
+    ws2.write(
+
+        row_index,
+
+        0,
+
+        values[0],
+
+        normal_fmt
+
+    )
+
+
+
+    ws2.write(
+
+        row_index,
+
+        1,
+
+        values[1],
+
+        normal_fmt
+
+    )
+
+
+
+
+
+ws2.set_column(
+
+    0,
+
+    0,
+
+    35
+
+)
+
+
+
+ws2.set_column(
+
+    1,
+
+    1,
+
+    100
+
+)
+
+
+
+
+
+workbook.close()
+
+
+
+
+
+print()
+
+print("=" * 90)
+
+print("FILES SAVED")
+
+print("=" * 90)
+
+
+
+print(CSV_OUTPUT)
+
+print(XLSX_OUTPUT)
+
+END FILE: AK1_AP5_ISO_fingerprint_compare.py
+
+================================================================================
+FILE: AK1_dominant8_contact_frequency.py
+Executable source: code/AK1_dominant8_contact_frequency.py
+================================================================================
+from pathlib import Path
+
+from collections import defaultdict
+
+import subprocess
+
+import sys
+
+import math
+
+import csv
+
+
+
+from rdkit import Chem
+
+import xlsxwriter
+
+
+
+
+
+# ============================================================
+
+# PROJECT PATHS
+
+# ============================================================
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+
+
+DOCKING = PROJECT / "docking"
+
+RECEPTORS = PROJECT / "receptors"
+
+
+
+OUTPUT_DIR = (
+
+    PROJECT
+
+    / "results"
+
+    / "AK1_dominant8_contact_frequency"
+
+)
+
+
+
+POSE_DIR = OUTPUT_DIR / "poses"
+
+
+
+OUTPUT_DIR.mkdir(
+
+    parents=True,
+
+    exist_ok=True
+
+)
+
+
+
+POSE_DIR.mkdir(
+
+    parents=True,
+
+    exist_ok=True
+
+)
+
+
+
+
+
+# ============================================================
+
+# DOMINANT CLUSTER
+
+# ============================================================
+
+
+
+SEEDS = [
+
+    1001,
+
+    2002,
+
+    3003,
+
+    4004,
+
+    5005,
+
+    7007,
+
+    9009,
+
+    10101
+
+]
+
+
+
+
+
+# ============================================================
+
+# DISTANCE CUTOFFS
+
+# ============================================================
+
+
+
+ANY_CONTACT_CUTOFF = 4.0
+
+POLAR_CONTACT_CUTOFF = 3.6
+
+
+
+
+
+# ============================================================
+
+# INPUT PROTEIN
+
+# ============================================================
+
+
+
+PROTEIN_FILE = (
+
+    RECEPTORS
+
+    / "AK1_chainA_FIXED.pdb"
+
+)
+
+
+
+
+
+# ============================================================
+
+# MEEKO EXPORT SCRIPT
+
+# ============================================================
+
+
+
+MEEKO_EXPORT = (
+
+    Path(sys.prefix)
+
+    / "Lib"
+
+    / "site-packages"
+
+    / "meeko"
+
+    / "cli"
+
+    / "mk_export.py"
+
+)
+
+
+
+
+
+# ============================================================
+
+# BASIC DISTANCE FUNCTION
+
+# ============================================================
+
+
+
+def distance(a, b):
+
+
+
+    return math.sqrt(
+
+        (a[0] - b[0]) ** 2
+
+        + (a[1] - b[1]) ** 2
+
+        + (a[2] - b[2]) ** 2
+
+    )
+
+
+
+
+
+# ============================================================
+
+# READ AK1 PROTEIN ATOMS
+
+# ============================================================
+
+
+
+protein_atoms = []
+
+
+
+with open(
+
+    PROTEIN_FILE,
+
+    "r"
+
+) as f:
+
+
+
+    for line in f:
+
+
+
+        if not line.startswith("ATOM"):
+
+            continue
+
+
+
+        atom_name = line[12:16].strip()
+
+        resname = line[17:20].strip()
+
+        chain = line[21].strip()
+
+        resid = line[22:26].strip()
+
+
+
+        x = float(line[30:38])
+
+        y = float(line[38:46])
+
+        z = float(line[46:54])
+
+
+
+        element = line[76:78].strip()
+
+
+
+        if not element:
+
+            element = atom_name[0]
+
+
+
+        # ignore hydrogen
+
+        if element.upper() == "H":
+
+            continue
+
+
+
+        protein_atoms.append({
+
+            "atom": atom_name,
+
+            "resname": resname,
+
+            "resid": resid,
+
+            "chain": chain,
+
+            "element": element.upper(),
+
+            "coord": (x, y, z)
+
+        })
+
+
+
+
+
+# ============================================================
+
+# EXPORT / LOAD THE BEST POSE FROM EACH SEED
+
+# ============================================================
+
+
+
+def get_best_pose(seed):
+
+
+
+    pdbqt = (
+
+        DOCKING
+
+        / f"AK1_ISO_seed{seed}.pdbqt"
+
+    )
+
+
+
+    all_sdf = (
+
+        POSE_DIR
+
+        / f"AK1_ISO_seed{seed}_all.sdf"
+
+    )
+
+
+
+    best_sdf = (
+
+        POSE_DIR
+
+        / f"AK1_ISO_seed{seed}_best.sdf"
+
+    )
+
+
+
+    if not pdbqt.exists():
+
+
+
+        raise FileNotFoundError(
+
+            f"Missing docking file: {pdbqt}"
+
+        )
+
+
+
+    # Export all Vina poses if needed
+
+    if not all_sdf.exists():
+
+
+
+        print(
+
+            f"Exporting seed {seed}..."
+
+        )
+
+
+
+        subprocess.run(
+
+            [
+
+                sys.executable,
+
+                str(MEEKO_EXPORT),
+
+                str(pdbqt),
+
+                "-s",
+
+                str(all_sdf)
+
+            ],
+
+            check=True
+
+        )
+
+
+
+    supplier = Chem.SDMolSupplier(
+
+        str(all_sdf),
+
+        removeHs=False
+
+    )
+
+
+
+    mol = None
+
+
+
+    for candidate in supplier:
+
+
+
+        if candidate is not None:
+
+            mol = candidate
+
+            break
+
+
+
+    if mol is None:
+
+
+
+        raise RuntimeError(
+
+            f"Could not read pose for seed {seed}"
+
+        )
+
+
+
+    # Save first pose separately for provenance
+
+    if not best_sdf.exists():
+
+
+
+        writer = Chem.SDWriter(
+
+            str(best_sdf)
+
+        )
+
+
+
+        writer.write(mol)
+
+        writer.close()
+
+
+
+    return mol
+
+
+
+
+
+# ============================================================
+
+# ANALYZE ONE ISO POSE
+
+# ============================================================
+
+
+
+def analyze_pose(mol):
+
+
+
+    conf = mol.GetConformer()
+
+
+
+    # residue -> shortest heavy-atom distance
+
+    any_contacts = {}
+
+
+
+    # residue -> shortest polar-heavy-atom distance
+
+    polar_contacts = {}
+
+
+
+    for atom in mol.GetAtoms():
+
+
+
+        element = atom.GetSymbol().upper()
+
+
+
+        if element == "H":
+
+            continue
+
+
+
+        idx = atom.GetIdx()
+
+
+
+        pos = conf.GetAtomPosition(idx)
+
+
+
+        iso_coord = (
+
+            float(pos.x),
+
+            float(pos.y),
+
+            float(pos.z)
+
+        )
+
+
+
+        for p in protein_atoms:
+
+
+
+            d = distance(
+
+                iso_coord,
+
+                p["coord"]
+
+            )
+
+
+
+            residue = (
+
+                f"{p['resname']}{p['resid']}"
+
+            )
+
+
+
+            # --------------------------------------------
+
+            # ANY HEAVY-ATOM CONTACT
+
+            # --------------------------------------------
+
+
+
+            if d <= ANY_CONTACT_CUTOFF:
+
+
+
+                if (
+
+                    residue not in any_contacts
+
+                    or d < any_contacts[residue]
+
+                ):
+
+
+
+                    any_contacts[residue] = d
+
+
+
+            # --------------------------------------------
+
+            # POLAR HEAVY-ATOM CONTACT
+
+            # --------------------------------------------
+
+
+
+            if (
+
+                element in {"O", "N", "S"}
+
+                and
+
+                p["element"] in {"O", "N", "S"}
+
+                and
+
+                d <= POLAR_CONTACT_CUTOFF
+
+            ):
+
+
+
+                if (
+
+                    residue not in polar_contacts
+
+                    or d < polar_contacts[residue]
+
+                ):
+
+
+
+                    polar_contacts[residue] = d
+
+
+
+    return any_contacts, polar_contacts
+
+
+
+
+
+# ============================================================
+
+# RUN ALL 8 DOMINANT POSES
+
+# ============================================================
+
+
+
+all_results = {}
+
+
+
+any_frequency = defaultdict(int)
+
+polar_frequency = defaultdict(int)
+
+
+
+any_distances = defaultdict(list)
+
+polar_distances = defaultdict(list)
+
+
+
+
+
+for seed in SEEDS:
+
+
+
+    print()
+
+    print("=" * 70)
+
+    print(
+
+        f"ANALYZING DOMINANT POSE — SEED {seed}"
+
+    )
+
+    print("=" * 70)
+
+
+
+    mol = get_best_pose(seed)
+
+
+
+    any_contacts, polar_contacts = (
+
+        analyze_pose(mol)
+
+    )
+
+
+
+    all_results[seed] = {
+
+        "any": any_contacts,
+
+        "polar": polar_contacts
+
+    }
+
+
+
+    for residue, d in any_contacts.items():
+
+
+
+        any_frequency[residue] += 1
+
+        any_distances[residue].append(d)
+
+
+
+    for residue, d in polar_contacts.items():
+
+
+
+        polar_frequency[residue] += 1
+
+        polar_distances[residue].append(d)
+
+
+
+    print(
+
+        "Heavy-atom contacting residues:",
+
+        len(any_contacts)
+
+    )
+
+
+
+    print(
+
+        "Polar-contact residues:",
+
+        len(polar_contacts)
+
+    )
+
+
+
+
+
+# ============================================================
+
+# ALL RESIDUES OBSERVED
+
+# ============================================================
+
+
+
+all_residues = sorted(
+
+    set(any_frequency.keys())
+
+    | set(polar_frequency.keys()),
+
+    key=lambda r: (
+
+        int(
+
+            ''.join(
+
+                c for c in r
+
+                if c.isdigit()
+
+            )
+
+        )
+
+    )
+
+)
+
+
+
+
+
+# ============================================================
+
+# BUILD SUMMARY
+
+# ============================================================
+
+
+
+summary = []
+
+
+
+for residue in all_residues:
+
+
+
+    any_n = any_frequency.get(
+
+        residue,
+
+        0
+
+    )
+
+
+
+    polar_n = polar_frequency.get(
+
+        residue,
+
+        0
+
+    )
+
+
+
+    any_mean = (
+
+        sum(any_distances[residue])
+
+        / len(any_distances[residue])
+
+        if any_distances.get(residue)
+
+        else None
+
+    )
+
+
+
+    any_min = (
+
+        min(any_distances[residue])
+
+        if any_distances.get(residue)
+
+        else None
+
+    )
+
+
+
+    polar_mean = (
+
+        sum(polar_distances[residue])
+
+        / len(polar_distances[residue])
+
+        if polar_distances.get(residue)
+
+        else None
+
+    )
+
+
+
+    polar_min = (
+
+        min(polar_distances[residue])
+
+        if polar_distances.get(residue)
+
+        else None
+
+    )
+
+
+
+    summary.append({
+
+        "Residue": residue,
+
+
+
+        "Any contact n": any_n,
+
+        "Any contact %": (
+
+            100 * any_n / len(SEEDS)
+
+        ),
+
+
+
+        "Any mean min-distance": any_mean,
+
+        "Any shortest distance": any_min,
+
+
+
+        "Polar contact n": polar_n,
+
+        "Polar contact %": (
+
+            100 * polar_n / len(SEEDS)
+
+        ),
+
+
+
+        "Polar mean min-distance": polar_mean,
+
+        "Polar shortest distance": polar_min
+
+    })
+
+
+
+
+
+# Sort by:
+
+# 1) polar recurrence
+
+# 2) any-contact recurrence
+
+# 3) shortest distance
+
+summary = sorted(
+
+    summary,
+
+    key=lambda x: (
+
+        -x["Polar contact n"],
+
+        -x["Any contact n"],
+
+        x["Any shortest distance"]
+
+        if x["Any shortest distance"] is not None
+
+        else 999
+
+    )
+
+)
+
+
+
+
+
+# ============================================================
+
+# PRINT IMPORTANT RESULTS
+
+# ============================================================
+
+
+
+print()
+
+print("=" * 90)
+
+print(
+
+    "AK1 — DOMINANT 8-POSE CONTACT RECURRENCE"
+
+)
+
+print("=" * 90)
+
+
+
+print()
+
+print(
+
+    f"{'Residue':<12}"
+
+    f"{'Any':<12}"
+
+    f"{'Polar':<12}"
+
+    f"{'Polar %':<12}"
+
+    f"{'Min polar dist.'}"
+
+)
+
+
+
+print("-" * 90)
+
+
+
+
+
+for row in summary:
+
+
+
+    if row["Any contact n"] == 0:
+
+        continue
+
+
+
+    polar_dist_text = (
+
+        f"{row['Polar shortest distance']:.3f} A"
+
+        if row["Polar shortest distance"]
+
+        is not None
+
+        else "-"
+
+    )
+
+
+
+    print(
+
+        f"{row['Residue']:<12}"
+
+        f"{row['Any contact n']}/8{'':<8}"
+
+        f"{row['Polar contact n']}/8{'':<6}"
+
+        f"{row['Polar contact %']:<12.1f}"
+
+        f"{polar_dist_text}"
+
+    )
+
+
+
+
+
+# ============================================================
+
+# SAVE CSV
+
+# ============================================================
+
+
+
+CSV_FILE = (
+
+    OUTPUT_DIR
+
+    / "AK1_dominant8_contact_frequency.csv"
+
+)
+
+
+
+with open(
+
+    CSV_FILE,
+
+    "w",
+
+    newline="",
+
+    encoding="utf-8"
+
+) as f:
+
+
+
+    writer = csv.DictWriter(
+
+        f,
+
+        fieldnames=list(
+
+            summary[0].keys()
+
+        )
+
+    )
+
+
+
+    writer.writeheader()
+
+    writer.writerows(summary)
+
+
+
+
+
+# ============================================================
+
+# CREATE EXCEL
+
+# ============================================================
+
+
+
+XLSX_FILE = (
+
+    OUTPUT_DIR
+
+    / "AK1_dominant8_contact_frequency.xlsx"
+
+)
+
+
+
+workbook = xlsxwriter.Workbook(
+
+    XLSX_FILE
+
+)
+
+
+
+title_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_size": 15,
+
+    "font_color": "white",
+
+    "bg_color": "#1F4E78"
+
+})
+
+
+
+header_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_color": "white",
+
+    "bg_color": "#4472C4",
+
+    "border": 1,
+
+    "align": "center",
+
+    "text_wrap": True
+
+})
+
+
+
+normal_fmt = workbook.add_format({
+
+    "border": 1
+
+})
+
+
+
+num_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "num_format": "0.000"
+
+})
+
+
+
+percent_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "num_format": "0.0"
+
+})
+
+
+
+strong_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "bg_color": "#E2F0D9"
+
+})
+
+
+
+
+
+# ============================================================
+
+# SHEET 1 — FREQUENCY SUMMARY
+
+# ============================================================
+
+
+
+ws = workbook.add_worksheet(
+
+    "Frequency_Summary"
+
+)
+
+
+
+headers = list(
+
+    summary[0].keys()
+
+)
+
+
+
+ws.merge_range(
+
+    0,
+
+    0,
+
+    0,
+
+    len(headers) - 1,
+
+    "AK1–Isorhamnetin Dominant 8-Pose Contact Recurrence",
+
+    title_fmt
+
+)
+
+
+
+for col, header in enumerate(headers):
+
+
+
+    ws.write(
+
+        2,
+
+        col,
+
+        header,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for row_index, row in enumerate(
+
+    summary,
+
+    start=3
+
+):
+
+
+
+    strongly_recurrent = (
+
+        row["Polar contact n"] >= 6
+
+        or
+
+        row["Any contact n"] == 8
+
+    )
+
+
+
+    for col, header in enumerate(headers):
+
+
+
+        value = row[header]
+
+
+
+        fmt = (
+
+            strong_fmt
+
+            if strongly_recurrent
+
+            else normal_fmt
+
+        )
+
+
+
+        if value is None:
+
+
+
+            ws.write(
+
+                row_index,
+
+                col,
+
+                "",
+
+                fmt
+
+            )
+
+
+
+        elif isinstance(value, float):
+
+
+
+            if "%" in header:
+
+
+
+                ws.write_number(
+
+                    row_index,
+
+                    col,
+
+                    value,
+
+                    percent_fmt
+
+                )
+
+
+
+            else:
+
+
+
+                ws.write_number(
+
+                    row_index,
+
+                    col,
+
+                    value,
+
+                    num_fmt
+
+                )
+
+
+
+        else:
+
+
+
+            ws.write(
+
+                row_index,
+
+                col,
+
+                value,
+
+                fmt
+
+            )
+
+
+
+
+
+ws.set_column(
+
+    0,
+
+    0,
+
+    15
+
+)
+
+
+
+ws.set_column(
+
+    1,
+
+    len(headers) - 1,
+
+    22
+
+)
+
+
+
+ws.freeze_panes(
+
+    3,
+
+    0
+
+)
+
+
+
+
+
+# ============================================================
+
+# SHEET 2 — SEED-BY-SEED PRESENCE MATRIX
+
+# ============================================================
+
+
+
+ws2 = workbook.add_worksheet(
+
+    "Seed_Matrix"
+
+)
+
+
+
+matrix_headers = [
+
+    "Residue"
+
+]
+
+
+
+for seed in SEEDS:
+
+
+
+    matrix_headers.append(
+
+        f"{seed} any"
+
+    )
+
+
+
+for seed in SEEDS:
+
+
+
+    matrix_headers.append(
+
+        f"{seed} polar"
+
+    )
+
+
+
+
+
+ws2.merge_range(
+
+    0,
+
+    0,
+
+    0,
+
+    len(matrix_headers) - 1,
+
+    "Contact Presence Across the Eight Dominant AK1–ISO Poses",
+
+    title_fmt
+
+)
+
+
+
+for col, header in enumerate(
+
+    matrix_headers
+
+):
+
+
+
+    ws2.write(
+
+        2,
+
+        col,
+
+        header,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for row_index, residue in enumerate(
+
+    all_residues,
+
+    start=3
+
+):
+
+
+
+    ws2.write(
+
+        row_index,
+
+        0,
+
+        residue,
+
+        normal_fmt
+
+    )
+
+
+
+    col = 1
+
+
+
+    for seed in SEEDS:
+
+
+
+        present = int(
+
+            residue in all_results[
+
+                seed
+
+            ]["any"]
+
+        )
+
+
+
+        ws2.write_number(
+
+            row_index,
+
+            col,
+
+            present,
+
+            normal_fmt
+
+        )
+
+
+
+        col += 1
+
+
+
+    for seed in SEEDS:
+
+
+
+        present = int(
+
+            residue in all_results[
+
+                seed
+
+            ]["polar"]
+
+        )
+
+
+
+        ws2.write_number(
+
+            row_index,
+
+            col,
+
+            present,
+
+            normal_fmt
+
+        )
+
+
+
+        col += 1
+
+
+
+
+
+ws2.set_column(
+
+    0,
+
+    0,
+
+    14
+
+)
+
+
+
+ws2.set_column(
+
+    1,
+
+    len(matrix_headers) - 1,
+
+    12
+
+)
+
+
+
+
+
+# ============================================================
+
+# SHEET 3 — METHOD
+
+# ============================================================
+
+
+
+ws3 = workbook.add_worksheet(
+
+    "Method"
+
+)
+
+
+
+method_rows = [
+
+    [
+
+        "Dominant cluster seeds",
+
+        ", ".join(
+
+            str(x)
+
+            for x in SEEDS
+
+        )
+
+    ],
+
+
+
+    [
+
+        "Number of poses",
+
+        8
+
+    ],
+
+
+
+    [
+
+        "Any-contact definition",
+
+        "At least one AK1 heavy atom within 4.0 Å of an isorhamnetin heavy atom."
+
+    ],
+
+
+
+    [
+
+        "Polar-contact definition",
+
+        "At least one AK1 O/N/S atom within 3.6 Å of an isorhamnetin O/N/S atom."
+
+    ],
+
+
+
+    [
+
+        "Interpretation",
+
+        "Recurrence indicates repeated geometric engagement across independently generated members of the dominant docking pose family."
+
+    ],
+
+
+
+    [
+
+        "Important caution",
+
+        "Polar-contact recurrence does not by itself establish a hydrogen bond; donor/acceptor identity and geometry should be evaluated separately."
+
+    ]
+
+]
+
+
+
+
+
+ws3.write(
+
+    0,
+
+    0,
+
+    "Parameter",
+
+    header_fmt
+
+)
+
+
+
+ws3.write(
+
+    0,
+
+    1,
+
+    "Value",
+
+    header_fmt
+
+)
+
+
+
+
+
+for row_index, values in enumerate(
+
+    method_rows,
+
+    start=1
+
+):
+
+
+
+    ws3.write(
+
+        row_index,
+
+        0,
+
+        values[0],
+
+        normal_fmt
+
+    )
+
+
+
+    ws3.write(
+
+        row_index,
+
+        1,
+
+        values[1],
+
+        normal_fmt
+
+    )
+
+
+
+
+
+ws3.set_column(
+
+    0,
+
+    0,
+
+    28
+
+)
+
+
+
+ws3.set_column(
+
+    1,
+
+    1,
+
+    100
+
+)
+
+
+
+
+
+workbook.close()
+
+
+
+
+
+# ============================================================
+
+# FINISHED
+
+# ============================================================
+
+
+
+print()
+
+print("=" * 90)
+
+print("FILES SAVED")
+
+print("=" * 90)
+
+
+
+print()
+
+print(CSV_FILE)
+
+print(XLSX_FILE)
+
+END FILE: AK1_dominant8_contact_frequency.py
+
+================================================================================
+FILE: AK1_export_recurrent_contact_distances.py
+Executable source: code/AK1_export_recurrent_contact_distances.py
+================================================================================
+from pathlib import Path
+
+from collections import defaultdict
+
+import math
+
+import csv
+
+
+
+from rdkit import Chem
+
+import xlsxwriter
+
+
+
+
+
+# ============================================================
+
+# PATHS
+
+# ============================================================
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+
+
+PROTEIN_FILE = PROJECT / "receptors" / "AK1_chainA_FIXED.pdb"
+
+
+
+ANALYSIS_DIR = (
+
+    PROJECT
+
+    / "results"
+
+    / "AK1_dominant8_contact_frequency"
+
+)
+
+
+
+POSE_DIR = ANALYSIS_DIR / "poses"
+
+
+
+FREQUENCY_FILE = (
+
+    ANALYSIS_DIR
+
+    / "AK1_dominant8_contact_frequency.csv"
+
+)
+
+
+
+CSV_OUTPUT = (
+
+    ANALYSIS_DIR
+
+    / "AK1_dominant8_recurrent_polar_distances_long.csv"
+
+)
+
+
+
+XLSX_OUTPUT = (
+
+    ANALYSIS_DIR
+
+    / "AK1_dominant8_recurrent_polar_distances.xlsx"
+
+)
+
+
+
+
+
+# ============================================================
+
+# DOMINANT CLUSTER
+
+# ============================================================
+
+
+
+SEEDS = [
+
+    1001,
+
+    2002,
+
+    3003,
+
+    4004,
+
+    5005,
+
+    7007,
+
+    9009,
+
+    10101
+
+]
+
+
+
+
+
+# ============================================================
+
+# DISTANCE FUNCTION
+
+# ============================================================
+
+
+
+def distance(a, b):
+
+
+
+    return math.sqrt(
+
+        (a[0] - b[0]) ** 2
+
+        + (a[1] - b[1]) ** 2
+
+        + (a[2] - b[2]) ** 2
+
+    )
+
+
+
+
+
+# ============================================================
+
+# IDENTIFY THE 8/8 POLAR-CONTACT RESIDUES
+
+# FROM OUR PREVIOUS REAL ANALYSIS
+
+# ============================================================
+
+
+
+recurrent_residues = []
+
+
+
+with open(
+
+    FREQUENCY_FILE,
+
+    newline="",
+
+    encoding="utf-8"
+
+) as f:
+
+
+
+    reader = csv.DictReader(f)
+
+
+
+    for row in reader:
+
+
+
+        if int(row["Polar contact n"]) == 8:
+
+
+
+            recurrent_residues.append(
+
+                row["Residue"]
+
+            )
+
+
+
+
+
+print()
+
+print("Recurrent 8/8 polar-contact residues:")
+
+print(recurrent_residues)
+
+
+
+
+
+# ============================================================
+
+# READ PROTEIN POLAR ATOMS
+
+# ============================================================
+
+
+
+protein_atoms = defaultdict(list)
+
+
+
+with open(
+
+    PROTEIN_FILE,
+
+    "r"
+
+) as f:
+
+
+
+    for line in f:
+
+
+
+        if not line.startswith("ATOM"):
+
+            continue
+
+
+
+        atom_name = line[12:16].strip()
+
+        resname = line[17:20].strip()
+
+        resid = line[22:26].strip()
+
+
+
+        element = line[76:78].strip()
+
+
+
+        if not element:
+
+            element = atom_name[0]
+
+
+
+        element = element.upper()
+
+
+
+        if element not in {"O", "N", "S"}:
+
+            continue
+
+
+
+        x = float(line[30:38])
+
+        y = float(line[38:46])
+
+        z = float(line[46:54])
+
+
+
+        residue = f"{resname}{resid}"
+
+
+
+        protein_atoms[residue].append({
+
+            "atom": atom_name,
+
+            "element": element,
+
+            "coord": (x, y, z)
+
+        })
+
+
+
+
+
+# ============================================================
+
+# CALCULATE MINIMUM POLAR DISTANCE
+
+# FOR EACH RESIDUE IN EACH SEED
+
+# ============================================================
+
+
+
+rows = []
+
+
+
+for seed in SEEDS:
+
+
+
+    sdf_file = (
+
+        POSE_DIR
+
+        / f"AK1_ISO_seed{seed}_best.sdf"
+
+    )
+
+
+
+    if not sdf_file.exists():
+
+
+
+        raise FileNotFoundError(
+
+            f"Missing pose file: {sdf_file}"
+
+        )
+
+
+
+    mol = Chem.MolFromMolFile(
+
+        str(sdf_file),
+
+        removeHs=False
+
+    )
+
+
+
+    if mol is None:
+
+
+
+        raise RuntimeError(
+
+            f"Could not read: {sdf_file}"
+
+        )
+
+
+
+    conf = mol.GetConformer()
+
+
+
+    iso_polar_atoms = []
+
+
+
+    for atom in mol.GetAtoms():
+
+
+
+        element = atom.GetSymbol().upper()
+
+
+
+        if element not in {"O", "N", "S"}:
+
+            continue
+
+
+
+        idx = atom.GetIdx()
+
+
+
+        pos = conf.GetAtomPosition(idx)
+
+
+
+        iso_polar_atoms.append({
+
+            "index": idx + 1,
+
+            "element": element,
+
+            "coord": (
+
+                float(pos.x),
+
+                float(pos.y),
+
+                float(pos.z)
+
+            )
+
+        })
+
+
+
+    for residue in recurrent_residues:
+
+
+
+        best_distance = None
+
+        best_protein_atom = None
+
+        best_iso_atom = None
+
+
+
+        for p in protein_atoms[residue]:
+
+
+
+            for iso_atom in iso_polar_atoms:
+
+
+
+                d = distance(
+
+                    p["coord"],
+
+                    iso_atom["coord"]
+
+                )
+
+
+
+                if (
+
+                    best_distance is None
+
+                    or d < best_distance
+
+                ):
+
+
+
+                    best_distance = d
+
+                    best_protein_atom = p["atom"]
+
+                    best_iso_atom = (
+
+                        f"{iso_atom['element']}"
+
+                        f"{iso_atom['index']}"
+
+                    )
+
+
+
+        rows.append({
+
+            "Seed": seed,
+
+            "Residue": residue,
+
+            "Minimum polar distance (A)": best_distance,
+
+            "Protein atom": best_protein_atom,
+
+            "ISO atom": best_iso_atom,
+
+            "Within 3.6 A cutoff": (
+
+                "YES"
+
+                if best_distance <= 3.6
+
+                else "NO"
+
+            )
+
+        })
+
+
+
+
+
+# ============================================================
+
+# PRINT TABLE
+
+# ============================================================
+
+
+
+print()
+
+print("=" * 95)
+
+print("AK1 DOMINANT-CLUSTER RECURRENT POLAR CONTACT DISTANCES")
+
+print("=" * 95)
+
+
+
+print(
+
+    f"{'Seed':<10}"
+
+    f"{'Residue':<12}"
+
+    f"{'Distance':<14}"
+
+    f"{'Protein atom':<15}"
+
+    f"{'ISO atom':<12}"
+
+)
+
+
+
+print("-" * 95)
+
+
+
+for row in rows:
+
+
+
+    print(
+
+        f"{row['Seed']:<10}"
+
+        f"{row['Residue']:<12}"
+
+        f"{row['Minimum polar distance (A)']:<14.3f}"
+
+        f"{row['Protein atom']:<15}"
+
+        f"{row['ISO atom']:<12}"
+
+    )
+
+
+
+
+
+# ============================================================
+
+# SAVE CSV
+
+# ============================================================
+
+
+
+columns = [
+
+    "Seed",
+
+    "Residue",
+
+    "Minimum polar distance (A)",
+
+    "Protein atom",
+
+    "ISO atom",
+
+    "Within 3.6 A cutoff"
+
+]
+
+
+
+with open(
+
+    CSV_OUTPUT,
+
+    "w",
+
+    newline="",
+
+    encoding="utf-8"
+
+) as f:
+
+
+
+    writer = csv.DictWriter(
+
+        f,
+
+        fieldnames=columns
+
+    )
+
+
+
+    writer.writeheader()
+
+    writer.writerows(rows)
+
+
+
+
+
+# ============================================================
+
+# SAVE EXCEL
+
+# ============================================================
+
+
+
+workbook = xlsxwriter.Workbook(
+
+    XLSX_OUTPUT
+
+)
+
+
+
+ws = workbook.add_worksheet(
+
+    "Per_Seed_Distances"
+
+)
+
+
+
+title_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_size": 15,
+
+    "font_color": "white",
+
+    "bg_color": "#1F4E78"
+
+})
+
+
+
+header_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_color": "white",
+
+    "bg_color": "#4472C4",
+
+    "border": 1,
+
+    "align": "center"
+
+})
+
+
+
+normal_fmt = workbook.add_format({
+
+    "border": 1
+
+})
+
+
+
+distance_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "num_format": "0.000"
+
+})
+
+
+
+
+
+ws.merge_range(
+
+    "A1:F1",
+
+    "AK1 Dominant-Cluster Recurrent Polar Contact Distances",
+
+    title_fmt
+
+)
+
+
+
+for col, header in enumerate(columns):
+
+
+
+    ws.write(
+
+        2,
+
+        col,
+
+        header,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for row_index, row in enumerate(
+
+    rows,
+
+    start=3
+
+):
+
+
+
+    ws.write_number(
+
+        row_index,
+
+        0,
+
+        row["Seed"],
+
+        normal_fmt
+
+    )
+
+
+
+    ws.write(
+
+        row_index,
+
+        1,
+
+        row["Residue"],
+
+        normal_fmt
+
+    )
+
+
+
+    ws.write_number(
+
+        row_index,
+
+        2,
+
+        row["Minimum polar distance (A)"],
+
+        distance_fmt
+
+    )
+
+
+
+    ws.write(
+
+        row_index,
+
+        3,
+
+        row["Protein atom"],
+
+        normal_fmt
+
+    )
+
+
+
+    ws.write(
+
+        row_index,
+
+        4,
+
+        row["ISO atom"],
+
+        normal_fmt
+
+    )
+
+
+
+    ws.write(
+
+        row_index,
+
+        5,
+
+        row["Within 3.6 A cutoff"],
+
+        normal_fmt
+
+    )
+
+
+
+
+
+ws.set_column("A:A", 12)
+
+ws.set_column("B:B", 14)
+
+ws.set_column("C:C", 25)
+
+ws.set_column("D:F", 18)
+
+
+
+workbook.close()
+
+
+
+
+
+print()
+
+print("=" * 95)
+
+print("FILES SAVED")
+
+print("=" * 95)
+
+
+
+print(CSV_OUTPUT)
+
+print(XLSX_OUTPUT)
+
+END FILE: AK1_export_recurrent_contact_distances.py
+
+================================================================================
+FILE: AK1_extract_ISO_contacts.py
+Executable source: code/AK1_extract_ISO_contacts.py
+================================================================================
+from pathlib import Path
+
+from math import sqrt
+
+from collections import defaultdict
+
+
+
+from rdkit import Chem
+
+from rdkit.Chem import ChemicalFeatures
+
+from rdkit import RDConfig
+
+
+
+import xlsxwriter
+
+
+
+
+
+# ============================================================
+
+# PATHS
+
+# ============================================================
+
+
+
+PROJECT = Path(r"C:\Users\akidi\Desktop\ISO_AK_Docking")
+
+
+
+PROTEIN_FILE = PROJECT / "receptors" / "AK1_chainA_FIXED.pdb"
+
+
+
+ISO_FILE = (
+
+    PROJECT
+
+    / "results"
+
+    / "AK1_repr9009"
+
+    / "AK1_ISO_seed9009_best.sdf"
+
+)
+
+
+
+RESULTS = PROJECT / "results" / "AK1_panelB"
+
+
+
+CSV_OUTPUT = RESULTS / "AK1_ISO_seed9009_polar_contacts.csv"
+
+XLSX_OUTPUT = RESULTS / "AK1_ISO_seed9009_contact_analysis.xlsx"
+
+
+
+RESULTS.mkdir(exist_ok=True)
+
+
+
+
+
+# ============================================================
+
+# SETTINGS
+
+# ============================================================
+
+
+
+# Heavy-atom cutoff for screening candidate polar contacts
+
+CUTOFF = 3.6
+
+
+
+# More conservative distance usually associated with
+
+# conventional hydrogen-bond-compatible heavy atom contacts
+
+HBOND_CUTOFF = 3.5
+
+
+
+
+
+# ============================================================
+
+# DISTANCE FUNCTION
+
+# ============================================================
+
+
+
+def distance(a, b):
+
+    return sqrt(
+
+        (a[0] - b[0]) ** 2
+
+        + (a[1] - b[1]) ** 2
+
+        + (a[2] - b[2]) ** 2
+
+    )
+
+
+
+
+
+# ============================================================
+
+# READ PROTEIN ATOMS FROM PDB
+
+# ============================================================
+
+
+
+protein_atoms = []
+
+
+
+with open(PROTEIN_FILE, "r") as f:
+
+
+
+    for line in f:
+
+
+
+        if not line.startswith("ATOM"):
+
+            continue
+
+
+
+        atom_name = line[12:16].strip()
+
+        resname = line[17:20].strip()
+
+        chain = line[21].strip()
+
+        resid = line[22:26].strip()
+
+
+
+        x = float(line[30:38])
+
+        y = float(line[38:46])
+
+        z = float(line[46:54])
+
+
+
+        element = line[76:78].strip()
+
+
+
+        if not element:
+
+            element = atom_name[0]
+
+
+
+        # Only polar heavy atoms
+
+        if element.upper() not in {"O", "N", "S"}:
+
+            continue
+
+
+
+        protein_atoms.append({
+
+            "atom": atom_name,
+
+            "resname": resname,
+
+            "resid": resid,
+
+            "chain": chain,
+
+            "element": element.upper(),
+
+            "coord": (x, y, z)
+
+        })
+
+
+
+
+
+# ============================================================
+
+# PROTEIN DONOR / ACCEPTOR RULES
+
+# ============================================================
+
+
+
+def protein_roles(resname, atom_name):
+
+
+
+    roles = set()
+
+
+
+    # -------------------------
+
+    # Backbone
+
+    # -------------------------
+
+
+
+    if atom_name == "N" and resname != "PRO":
+
+        roles.add("donor")
+
+
+
+    if atom_name in {"O", "OXT"}:
+
+        roles.add("acceptor")
+
+
+
+
+
+    # -------------------------
+
+    # Side-chain donors
+
+    # -------------------------
+
+
+
+    donor_atoms = {
+
+        "ARG": {"NE", "NH1", "NH2"},
+
+        "ASN": {"ND2"},
+
+        "GLN": {"NE2"},
+
+        "HIS": {"ND1", "NE2"},
+
+        "LYS": {"NZ"},
+
+        "SER": {"OG"},
+
+        "THR": {"OG1"},
+
+        "TRP": {"NE1"},
+
+        "TYR": {"OH"},
+
+        "CYS": {"SG"},
+
+    }
+
+
+
+    if atom_name in donor_atoms.get(resname, set()):
+
+        roles.add("donor")
+
+
+
+
+
+    # -------------------------
+
+    # Side-chain acceptors
+
+    # -------------------------
+
+
+
+    acceptor_atoms = {
+
+        "ASP": {"OD1", "OD2"},
+
+        "GLU": {"OE1", "OE2"},
+
+        "ASN": {"OD1"},
+
+        "GLN": {"OE1"},
+
+        "HIS": {"ND1", "NE2"},
+
+        "SER": {"OG"},
+
+        "THR": {"OG1"},
+
+        "TYR": {"OH"},
+
+        "CYS": {"SG"},
+
+        "MET": {"SD"},
+
+    }
+
+
+
+    if atom_name in acceptor_atoms.get(resname, set()):
+
+        roles.add("acceptor")
+
+
+
+    return roles
+
+
+
+
+
+# ============================================================
+
+# READ ISO USING RDKIT
+
+# ============================================================
+
+
+
+supplier = Chem.SDMolSupplier(
+
+    str(ISO_FILE),
+
+    removeHs=False
+
+)
+
+
+
+iso = None
+
+
+
+for mol in supplier:
+
+    if mol is not None:
+
+        iso = mol
+
+        break
+
+
+
+if iso is None:
+
+    raise RuntimeError(
+
+        "Could not read the seed 9009 ISO SDF."
+
+    )
+
+
+
+
+
+conf = iso.GetConformer()
+
+
+
+
+
+# ============================================================
+
+# IDENTIFY ISO DONORS / ACCEPTORS
+
+# ============================================================
+
+
+
+feature_file = (
+
+    Path(RDConfig.RDDataDir)
+
+    / "BaseFeatures.fdef"
+
+)
+
+
+
+factory = ChemicalFeatures.BuildFeatureFactory(
+
+    str(feature_file)
+
+)
+
+
+
+features = factory.GetFeaturesForMol(iso)
+
+
+
+
+
+iso_roles = defaultdict(set)
+
+
+
+for feature in features:
+
+
+
+    family = feature.GetFamily()
+
+
+
+    if family == "Donor":
+
+
+
+        for atom_id in feature.GetAtomIds():
+
+            iso_roles[atom_id].add("donor")
+
+
+
+    elif family == "Acceptor":
+
+
+
+        for atom_id in feature.GetAtomIds():
+
+            iso_roles[atom_id].add("acceptor")
+
+
+
+
+
+# ============================================================
+
+# GIVE ISO ATOMS READABLE NAMES
+
+# O1, O2, N1, etc.
+
+# ============================================================
+
+
+
+element_counts = defaultdict(int)
+
+iso_labels = {}
+
+
+
+for atom in iso.GetAtoms():
+
+
+
+    symbol = atom.GetSymbol()
+
+
+
+    element_counts[symbol] += 1
+
+
+
+    iso_labels[atom.GetIdx()] = (
+
+        f"{symbol}{element_counts[symbol]}"
+
+    )
+
+
+
+
+
+# ============================================================
+
+# FIND POLAR CONTACTS
+
+# ============================================================
+
+
+
+contacts = []
+
+
+
+for iso_atom in iso.GetAtoms():
+
+
+
+    iso_idx = iso_atom.GetIdx()
+
+    iso_element = iso_atom.GetSymbol().upper()
+
+
+
+    if iso_element not in {"O", "N", "S"}:
+
+        continue
+
+
+
+    pos = conf.GetAtomPosition(iso_idx)
+
+
+
+    iso_coord = (
+
+        float(pos.x),
+
+        float(pos.y),
+
+        float(pos.z)
+
+    )
+
+
+
+    ligand_roles = iso_roles.get(
+
+        iso_idx,
+
+        set()
+
+    )
+
+
+
+    for p in protein_atoms:
+
+
+
+        d = distance(
+
+            iso_coord,
+
+            p["coord"]
+
+        )
+
+
+
+        if d > CUTOFF:
+
+            continue
+
+
+
+        p_roles = protein_roles(
+
+            p["resname"],
+
+            p["atom"]
+
+        )
+
+
+
+        # ====================================================
+
+        # CONTACT CLASSIFICATION
+
+        # ====================================================
+
+
+
+        donor_acceptor_match = (
+
+            (
+
+                "donor" in ligand_roles
+
+                and "acceptor" in p_roles
+
+            )
+
+            or
+
+            (
+
+                "acceptor" in ligand_roles
+
+                and "donor" in p_roles
+
+            )
+
+        )
+
+
+
+        if donor_acceptor_match and d <= HBOND_CUTOFF:
+
+
+
+            contact_type = "Candidate H-bond"
+
+
+
+        else:
+
+
+
+            contact_type = "Polar proximity"
+
+
+
+
+
+        contacts.append({
+
+            "Residue": f"{p['resname']}{p['resid']}",
+
+            "Chain": p["chain"],
+
+            "Protein atom": p["atom"],
+
+            "Protein role": "/".join(sorted(p_roles)) if p_roles else "polar atom",
+
+            "ISO atom": iso_labels[iso_idx],
+
+            "ISO atom index": iso_idx + 1,
+
+            "ISO role": "/".join(sorted(ligand_roles)) if ligand_roles else "polar atom",
+
+            "Distance (A)": d,
+
+            "Contact type": contact_type
+
+        })
+
+
+
+
+
+# Sort shortest first
+
+contacts.sort(
+
+    key=lambda x: x["Distance (A)"]
+
+)
+
+
+
+
+
+# ============================================================
+
+# PRINT TO CMD
+
+# ============================================================
+
+
+
+print()
+
+print("=" * 100)
+
+print("AK1 - ISORHAMNETIN SEED 9009 POLAR CONTACT ANALYSIS")
+
+print("=" * 100)
+
+
+
+print()
+
+print(
+
+    f"{'Residue':<10}"
+
+    f"{'Prot atom':<12}"
+
+    f"{'ISO atom':<10}"
+
+    f"{'Distance':<12}"
+
+    f"{'Contact type'}"
+
+)
+
+
+
+print("-" * 100)
+
+
+
+for c in contacts:
+
+
+
+    print(
+
+        f"{c['Residue']:<10}"
+
+        f"{c['Protein atom']:<12}"
+
+        f"{c['ISO atom']:<10}"
+
+        f"{c['Distance (A)']:<12.3f}"
+
+        f"{c['Contact type']}"
+
+    )
+
+
+
+
+
+print()
+
+print("Total polar contacts:", len(contacts))
+
+
+
+candidate_hbonds = [
+
+    c for c in contacts
+
+    if c["Contact type"] == "Candidate H-bond"
+
+]
+
+
+
+print(
+
+    "Candidate H-bonds:",
+
+    len(candidate_hbonds)
+
+)
+
+
+
+
+
+# ============================================================
+
+# RESIDUE-LEVEL SUMMARY
+
+# ============================================================
+
+
+
+residue_summary = {}
+
+
+
+for c in contacts:
+
+
+
+    residue = c["Residue"]
+
+
+
+    if residue not in residue_summary:
+
+
+
+        residue_summary[residue] = {
+
+            "Residue": residue,
+
+            "Minimum distance": c["Distance (A)"],
+
+            "Number of polar contacts": 0,
+
+            "Candidate H-bonds": 0
+
+        }
+
+
+
+    residue_summary[residue][
+
+        "Number of polar contacts"
+
+    ] += 1
+
+
+
+    residue_summary[residue][
+
+        "Minimum distance"
+
+    ] = min(
+
+        residue_summary[residue][
+
+            "Minimum distance"
+
+        ],
+
+        c["Distance (A)"]
+
+    )
+
+
+
+    if c["Contact type"] == "Candidate H-bond":
+
+
+
+        residue_summary[residue][
+
+            "Candidate H-bonds"
+
+        ] += 1
+
+
+
+
+
+residue_summary = sorted(
+
+    residue_summary.values(),
+
+    key=lambda x: x["Minimum distance"]
+
+)
+
+
+
+
+
+# ============================================================
+
+# SAVE CSV
+
+# ============================================================
+
+
+
+import csv
+
+
+
+columns = [
+
+    "Residue",
+
+    "Chain",
+
+    "Protein atom",
+
+    "Protein role",
+
+    "ISO atom",
+
+    "ISO atom index",
+
+    "ISO role",
+
+    "Distance (A)",
+
+    "Contact type"
+
+]
+
+
+
+with open(
+
+    CSV_OUTPUT,
+
+    "w",
+
+    newline="",
+
+    encoding="utf-8"
+
+) as f:
+
+
+
+    writer = csv.DictWriter(
+
+        f,
+
+        fieldnames=columns
+
+    )
+
+
+
+    writer.writeheader()
+
+
+
+    for c in contacts:
+
+
+
+        row = c.copy()
+
+        row["Distance (A)"] = round(
+
+            row["Distance (A)"],
+
+            3
+
+        )
+
+
+
+        writer.writerow(row)
+
+
+
+
+
+# ============================================================
+
+# SAVE EXCEL
+
+# ============================================================
+
+
+
+workbook = xlsxwriter.Workbook(
+
+    XLSX_OUTPUT
+
+)
+
+
+
+title_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_size": 15,
+
+    "font_color": "white",
+
+    "bg_color": "#1F4E78"
+
+})
+
+
+
+header_fmt = workbook.add_format({
+
+    "bold": True,
+
+    "font_color": "white",
+
+    "bg_color": "#4472C4",
+
+    "border": 1,
+
+    "align": "center"
+
+})
+
+
+
+normal_fmt = workbook.add_format({
+
+    "border": 1
+
+})
+
+
+
+distance_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "num_format": "0.000",
+
+    "align": "center"
+
+})
+
+
+
+hbond_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "bg_color": "#E2F0D9"
+
+})
+
+
+
+polar_fmt = workbook.add_format({
+
+    "border": 1,
+
+    "bg_color": "#FFF2CC"
+
+})
+
+
+
+
+
+# ============================================================
+
+# SHEET 1 — ALL CONTACTS
+
+# ============================================================
+
+
+
+ws = workbook.add_worksheet(
+
+    "Atom_Contacts"
+
+)
+
+
+
+ws.merge_range(
+
+    "A1:I1",
+
+    "AK1-Isorhamnetin Seed 9009 Polar Contact Analysis",
+
+    title_fmt
+
+)
+
+
+
+for col, header in enumerate(columns):
+
+
+
+    ws.write(
+
+        2,
+
+        col,
+
+        header,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for row, c in enumerate(
+
+    contacts,
+
+    start=3
+
+):
+
+
+
+    fmt = (
+
+        hbond_fmt
+
+        if c["Contact type"]
+
+        == "Candidate H-bond"
+
+        else polar_fmt
+
+    )
+
+
+
+    values = [
+
+        c["Residue"],
+
+        c["Chain"],
+
+        c["Protein atom"],
+
+        c["Protein role"],
+
+        c["ISO atom"],
+
+        c["ISO atom index"],
+
+        c["ISO role"],
+
+        c["Distance (A)"],
+
+        c["Contact type"]
+
+    ]
+
+
+
+    for col, value in enumerate(values):
+
+
+
+        if col == 7:
+
+
+
+            ws.write_number(
+
+                row,
+
+                col,
+
+                value,
+
+                distance_fmt
+
+            )
+
+
+
+        else:
+
+
+
+            ws.write(
+
+                row,
+
+                col,
+
+                value,
+
+                fmt
+
+            )
+
+
+
+
+
+ws.set_column("A:A", 13)
+
+ws.set_column("B:B", 9)
+
+ws.set_column("C:C", 15)
+
+ws.set_column("D:D", 20)
+
+ws.set_column("E:E", 12)
+
+ws.set_column("F:F", 15)
+
+ws.set_column("G:G", 20)
+
+ws.set_column("H:H", 16)
+
+ws.set_column("I:I", 24)
+
+
+
+ws.freeze_panes(3, 0)
+
+
+
+
+
+# ============================================================
+
+# SHEET 2 — RESIDUE SUMMARY
+
+# ============================================================
+
+
+
+ws2 = workbook.add_worksheet(
+
+    "Residue_Summary"
+
+)
+
+
+
+ws2.merge_range(
+
+    "A1:D1",
+
+    "AK1 Residues Contacting Isorhamnetin",
+
+    title_fmt
+
+)
+
+
+
+summary_headers = [
+
+    "Residue",
+
+    "Minimum distance (A)",
+
+    "Number of polar contacts",
+
+    "Candidate H-bonds"
+
+]
+
+
+
+for col, header in enumerate(
+
+    summary_headers
+
+):
+
+
+
+    ws2.write(
+
+        2,
+
+        col,
+
+        header,
+
+        header_fmt
+
+    )
+
+
+
+
+
+for row, r in enumerate(
+
+    residue_summary,
+
+    start=3
+
+):
+
+
+
+    ws2.write(
+
+        row,
+
+        0,
+
+        r["Residue"],
+
+        normal_fmt
+
+    )
+
+
+
+    ws2.write_number(
+
+        row,
+
+        1,
+
+        r["Minimum distance"],
+
+        distance_fmt
+
+    )
+
+
+
+    ws2.write_number(
+
+        row,
+
+        2,
+
+        r["Number of polar contacts"],
+
+        normal_fmt
+
+    )
+
+
+
+    ws2.write_number(
+
+        row,
+
+        3,
+
+        r["Candidate H-bonds"],
+
+        normal_fmt
+
+    )
+
+
+
+
+
+ws2.set_column("A:A", 15)
+
+ws2.set_column("B:D", 24)
+
+
+
+
+
+# ============================================================
+
+# SHEET 3 — METHOD NOTES
+
+# ============================================================
+
+
+
+ws3 = workbook.add_worksheet(
+
+    "Interpretation"
+
+)
+
+
+
+ws3.write(
+
+    "A1",
+
+    "Important interpretation",
+
+    title_fmt
+
+)
+
+
+
+notes = [
+
+    [
+
+        "Representative pose",
+
+        "AK1-ISO seed 9009, selected from the dominant 8/10 pose cluster."
+
+    ],
+
+    [
+
+        "Screening cutoff",
+
+        "Protein and ligand polar heavy atoms within 3.6 Å."
+
+    ],
+
+    [
+
+        "Candidate H-bond definition",
+
+        "Donor/acceptor-compatible heavy-atom pair at <=3.5 Å."
+
+    ],
+
+    [
+
+        "Caution",
+
+        "Candidate H-bond classification is based on atom type and heavy-atom distance. "
+
+        "Full hydrogen-bond assignment should additionally consider hydrogen geometry and donor-H-acceptor angle."
+
+    ],
+
+    [
+
+        "Other interactions",
+
+        "This table does not yet quantify hydrophobic, aromatic/pi, cation-pi or other non-polar contacts."
+
+    ]
+
+]
+
+
+
+for row, values in enumerate(
+
+    notes,
+
+    start=2
+
+):
+
+
+
+    ws3.write(
+
+        row,
+
+        0,
+
+        values[0],
+
+        header_fmt
+
+    )
+
+
+
+    ws3.write(
+
+        row,
+
+        1,
+
+        values[1],
+
+        normal_fmt
+
+    )
+
+
+
+
+
+ws3.set_column("A:A", 28)
+
+ws3.set_column("B:B", 100)
+
+
+
+
+
+workbook.close()
+
+
+
+
+
+print()
+
+print("=" * 100)
+
+print("FILES SAVED")
+
+print("=" * 100)
+
+
+
+print()
+
+print(CSV_OUTPUT)
+
+print(XLSX_OUTPUT)
+
+
+
+print()
+
+END FILE: AK1_extract_ISO_contacts.py
+
+================================================================================
+FILE: AK1_panelB_closeup.pml
+Executable source: code/AK1_panelB_closeup.pml
+================================================================================
+reinitialize
+
+
+
+# =========================================
+
+# Load protein
+
+# =========================================
+
+load ..\receptors\AK1_chainA_FIXED.pdb, AK1
+
+remove solvent
+
+hide everything
+
+
+
+# =========================================
+
+# Load representative ISO pose (seed 9009)
+
+# =========================================
+
+load ..\results\AK1_repr9009\AK1_ISO_seed9009_best.sdf, ISO_9009
+
+
+
+# =========================================
+
+# Optional: load native AP5 as faint reference
+
+# =========================================
+
+load ..\ligand\AK1_native_AP5_chainA.pdb, AP5_native
+
+
+
+# =========================================
+
+# Define pocket around ISO
+
+# =========================================
+
+select pocket, byres (AK1 within 4.0 of ISO_9009)
+
+select pocket_bb, pocket and backbone
+
+select pocket_sc, pocket and not backbone
+
+
+
+# =========================================
+
+# Display settings
+
+# =========================================
+
+hide everything, AK1
+
+
+
+show cartoon, AK1
+
+color gray85, AK1
+
+set cartoon_transparency, 0.65, AK1
+
+
+
+show sticks, pocket_sc
+
+color palegreen, pocket_sc
+
+set stick_radius, 0.16, pocket_sc
+
+
+
+show sticks, ISO_9009
+
+color yellow, ISO_9009 and elem C
+
+color red, ISO_9009 and elem O
+
+color blue, ISO_9009 and elem N
+
+set stick_radius, 0.28, ISO_9009
+
+
+
+# AP5 shown lightly for reference only
+
+show lines, AP5_native
+
+color cyan, AP5_native
+
+set line_width, 2.0, AP5_native
+
+set transparency, 0.55, AP5_native
+
+
+
+# =========================================
+
+# Residue labels
+
+# =========================================
+
+label pocket and name CA, "%s%s" % (resn, resi)
+
+set label_size, 18
+
+set label_color, black
+
+set label_font_id, 7
+
+set label_outline_color, white
+
+
+
+# =========================================
+
+# Polar contacts / H-bond-like distances
+
+# =========================================
+
+# between ISO hetero atoms and nearby protein hetero atoms
+
+distance iso_contacts, (ISO_9009 and (elem O+N)), (pocket_sc and (elem O+N)), 3.6, mode=2
+
+set dash_color, black, iso_contacts
+
+set dash_width, 2.0, iso_contacts
+
+set dash_gap, 0.25, iso_contacts
+
+set dash_length, 0.18, iso_contacts
+
+
+
+hide labels, iso_contacts
+
+
+
+# =========================================
+
+# Nice appearance
+
+# =========================================
+
+bg_color white
+
+set ray_opaque_background, on
+
+set antialias, 2
+
+set orthoscopic, on
+
+set depth_cue, 0
+
+set specular, 0.25
+
+set ambient, 0.45
+
+
+
+# =========================================
+
+# Camera / focus
+
+# =========================================
+
+orient pocket or ISO_9009
+
+zoom pocket or ISO_9009, 6
+
+
+
+# small manual rotation for prettier view
+
+turn x, -10
+
+turn y, 20
+
+turn z, -8
+
+
+
+viewport 2200,1800
+
+
+
+# =========================================
+
+# Render output
+
+# =========================================
+
+ray 2600,2000
+
+png ..\results\AK1_panelB\AK1_panelB_closeup_seed9009.png, dpi=600
+
+END FILE: AK1_panelB_closeup.pml
+
+================================================================================
+FILE: AK1_panelB_refined_v2.pml
+Executable source: code/AK1_panelB_refined_v2.pml
+================================================================================
+reinitialize
+
+
+
+# ============================================================
+
+# LOAD STRUCTURES
+
+# ============================================================
+
+
+
+load ..\receptors\AK1_chainA_FIXED.pdb, AK1
+
+load ..\ligand\AK1_native_AP5_chainA.pdb, AP5_native
+
+load ..\results\AK1_repr9009\AK1_ISO_seed9009_best.sdf, ISO
+
+
+
+
+
+# ============================================================
+
+# CLEAN START
+
+# ============================================================
+
+
+
+remove solvent
+
+hide everything
+
+
+
+
+
+# ============================================================
+
+# AK1 PROTEIN
+
+# Receptor colour
+
+# ============================================================
+
+
+
+show cartoon, AK1
+
+color gray80, AK1
+
+set cartoon_transparency, 0.55, AK1
+
+
+
+
+
+# ============================================================
+
+# NATIVE AP5 — FAINT REFERENCE
+
+# ============================================================
+
+
+
+show sticks, AP5_native
+
+
+
+color cyan, AP5_native and elem C
+
+color red, AP5_native and elem O
+
+color blue, AP5_native and elem N
+
+
+
+set stick_radius, 0.08, AP5_native
+
+set stick_transparency, 0.65, AP5_native
+
+
+
+
+
+# ============================================================
+
+# ISORHAMNETIN — REPRESENTATIVE SEED 9009
+
+# ============================================================
+
+
+
+show sticks, ISO
+
+
+
+color yellow, ISO and elem C
+
+color red, ISO and elem O
+
+color blue, ISO and elem N
+
+
+
+set stick_radius, 0.30, ISO
+
+
+
+show spheres, ISO
+
+set sphere_scale, 0.15, ISO
+
+
+
+
+
+# ============================================================
+
+# GENERAL ISO BINDING POCKET
+
+# ============================================================
+
+
+
+select pocket, byres (AK1 within 4.0 of ISO)
+
+
+
+show sticks, pocket
+
+
+
+color palegreen, pocket and elem C
+
+color red, pocket and elem O
+
+color blue, pocket and elem N
+
+
+
+set stick_radius, 0.10, pocket
+
+set stick_transparency, 0.35, pocket
+
+
+
+
+
+# ============================================================
+
+# CANDIDATE POLAR-CONTACT RESIDUES
+
+# Only protein O/N atoms close to ISO O/N atoms
+
+# ============================================================
+
+
+
+select polar_res, byres ( \
+
+    (AK1 and (elem O+N)) within 3.6 of \
+
+    (ISO and (elem O+N)) \
+
+)
+
+
+
+show sticks, polar_res
+
+
+
+color salmon, polar_res and elem C
+
+color red, polar_res and elem O
+
+color blue, polar_res and elem N
+
+
+
+set stick_radius, 0.18, polar_res
+
+
+
+
+
+# ============================================================
+
+# SMALL CONTACT MARKERS
+
+# ============================================================
+
+
+
+select polar_CA, polar_res and name CA
+
+
+
+show spheres, polar_CA
+
+color salmon, polar_CA
+
+
+
+set sphere_scale, 0.13, polar_CA
+
+set sphere_transparency, 0.35, polar_CA
+
+
+
+
+
+# ============================================================
+
+# LABEL ONLY CANDIDATE POLAR-CONTACT RESIDUES
+
+# BLACK labels for readability
+
+# ============================================================
+
+
+
+hide labels
+
+
+
+label polar_CA, "%s%s" % (resn,resi)
+
+
+
+set label_size, 22
+
+set label_color, black
+
+set label_font_id, 7
+
+set label_outline_color, white
+
+
+
+
+
+# ============================================================
+
+# PREDICTED POLAR CONTACTS
+
+# ============================================================
+
+
+
+distance ISO_polar_contacts, \
+
+    (ISO and (elem O+N)), \
+
+    (polar_res and (elem O+N)), \
+
+    3.6, mode=2
+
+
+
+set dash_color, black, ISO_polar_contacts
+
+set dash_width, 2.5, ISO_polar_contacts
+
+set dash_gap, 0.25, ISO_polar_contacts
+
+set dash_length, 0.18, ISO_polar_contacts
+
+
+
+# remove automatic distance-number labels
+
+hide labels, ISO_polar_contacts
+
+
+
+
+
+# ============================================================
+
+# WHITE BACKGROUND / LIGHTING
+
+# ============================================================
+
+
+
+bg_color white
+
+
+
+set opaque_background, on
+
+set ray_opaque_background, on
+
+
+
+set antialias, 2
+
+set orthoscopic, on
+
+set depth_cue, 0
+
+set specular, 0.20
+
+set ambient, 0.45
+
+
+
+
+
+# ============================================================
+
+# CAMERA
+
+# ============================================================
+
+
+
+orient ISO
+
+center ISO
+
+
+
+zoom (ISO or pocket), 8
+
+
+
+turn y, 12
+
+turn x, -8
+
+
+
+
+
+# ============================================================
+
+# IMAGE SIZE
+
+# ============================================================
+
+
+
+viewport 2200,1800
+
+
+
+
+
+# ============================================================
+
+# OUTPUT
+
+# NEW filename — nothing old is overwritten
+
+# ============================================================
+
+
+
+ray 3000,2400
+
+
+
+png ..\results\AK1_panelB\AK1_panelB_seed9009_REFINED_V2.png, dpi=600
+
+END FILE: AK1_panelB_refined_v2.pml
+
+================================================================================
+FILE: AK1_panelF_contact_stability.R
+Executable source: code/AK1_panelF_contact_stability.R
+================================================================================
+# ============================================================
+
+# FIGURE 8 — PANEL F
+
+# Stability of recurrent AK1–ISO polar contacts
+
+# across the dominant 8-pose cluster
+
+# ============================================================
+
+
+
+packages <- c("ggplot2", "dplyr")
+
+
+
+for (p in packages) {
+
+  if (!requireNamespace(p, quietly = TRUE)) {
+
+    install.packages(
+
+      p,
+
+      repos = "https://cloud.r-project.org"
+
+    )
+
+  }
+
+}
+
+
+
+library(ggplot2)
+
+library(dplyr)
+
+
+
+
+
+# ============================================================
+
+# PATHS
+
+# ============================================================
+
+
+
+project <- "C:/Users/akidi/Desktop/ISO_AK_Docking"
+
+
+
+input_file <- file.path(
+
+  project,
+
+  "results",
+
+  "AK1_dominant8_contact_frequency",
+
+  "AK1_dominant8_recurrent_polar_distances_long.csv"
+
+)
+
+
+
+output_dir <- file.path(
+
+  project,
+
+  "results",
+
+  "AK1_panelF"
+
+)
+
+
+
+dir.create(
+
+  output_dir,
+
+  showWarnings = FALSE,
+
+  recursive = TRUE
+
+)
+
+
+
+
+
+# ============================================================
+
+# READ REAL DATA
+
+# ============================================================
+
+
+
+dat <- read.csv(
+
+  input_file,
+
+  check.names = FALSE
+
+)
+
+
+
+names(dat)[3] <- "Distance"
+
+
+
+
+
+# ============================================================
+
+# ORDER RESIDUES BY MEAN DISTANCE
+
+# ============================================================
+
+
+
+summary_dat <- dat %>%
+
+  group_by(Residue) %>%
+
+  summarise(
+
+    Mean = mean(Distance),
+
+    SD = sd(Distance),
+
+    Min = min(Distance),
+
+    Max = max(Distance),
+
+    n = n()
+
+  ) %>%
+
+  arrange(Mean)
+
+
+
+
+
+dat$Residue <- factor(
+
+  dat$Residue,
+
+  levels = summary_dat$Residue
+
+)
+
+
+
+summary_dat$Residue <- factor(
+
+  summary_dat$Residue,
+
+  levels = summary_dat$Residue
+
+)
+
+
+
+
+
+# ============================================================
+
+# PRINT SUMMARY
+
+# ============================================================
+
+
+
+print(summary_dat)
+
+
+
+
+
+# ============================================================
+
+# PLOT
+
+# ============================================================
+
+
+
+p <- ggplot(
+
+  dat,
+
+  aes(
+
+    x = Residue,
+
+    y = Distance
+
+  )
+
+) +
+
+
+
+  # 3.6 A screening cutoff
+
+  geom_hline(
+
+    yintercept = 3.6,
+
+    linetype = "dashed",
+
+    linewidth = 0.8,
+
+    color = "grey35"
+
+  ) +
+
+
+
+  # individual dominant-pose measurements
+
+  geom_jitter(
+
+    width = 0.10,
+
+    height = 0,
+
+    size = 3.2,
+
+    alpha = 0.65,
+
+    color = "grey35"
+
+  ) +
+
+
+
+  # mean +/- SD
+
+  geom_errorbar(
+
+    data = summary_dat,
+
+    aes(
+
+      ymin = Mean - SD,
+
+      ymax = Mean + SD
+
+    ),
+
+    width = 0.18,
+
+    linewidth = 0.9,
+
+    inherit.aes = FALSE,
+
+    mapping = aes(
+
+      x = Residue
+
+    )
+
+  ) +
+
+
+
+  geom_point(
+
+    data = summary_dat,
+
+    aes(
+
+      x = Residue,
+
+      y = Mean
+
+    ),
+
+    shape = 23,
+
+    size = 5,
+
+    fill = "#E69F00",
+
+    color = "black",
+
+    inherit.aes = FALSE
+
+  ) +
+
+
+
+  # n=8/8 annotation
+
+  geom_text(
+
+    data = summary_dat,
+
+    aes(
+
+      x = Residue,
+
+      y = 3.72,
+
+      label = "8/8"
+
+    ),
+
+    size = 4.2,
+
+    fontface = "bold",
+
+    inherit.aes = FALSE
+
+  ) +
+
+
+
+  annotate(
+
+    "text",
+
+    x = Inf,
+
+    y = 3.60,
+
+    label = "3.6 Å polar-contact screening cutoff",
+
+    hjust = 1.05,
+
+    vjust = -0.6,
+
+    size = 4.0,
+
+    color = "grey25"
+
+  ) +
+
+
+
+  labs(
+
+    x = "AK1 residue",
+
+    y = "Minimum polar heavy-atom distance (Å)"
+
+  ) +
+
+
+
+  coord_cartesian(
+
+    ylim = c(
+
+      min(dat$Distance) - 0.10,
+
+      3.82
+
+    )
+
+  ) +
+
+
+
+  theme_classic(
+
+    base_size = 15
+
+  ) +
+
+
+
+  theme(
+
+    axis.text = element_text(
+
+      color = "black"
+
+    ),
+
+
+
+    axis.text.x = element_text(
+
+      face = "bold"
+
+    ),
+
+
+
+    axis.title = element_text(
+
+      face = "bold",
+
+      color = "black"
+
+    ),
+
+
+
+    plot.margin = margin(
+
+      15,
+
+      20,
+
+      15,
+
+      15
+
+    )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# SAVE
+
+# ============================================================
+
+
+
+png_file <- file.path(
+
+  output_dir,
+
+  "AK1_panelF_recurrent_polar_contact_stability.png"
+
+)
+
+
+
+pdf_file <- file.path(
+
+  output_dir,
+
+  "AK1_panelF_recurrent_polar_contact_stability.pdf"
+
+)
+
+
+
+ggsave(
+
+  filename = png_file,
+
+  plot = p,
+
+  width = 7.5,
+
+  height = 5.5,
+
+  units = "in",
+
+  dpi = 600,
+
+  bg = "white"
+
+)
+
+
+
+ggsave(
+
+  filename = pdf_file,
+
+  plot = p,
+
+  width = 7.5,
+
+  height = 5.5,
+
+  units = "in"
+
+)
+
+
+
+
+
+cat("\nSaved PNG:\n")
+
+cat(png_file, "\n")
+
+
+
+cat("\nSaved PDF:\n")
+
+cat(pdf_file, "\n")
+
+END FILE: AK1_panelF_contact_stability.R
+
+================================================================================
+FILE: AK1_panelF_contact_stability_v2.R
+Executable source: code/AK1_panelF_contact_stability_v2.R
+================================================================================
+# ============================================================
+
+# FIGURE 8 — PANEL F
+
+# Stability of recurrent AK1–ISO polar contacts
+
+# across the dominant 8-pose cluster
+
+# ============================================================
+
+
+
+packages <- c("ggplot2", "dplyr")
+
+
+
+for (p in packages) {
+
+  if (!requireNamespace(p, quietly = TRUE)) {
+
+    install.packages(
+
+      p,
+
+      repos = "https://cloud.r-project.org"
+
+    )
+
+  }
+
+}
+
+
+
+library(ggplot2)
+
+library(dplyr)
+
+
+
+
+
+# ============================================================
+
+# PATHS
+
+# ============================================================
+
+
+
+project <- "C:/Users/akidi/Desktop/ISO_AK_Docking"
+
+
+
+input_file <- file.path(
+
+  project,
+
+  "results",
+
+  "AK1_dominant8_contact_frequency",
+
+  "AK1_dominant8_recurrent_polar_distances_long.csv"
+
+)
+
+
+
+output_dir <- file.path(
+
+  project,
+
+  "results",
+
+  "AK1_panelF"
+
+)
+
+
+
+dir.create(
+
+  output_dir,
+
+  showWarnings = FALSE,
+
+  recursive = TRUE
+
+)
+
+
+
+
+
+# ============================================================
+
+# READ REAL DATA
+
+# ============================================================
+
+
+
+dat <- read.csv(
+
+  input_file,
+
+  check.names = FALSE
+
+)
+
+
+
+names(dat)[3] <- "Distance"
+
+
+
+
+
+# ============================================================
+
+# SUMMARY BY RESIDUE
+
+# ============================================================
+
+
+
+summary_dat <- dat %>%
+
+  group_by(Residue) %>%
+
+  summarise(
+
+    Mean = mean(Distance),
+
+    SD = sd(Distance),
+
+    Min = min(Distance),
+
+    Max = max(Distance),
+
+    n = n(),
+
+    .groups = "drop"
+
+  ) %>%
+
+  arrange(Mean)
+
+
+
+
+
+# Order residues by mean distance
+
+residue_order <- summary_dat$Residue
+
+
+
+dat$Residue <- factor(
+
+  dat$Residue,
+
+  levels = residue_order
+
+)
+
+
+
+summary_dat$Residue <- factor(
+
+  summary_dat$Residue,
+
+  levels = residue_order
+
+)
+
+
+
+
+
+# ============================================================
+
+# PRINT SUMMARY
+
+# ============================================================
+
+
+
+cat("\n")
+
+cat("============================================================\n")
+
+cat("AK1 RECURRENT POLAR CONTACT STABILITY\n")
+
+cat("============================================================\n")
+
+print(summary_dat)
+
+
+
+
+
+# ============================================================
+
+# PLOT
+
+# ============================================================
+
+
+
+p <- ggplot(
+
+  dat,
+
+  aes(
+
+    x = Residue,
+
+    y = Distance
+
+  )
+
+) +
+
+
+
+  # 3.6-A screening cutoff
+
+  geom_hline(
+
+    yintercept = 3.6,
+
+    linetype = "dashed",
+
+    linewidth = 0.8,
+
+    color = "grey35"
+
+  ) +
+
+
+
+  # Eight individual dominant-pose measurements
+
+  geom_jitter(
+
+    width = 0.09,
+
+    height = 0,
+
+    size = 3.4,
+
+    alpha = 0.65,
+
+    color = "grey35"
+
+  ) +
+
+
+
+  # Mean +/- SD
+
+  geom_errorbar(
+
+    data = summary_dat,
+
+    mapping = aes(
+
+      x = Residue,
+
+      ymin = Mean - SD,
+
+      ymax = Mean + SD
+
+    ),
+
+    width = 0.18,
+
+    linewidth = 0.9,
+
+    color = "black",
+
+    inherit.aes = FALSE
+
+  ) +
+
+
+
+  # Mean
+
+  geom_point(
+
+    data = summary_dat,
+
+    mapping = aes(
+
+      x = Residue,
+
+      y = Mean
+
+    ),
+
+    shape = 23,
+
+    size = 5,
+
+    fill = "#E69F00",
+
+    color = "black",
+
+    stroke = 0.9,
+
+    inherit.aes = FALSE
+
+  ) +
+
+
+
+  # Every residue was recurrent in 8/8 dominant poses
+
+  geom_text(
+
+    data = summary_dat,
+
+    mapping = aes(
+
+      x = Residue,
+
+      y = 3.72,
+
+      label = "8/8"
+
+    ),
+
+    size = 4.2,
+
+    fontface = "bold",
+
+    inherit.aes = FALSE
+
+  ) +
+
+
+
+  # Cutoff annotation
+
+  annotate(
+
+    "text",
+
+    x = 6.35,
+
+    y = 3.60,
+
+    label = "3.6 Å polar-contact screening cutoff",
+
+    hjust = 1,
+
+    vjust = -0.6,
+
+    size = 4.0,
+
+    color = "grey25"
+
+  ) +
+
+
+
+  labs(
+
+    x = "AK1 residue",
+
+    y = "Minimum polar heavy-atom distance (Å)"
+
+  ) +
+
+
+
+  coord_cartesian(
+
+    ylim = c(
+
+      min(dat$Distance) - 0.10,
+
+      3.82
+
+    )
+
+  ) +
+
+
+
+  theme_classic(
+
+    base_size = 15
+
+  ) +
+
+
+
+  theme(
+
+    axis.text = element_text(
+
+      color = "black"
+
+    ),
+
+
+
+    axis.text.x = element_text(
+
+      face = "bold",
+
+      size = 12
+
+    ),
+
+
+
+    axis.text.y = element_text(
+
+      size = 12
+
+    ),
+
+
+
+    axis.title = element_text(
+
+      face = "bold",
+
+      color = "black",
+
+      size = 15
+
+    ),
+
+
+
+    plot.margin = margin(
+
+      15,
+
+      25,
+
+      15,
+
+      15
+
+    )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# SAVE NEW FILES
+
+# ============================================================
+
+
+
+png_file <- file.path(
+
+  output_dir,
+
+  "AK1_panelF_recurrent_polar_contact_stability_V2.png"
+
+)
+
+
+
+pdf_file <- file.path(
+
+  output_dir,
+
+  "AK1_panelF_recurrent_polar_contact_stability_V2.pdf"
+
+)
+
+
+
+
+
+ggsave(
+
+  filename = png_file,
+
+  plot = p,
+
+  width = 7.5,
+
+  height = 5.5,
+
+  units = "in",
+
+  dpi = 600,
+
+  bg = "white"
+
+)
+
+
+
+
+
+ggsave(
+
+  filename = pdf_file,
+
+  plot = p,
+
+  width = 7.5,
+
+  height = 5.5,
+
+  units = "in"
+
+)
+
+
+
+
+
+cat("\n")
+
+cat("============================================================\n")
+
+cat("FILES SAVED\n")
+
+cat("============================================================\n")
+
+
+
+cat("\nPNG:\n")
+
+cat(png_file, "\n")
+
+
+
+cat("\nPDF:\n")
+
+cat(pdf_file, "\n")
+
+END FILE: AK1_panelF_contact_stability_v2.R
+
+================================================================================
+FILE: AK1_panelG_AP5_ISO_fingerprint.R
+Executable source: code/AK1_panelG_AP5_ISO_fingerprint.R
+================================================================================
+# ============================================================
+
+# FIGURE 8 — PANEL G
+
+# Native AP5 vs isorhamnetin polar-contact fingerprint
+
+# ============================================================
+
+
+
+packages <- c("ggplot2", "dplyr", "tidyr")
+
+
+
+for (p in packages) {
+
+  if (!requireNamespace(p, quietly = TRUE)) {
+
+    install.packages(
+
+      p,
+
+      repos = "https://cloud.r-project.org"
+
+    )
+
+  }
+
+}
+
+
+
+library(ggplot2)
+
+library(dplyr)
+
+library(tidyr)
+
+
+
+
+
+# ============================================================
+
+# PATHS
+
+# ============================================================
+
+
+
+project <- "C:/Users/akidi/Desktop/ISO_AK_Docking"
+
+
+
+input_file <- file.path(
+
+  project,
+
+  "results",
+
+  "AK1_AP5_ISO_fingerprint",
+
+  "AK1_AP5_vs_ISO_residue_fingerprint.csv"
+
+)
+
+
+
+output_dir <- file.path(
+
+  project,
+
+  "results",
+
+  "AK1_panelG"
+
+)
+
+
+
+dir.create(
+
+  output_dir,
+
+  showWarnings = FALSE,
+
+  recursive = TRUE
+
+)
+
+
+
+
+
+# ============================================================
+
+# READ REAL DATA
+
+# ============================================================
+
+
+
+dat <- read.csv(
+
+  input_file,
+
+  check.names = FALSE
+
+)
+
+
+
+
+
+# ============================================================
+
+# KEEP ONLY POLAR-CONTACT FINGERPRINT
+
+#
+
+# AP5: crystallographic polar contact
+
+# ISO: consensus polar contact >= 6/8 dominant poses
+
+# ============================================================
+
+
+
+polar <- dat %>%
+
+  mutate(
+
+    AP5_present =
+
+      `AP5 polar contact` == 1,
+
+
+
+    ISO_present =
+
+      `ISO polar contact n/8` >= 6
+
+  ) %>%
+
+
+
+  filter(
+
+    AP5_present |
+
+    ISO_present
+
+  )
+
+
+
+
+
+# ============================================================
+
+# CLASSIFY RESIDUES
+
+# ============================================================
+
+
+
+polar <- polar %>%
+
+  mutate(
+
+    Class = case_when(
+
+      AP5_present & ISO_present ~ "Shared",
+
+      !AP5_present & ISO_present ~ "ISO only",
+
+      AP5_present & !ISO_present ~ "AP5 only",
+
+      TRUE ~ "Other"
+
+    )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# EXTRACT RESIDUE NUMBER FOR ORDERING
+
+# ============================================================
+
+
+
+polar <- polar %>%
+
+  mutate(
+
+    Residue_number =
+
+      as.numeric(
+
+        gsub(
+
+          "[^0-9]",
+
+          "",
+
+          Residue
+
+        )
+
+      )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# ORDER:
+
+# Shared first
+
+# ISO-only second
+
+# AP5-only third
+
+# ============================================================
+
+
+
+class_order <- c(
+
+  "Shared",
+
+  "ISO only",
+
+  "AP5 only"
+
+)
+
+
+
+polar$Class <- factor(
+
+  polar$Class,
+
+  levels = class_order
+
+)
+
+
+
+polar <- polar %>%
+
+  arrange(
+
+    Class,
+
+    Residue_number
+
+  )
+
+
+
+
+
+# ============================================================
+
+# SUMMARY
+
+# ============================================================
+
+
+
+shared_n <- sum(
+
+  polar$Class == "Shared"
+
+)
+
+
+
+iso_only_n <- sum(
+
+  polar$Class == "ISO only"
+
+)
+
+
+
+ap5_only_n <- sum(
+
+  polar$Class == "AP5 only"
+
+)
+
+
+
+ap5_set <- polar$Residue[
+
+  polar$AP5_present
+
+]
+
+
+
+iso_set <- polar$Residue[
+
+  polar$ISO_present
+
+]
+
+
+
+jaccard <- length(
+
+  intersect(
+
+    ap5_set,
+
+    iso_set
+
+  )
+
+) /
+
+length(
+
+  union(
+
+    ap5_set,
+
+    iso_set
+
+  )
+
+)
+
+
+
+
+
+cat("\n")
+
+cat("============================================\n")
+
+cat("AK1 AP5 vs ISO POLAR FINGERPRINT\n")
+
+cat("============================================\n")
+
+
+
+cat(
+
+  "Shared residues:",
+
+  paste(
+
+    polar$Residue[
+
+      polar$Class == "Shared"
+
+    ],
+
+    collapse = ", "
+
+  ),
+
+  "\n"
+
+)
+
+
+
+cat(
+
+  "ISO-only residues:",
+
+  paste(
+
+    polar$Residue[
+
+      polar$Class == "ISO only"
+
+    ],
+
+    collapse = ", "
+
+  ),
+
+  "\n"
+
+)
+
+
+
+cat(
+
+  "AP5-only residues:",
+
+  paste(
+
+    polar$Residue[
+
+      polar$Class == "AP5 only"
+
+    ],
+
+    collapse = ", "
+
+  ),
+
+  "\n"
+
+)
+
+
+
+cat(
+
+  "Jaccard overlap =",
+
+  sprintf("%.2f", jaccard),
+
+  "\n"
+
+)
+
+
+
+
+
+# ============================================================
+
+# LONG FORMAT
+
+# ============================================================
+
+
+
+plot_dat <- polar %>%
+
+  select(
+
+    Residue,
+
+    Class,
+
+    AP5_present,
+
+    ISO_present
+
+  ) %>%
+
+
+
+  pivot_longer(
+
+    cols = c(
+
+      AP5_present,
+
+      ISO_present
+
+    ),
+
+    names_to = "Ligand",
+
+    values_to = "Present"
+
+  ) %>%
+
+
+
+  mutate(
+
+    Ligand = recode(
+
+      Ligand,
+
+      AP5_present =
+
+        "Native AP5",
+
+      ISO_present =
+
+        "ISO dominant\ncluster"
+
+    )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# TILE COLOR
+
+# ============================================================
+
+
+
+plot_dat <- plot_dat %>%
+
+  mutate(
+
+    Tile = case_when(
+
+      !Present ~ "Absent",
+
+
+
+      Present &
+
+        Ligand == "Native AP5"
+
+        ~ "AP5",
+
+
+
+      Present &
+
+        Ligand == "ISO dominant\ncluster"
+
+        ~ "ISO"
+
+    )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# KEEP RESIDUE ORDER WITHIN FACETS
+
+# ============================================================
+
+
+
+plot_dat$Residue <- factor(
+
+  plot_dat$Residue,
+
+  levels = rev(
+
+    polar$Residue
+
+  )
+
+)
+
+
+
+
+
+# ============================================================
+
+# PLOT
+
+# ============================================================
+
+
+
+p <- ggplot(
+
+  plot_dat,
+
+  aes(
+
+    x = Ligand,
+
+    y = Residue,
+
+    fill = Tile
+
+  )
+
+) +
+
+
+
+  geom_tile(
+
+    color = "grey45",
+
+    linewidth = 0.6,
+
+    width = 0.88,
+
+    height = 0.88
+
+  ) +
+
+
+
+  # mark present contacts
+
+  geom_text(
+
+    data = subset(
+
+      plot_dat,
+
+      Present
+
+    ),
+
+    aes(
+
+      label = ifelse(
+
+        Ligand == "ISO dominant\ncluster",
+
+        "8/8",
+
+        "✓"
+
+      )
+
+    ),
+
+    color = "black",
+
+    fontface = "bold",
+
+    size = 4.2
+
+  ) +
+
+
+
+  scale_fill_manual(
+
+    values = c(
+
+      "AP5" = "#00BFC4",
+
+      "ISO" = "#E69F00",
+
+      "Absent" = "white"
+
+    ),
+
+    guide = "none"
+
+  ) +
+
+
+
+  facet_grid(
+
+    Class ~ .,
+
+    scales = "free_y",
+
+    space = "free_y",
+
+    switch = "y"
+
+  ) +
+
+
+
+  labs(
+
+    x = NULL,
+
+    y = NULL,
+
+    title = NULL,
+
+    subtitle = paste0(
+
+      "Polar-contact fingerprint overlap: ",
+
+      shared_n,
+
+      " shared, ",
+
+      iso_only_n,
+
+      " ISO-only, ",
+
+      ap5_only_n,
+
+      " AP5-only residues; Jaccard = ",
+
+      sprintf("%.2f", jaccard)
+
+    )
+
+  ) +
+
+
+
+  theme_minimal(
+
+    base_size = 14
+
+  ) +
+
+
+
+  theme(
+
+    panel.grid = element_blank(),
+
+
+
+    panel.spacing.y =
+
+      unit(
+
+        0.6,
+
+        "lines"
+
+      ),
+
+
+
+    axis.text.x =
+
+      element_text(
+
+        face = "bold",
+
+        size = 13,
+
+        color = "black",
+
+        margin = margin(
+
+          t = 8
+
+        )
+
+      ),
+
+
+
+    axis.text.y =
+
+      element_text(
+
+        face = "bold",
+
+        size = 11,
+
+        color = "black"
+
+      ),
+
+
+
+    strip.placement = "outside",
+
+
+
+    strip.text.y.left =
+
+      element_text(
+
+        face = "bold",
+
+        size = 12,
+
+        angle = 0,
+
+        color = "black"
+
+      ),
+
+
+
+    strip.background =
+
+      element_rect(
+
+        fill = "grey92",
+
+        color = "grey55"
+
+      ),
+
+
+
+    plot.subtitle =
+
+      element_text(
+
+        size = 12.5,
+
+        face = "bold",
+
+        hjust = 0.5,
+
+        margin = margin(
+
+          b = 12
+
+        )
+
+      ),
+
+
+
+    plot.margin =
+
+      margin(
+
+        15,
+
+        20,
+
+        15,
+
+        15
+
+      )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# SAVE
+
+# ============================================================
+
+
+
+png_file <- file.path(
+
+  output_dir,
+
+  "AK1_panelG_AP5_ISO_polar_fingerprint.png"
+
+)
+
+
+
+pdf_file <- file.path(
+
+  output_dir,
+
+  "AK1_panelG_AP5_ISO_polar_fingerprint.pdf"
+
+)
+
+
+
+
+
+ggsave(
+
+  filename = png_file,
+
+  plot = p,
+
+  width = 6.5,
+
+  height = 9.0,
+
+  units = "in",
+
+  dpi = 600,
+
+  bg = "white"
+
+)
+
+
+
+ggsave(
+
+  filename = pdf_file,
+
+  plot = p,
+
+  width = 6.5,
+
+  height = 9.0,
+
+  units = "in"
+
+)
+
+
+
+
+
+cat("\n")
+
+cat("FILES SAVED\n")
+
+cat("===========\n")
+
+
+
+cat(png_file, "\n")
+
+cat(pdf_file, "\n")
+
+END FILE: AK1_panelG_AP5_ISO_fingerprint.R
+
+================================================================================
+FILE: AK1_panelG_contact_recurrence.R
+Executable source: code/AK1_panelG_contact_recurrence.R
+================================================================================
+library(ggplot2)
+
+library(dplyr)
+
+library(tidyr)
+
+
+
+# =========================================================
+
+# INPUT / OUTPUT
+
+# =========================================================
+
+input_csv <- "../results/AK1_dominant8_contact_frequency/AK1_dominant8_contact_frequency.csv"
+
+out_dir   <- "../results/AK1_panelG"
+
+
+
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+
+
+# =========================================================
+
+# HELPERS
+
+# =========================================================
+
+parse_ratio_numerator <- function(x) {
+
+  x <- trimws(as.character(x))
+
+  as.numeric(sub("/.*", "", x))
+
+}
+
+
+
+clean_distance <- function(x) {
+
+  x <- as.character(x)
+
+  x[x == "-" | x == "" | is.na(x)] <- NA
+
+  suppressWarnings(as.numeric(gsub("[^0-9.]", "", x)))
+
+}
+
+
+
+# =========================================================
+
+# READ TABLE
+
+# Expected CSV columns:
+
+# Residue, Any, Polar, Polar., Min.polar.dist.
+
+# =========================================================
+
+raw <- read.csv(input_csv, check.names = TRUE, stringsAsFactors = FALSE)
+
+
+
+# Safety check for expected columns
+
+print("Detected columns:")
+
+print(colnames(raw))
+
+
+
+freq <- raw %>%
+
+  transmute(
+
+    Residue = Residue,
+
+    Any = Any,
+
+    Polar = Polar,
+
+    PolarPct = if ("Polar.." %in% colnames(raw)) `Polar..` else if ("Polar." %in% colnames(raw)) `Polar.` else NA,
+
+    MinPolarDist = if ("Min.polar.dist." %in% colnames(raw)) `Min.polar.dist.` else if ("Min.polar.dist" %in% colnames(raw)) `Min.polar.dist` else NA,
+
+    Any_n = parse_ratio_numerator(Any),
+
+    Polar_n = parse_ratio_numerator(Polar)
+
+  ) %>%
+
+  mutate(
+
+    MinPolarDist_num = clean_distance(MinPolarDist),
+
+    RecurrentPolar = Polar_n == 8
+
+  )
+
+
+
+# =========================================================
+
+# ORDER RESIDUES
+
+# Main ordering:
+
+# 1) highest polar recurrence
+
+# 2) highest any-contact recurrence
+
+# 3) shortest min polar distance
+
+# =========================================================
+
+freq <- freq %>%
+
+  arrange(desc(Polar_n), desc(Any_n), MinPolarDist_num)
+
+
+
+freq <- freq %>%
+
+  mutate(
+
+    ResidueLabel = ifelse(RecurrentPolar, paste0(Residue, " *"), Residue)
+
+  )
+
+
+
+residue_order <- freq$ResidueLabel
+
+
+
+# =========================================================
+
+# LONG FORMAT FOR TILE PLOT
+
+# =========================================================
+
+plot_df <- bind_rows(
+
+  freq %>%
+
+    transmute(
+
+      ResidueLabel,
+
+      ContactType = "Any contact",
+
+      Count = Any_n
+
+    ),
+
+  freq %>%
+
+    transmute(
+
+      ResidueLabel,
+
+      ContactType = "Polar contact",
+
+      Count = Polar_n
+
+    )
+
+) %>%
+
+  mutate(
+
+    ContactType = factor(ContactType, levels = c("Any contact", "Polar contact")),
+
+    ResidueLabel = factor(ResidueLabel, levels = rev(residue_order)),
+
+    Label = paste0(Count, "/8")
+
+  )
+
+
+
+# recurrent polar residues for subtitle
+
+recurrent_residues <- freq %>%
+
+  filter(RecurrentPolar) %>%
+
+  pull(Residue)
+
+
+
+subtitle_text <- paste0(
+
+  length(recurrent_residues),
+
+  " residues showed polar-contact recurrence in 8/8 dominant poses: ",
+
+  paste(recurrent_residues, collapse = ", ")
+
+)
+
+
+
+# =========================================================
+
+# PLOT
+
+# =========================================================
+
+p <- ggplot(plot_df, aes(x = ContactType, y = ResidueLabel, fill = Count)) +
+
+  geom_tile(color = "white", linewidth = 1.0, width = 0.92, height = 0.92) +
+
+
+
+  # outline fully recurrent polar residues
+
+  geom_tile(
+
+    data = subset(plot_df, ContactType == "Polar contact" & Count == 8),
+
+    fill = NA, color = "black", linewidth = 1.2, width = 0.92, height = 0.92
+
+  ) +
+
+
+
+  geom_text(aes(label = Label), size = 5.3, fontface = "bold") +
+
+
+
+  scale_fill_gradientn(
+
+    colours = c("#F2F2F2", "#F7D98A", "#E69F00"),
+
+    values = c(0, 0.5, 1),
+
+    limits = c(0, 8),
+
+    breaks = c(0, 2, 4, 6, 8),
+
+    name = "Recurrence\nacross 8 poses"
+
+  ) +
+
+
+
+  labs(
+
+    title = "AK1 dominant-cluster contact recurrence",
+
+    subtitle = subtitle_text,
+
+    x = NULL,
+
+    y = "AK1 residue",
+
+    caption = paste0(
+
+      "* indicates residues with polar contact in all 8 dominant poses.\n",
+
+      "Any contact = any heavy-atom contact; Polar contact = candidate H-bond/polar proximity."
+
+    )
+
+  ) +
+
+
+
+  theme_minimal(base_size = 18) +
+
+  theme(
+
+    panel.grid = element_blank(),
+
+    axis.text.x = element_text(size = 16, face = "bold"),
+
+    axis.text.y = element_text(size = 15, face = "bold"),
+
+    axis.title.y = element_text(size = 18, face = "bold"),
+
+    plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
+
+    plot.subtitle = element_text(size = 14, hjust = 0.5, margin = margin(b = 12)),
+
+    legend.title = element_text(size = 15, face = "bold"),
+
+    legend.text = element_text(size = 12),
+
+    plot.caption = element_text(size = 11, hjust = 0),
+
+    plot.margin = margin(20, 20, 20, 20)
+
+  )
+
+
+
+# =========================================================
+
+# SAVE FIGURES
+
+# =========================================================
+
+png_file <- file.path(out_dir, "AK1_panelG_contact_recurrence.png")
+
+pdf_file <- file.path(out_dir, "AK1_panelG_contact_recurrence.pdf")
+
+
+
+ggsave(
+
+  filename = png_file,
+
+  plot = p,
+
+  width = 10,
+
+  height = 8,
+
+  dpi = 300,
+
+  bg = "white"
+
+)
+
+
+
+ggsave(
+
+  filename = pdf_file,
+
+  plot = p,
+
+  width = 10,
+
+  height = 8,
+
+  bg = "white"
+
+)
+
+
+
+# =========================================================
+
+# CONSOLE SUMMARY
+
+# =========================================================
+
+cat("============================================================\n")
+
+cat("AK1 PANEL G — DOMINANT 8-POSE CONTACT RECURRENCE\n")
+
+cat("============================================================\n\n")
+
+
+
+print(freq)
+
+
+
+cat("\nSaved files:\n")
+
+cat(normalizePath(png_file), "\n")
+
+cat(normalizePath(pdf_file), "\n")
+
+END FILE: AK1_panelG_contact_recurrence.R
+
+================================================================================
+FILE: AK1_panelK_contact_recurrence.R
+Executable source: code/AK1_panelK_contact_recurrence.R
+================================================================================
+# ============================================================
+
+# AK1 PANEL K
+
+# Interaction-frequency analysis across the dominant 8 ISO poses
+
+# ============================================================
+
+
+
+packages <- c(
+
+  "ggplot2",
+
+  "dplyr",
+
+  "tidyr",
+
+  "openxlsx"
+
+)
+
+
+
+for (p in packages) {
+
+  if (!requireNamespace(p, quietly = TRUE)) {
+
+    install.packages(p, repos = "https://cloud.r-project.org")
+
+  }
+
+}
+
+
+
+library(ggplot2)
+
+library(dplyr)
+
+library(tidyr)
+
+library(openxlsx)
+
+
+
+# ============================================================
+
+# PATHS
+
+# ============================================================
+
+
+
+input_csv <- "../results/AK1_dominant8_contact_frequency/AK1_dominant8_contact_frequency.csv"
+
+out_dir   <- "../results/AK1_panelK_contact_recurrence"
+
+
+
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+
+
+# ============================================================
+
+# READ DATA
+
+# ============================================================
+
+
+
+raw <- read.csv(
+
+  input_csv,
+
+  check.names = TRUE,
+
+  stringsAsFactors = FALSE
+
+)
+
+
+
+cat("\nDetected columns:\n")
+
+print(colnames(raw))
+
+
+
+# ============================================================
+
+# CLEAN TABLE
+
+# ============================================================
+
+
+
+freq <- raw %>%
+
+  transmute(
+
+    Residue                = as.character(Residue),
+
+    Any_n                  = as.numeric(Any.contact.n),
+
+    Any_percent            = as.numeric(Any.contact..),
+
+    Any_mean_distance      = as.numeric(Any.mean.min.distance),
+
+    Any_shortest_distance  = as.numeric(Any.shortest.distance),
+
+    Polar_n                = as.numeric(Polar.contact.n),
+
+    Polar_percent          = as.numeric(Polar.contact..),
+
+    Polar_mean_distance    = as.numeric(Polar.mean.min.distance),
+
+    Polar_shortest_distance= as.numeric(Polar.shortest.distance)
+
+  )
+
+
+
+# ============================================================
+
+# CLASSIFICATION
+
+# ============================================================
+
+
+
+freq <- freq %>%
+
+  mutate(
+
+    Fully_recurrent_polar = Polar_n == 8,
+
+    Fully_recurrent_any   = Any_n == 8,
+
+    Contact_class = case_when(
+
+      Polar_n == 8 ~ "Recurrent polar",
+
+      Any_n == 8   ~ "Recurrent non-polar/proximity",
+
+      TRUE         ~ "Occasional contact"
+
+    )
+
+  )
+
+
+
+# ============================================================
+
+# ORDER RESIDUES
+
+# ============================================================
+
+
+
+freq <- freq %>%
+
+  arrange(
+
+    desc(Polar_n),
+
+    desc(Any_n),
+
+    Polar_mean_distance,
+
+    Residue
+
+  )
+
+
+
+residue_order <- freq$Residue
+
+
+
+# ============================================================
+
+# LONG FORMAT FOR PLOTTING
+
+# ============================================================
+
+
+
+plot_df <- bind_rows(
+
+  freq %>%
+
+    transmute(
+
+      Residue,
+
+      Contact_type = "Any contact",
+
+      Count = Any_n
+
+    ),
+
+  freq %>%
+
+    transmute(
+
+      Residue,
+
+      Contact_type = "Polar contact",
+
+      Count = Polar_n
+
+    )
+
+) %>%
+
+  mutate(
+
+    Contact_type = factor(
+
+      Contact_type,
+
+      levels = c("Any contact", "Polar contact")
+
+    ),
+
+    Residue = factor(
+
+      Residue,
+
+      levels = rev(residue_order)
+
+    ),
+
+    Label = paste0(Count, "/8")
+
+  )
+
+
+
+# ============================================================
+
+# CORE RECURRENT POLAR RESIDUES
+
+# ============================================================
+
+
+
+core <- freq %>%
+
+  filter(Polar_n == 8)
+
+
+
+core_names <- paste(core$Residue, collapse = ", ")
+
+
+
+# ============================================================
+
+# PRINT CORE RESULTS
+
+# ============================================================
+
+
+
+cat("\n")
+
+cat("============================================================\n")
+
+cat("FULLY RECURRENT POLAR-CONTACT RESIDUES\n")
+
+cat("============================================================\n")
+
+print(
+
+  core %>%
+
+    select(
+
+      Residue,
+
+      Polar_n,
+
+      Polar_mean_distance,
+
+      Polar_shortest_distance
+
+    )
+
+)
+
+
+
+# ============================================================
+
+# FIGURE
+
+# ============================================================
+
+
+
+p <- ggplot(
+
+  plot_df,
+
+  aes(
+
+    x = Contact_type,
+
+    y = Residue,
+
+    fill = Count
+
+  )
+
+) +
+
+  geom_tile(
+
+    color = "grey65",
+
+    linewidth = 0.7,
+
+    width = 0.90,
+
+    height = 0.88
+
+  ) +
+
+  geom_tile(
+
+    data = subset(
+
+      plot_df,
+
+      Contact_type == "Polar contact" & Count == 8
+
+    ),
+
+    fill = NA,
+
+    color = "black",
+
+    linewidth = 1.4,
+
+    width = 0.90,
+
+    height = 0.88
+
+  ) +
+
+  geom_text(
+
+    aes(label = Label),
+
+    size = 5.2,
+
+    fontface = "bold"
+
+  ) +
+
+  scale_fill_gradientn(
+
+    colours = c("#F2F2F2", "#F7D98A", "#E69F00"),
+
+    values  = c(0, 0.5, 1),
+
+    limits  = c(0, 8),
+
+    breaks  = c(0, 2, 4, 6, 8),
+
+    name    = "Number of\nposes"
+
+  ) +
+
+  labs(
+
+    title = "Interaction recurrence across the dominant AK1–ISO ensemble",
+
+    subtitle = paste0(
+
+      "Six residues showed polar-contact recurrence in all 8 dominant poses: ",
+
+      core_names
+
+    ),
+
+    x = NULL,
+
+    y = "AK1 residue",
+
+    caption = paste0(
+
+      "Values indicate the number of dominant poses containing each contact (n = 8). ",
+
+      "Black outlines mark polar contacts present in all 8 poses."
+
+    )
+
+  ) +
+
+  theme_classic(base_size = 16) +
+
+  theme(
+
+    axis.text.x = element_text(
+
+      size = 16,
+
+      face = "bold",
+
+      color = "black"
+
+    ),
+
+    axis.text.y = element_text(
+
+      size = 15,
+
+      face = "bold",
+
+      color = "black"
+
+    ),
+
+    axis.title.y = element_text(
+
+      size = 17,
+
+      face = "bold"
+
+    ),
+
+    plot.title = element_text(
+
+      size = 17,        # smaller than before
+
+      face = "bold",
+
+      hjust = 0,
+
+      margin = margin(b = 6)
+
+    ),
+
+    plot.subtitle = element_text(
+
+      size = 11.5,      # smaller subtitle
+
+      hjust = 0,
+
+      margin = margin(b = 14)
+
+    ),
+
+    plot.caption = element_text(
+
+      size = 10,
+
+      hjust = 0,
+
+      color = "grey25",
+
+      margin = margin(t = 12)
+
+    ),
+
+    legend.title = element_text(
+
+      size = 13,
+
+      face = "bold"
+
+    ),
+
+    legend.text = element_text(
+
+      size = 12
+
+    ),
+
+    legend.position = "right",
+
+    plot.margin = margin(
+
+      t = 20,
+
+      r = 38,
+
+      b = 28,
+
+      l = 24
+
+    ),
+
+    plot.title.position = "plot",
+
+    plot.caption.position = "plot"
+
+  )
+
+
+
+# ============================================================
+
+# SAVE FIGURE
+
+# ============================================================
+
+
+
+png_file <- file.path(
+
+  out_dir,
+
+  "AK1_panelK_dominant8_contact_recurrence.png"
+
+)
+
+
+
+pdf_file <- file.path(
+
+  out_dir,
+
+  "AK1_panelK_dominant8_contact_recurrence.pdf"
+
+)
+
+
+
+ggsave(
+
+  filename = png_file,
+
+  plot = p,
+
+  width = 14.5,     # slightly wider
+
+  height = 9.5,
+
+  units = "in",
+
+  dpi = 600,
+
+  bg = "white"
+
+)
+
+
+
+ggsave(
+
+  filename = pdf_file,
+
+  plot = p,
+
+  width = 14.5,
+
+  height = 9.5,
+
+  units = "in",
+
+  bg = "white"
+
+)
+
+
+
+# ============================================================
+
+# SAVE CLEAN DATA — CSV
+
+# ============================================================
+
+
+
+csv_file <- file.path(
+
+  out_dir,
+
+  "AK1_panelK_dominant8_contact_recurrence_data.csv"
+
+)
+
+
+
+write.csv(
+
+  freq,
+
+  csv_file,
+
+  row.names = FALSE
+
+)
+
+
+
+# ============================================================
+
+# SAVE CLEAN DATA — EXCEL
+
+# ============================================================
+
+
+
+xlsx_file <- file.path(
+
+  out_dir,
+
+  "AK1_panelK_dominant8_contact_recurrence_data.xlsx"
+
+)
+
+
+
+wb <- createWorkbook()
+
+
+
+addWorksheet(wb, "Contact_Recurrence")
+
+writeData(wb, "Contact_Recurrence", freq)
+
+
+
+addWorksheet(wb, "Core_Polar_8of8")
+
+writeData(wb, "Core_Polar_8of8", core)
+
+
+
+addWorksheet(wb, "Notes")
+
+
+
+notes <- data.frame(
+
+  Item = c(
+
+    "Main result",
+
+    "Dominant pose ensemble",
+
+    "Any contact",
+
+    "Polar contact",
+
+    "Interpretation limitation"
+
+  ),
+
+  Description = c(
+
+    paste0(
+
+      "Six residues showed polar-contact recurrence in all 8 dominant ISO poses: ",
+
+      core_names, "."
+
+    ),
+
+    "Eight Zn-free ISO poses belonging to the previously identified dominant docking cluster.",
+
+    "Any qualifying ligand-residue heavy-atom proximity from the automated contact analysis.",
+
+    "Distance/type-based candidate polar interaction from the automated contact analysis.",
+
+    paste0(
+
+      "The 8/8 recurrence demonstrates stability within the dominant docking pose family. ",
+
+      "Because the eight dominant poses are themselves geometrically very similar, ",
+
+      "this should not be interpreted as eight independent experimental confirmations."
+
+    )
+
+  )
+
+)
+
+
+
+writeData(wb, "Notes", notes)
+
+
+
+setColWidths(wb, "Contact_Recurrence", cols = 1:ncol(freq), widths = "auto")
+
+setColWidths(wb, "Core_Polar_8of8", cols = 1:ncol(core), widths = "auto")
+
+setColWidths(wb, "Notes", cols = 1, widths = 28)
+
+setColWidths(wb, "Notes", cols = 2, widths = 100)
+
+
+
+saveWorkbook(
+
+  wb,
+
+  xlsx_file,
+
+  overwrite = TRUE
+
+)
+
+
+
+# ============================================================
+
+# FINAL CONSOLE SUMMARY
+
+# ============================================================
+
+
+
+cat("\n")
+
+cat("============================================================\n")
+
+cat("AK1 PANEL K COMPLETE\n")
+
+cat("============================================================\n")
+
+
+
+cat("\nCore 8/8 polar-contact residues:\n")
+
+for (i in seq_len(nrow(core))) {
+
+  cat(
+
+    sprintf(
+
+      "%-8s  %d/8   mean minimum distance = %.3f A   shortest = %.3f A\n",
+
+      core$Residue[i],
+
+      core$Polar_n[i],
+
+      core$Polar_mean_distance[i],
+
+      core$Polar_shortest_distance[i]
+
+    )
+
+  )
+
+}
+
+
+
+cat("\nSaved files:\n")
+
+cat(png_file, "\n")
+
+cat(pdf_file, "\n")
+
+cat(csv_file, "\n")
+
+cat(xlsx_file, "\n")
+
+END FILE: AK1_panelK_contact_recurrence.R
+
+================================================================================
+FILE: AK1_panelL_native_ligand_fingerprint.R
+Executable source: code/AK1_panelL_native_ligand_fingerprint.R
+================================================================================
+# ============================================================
+
+# AK1 PANEL L
+
+# Native-ligand interaction fingerprint comparison
+
+#
+
+# OUTPUTS ARE SAVED AS TWO SEPARATE FIGURES:
+
+#
+
+# L-A = Polar-contact residue fingerprint
+
+# L-B = Quantitative fingerprint overlap
+
+#
+
+# ISO dominant ensemble vs crystallographic AP5
+
+# ============================================================
+
+
+
+
+
+# ============================================================
+
+# PACKAGES
+
+# ============================================================
+
+
+
+packages <- c(
+
+  "ggplot2",
+
+  "dplyr",
+
+  "tidyr",
+
+  "openxlsx"
+
+)
+
+
+
+for (p in packages) {
+
+
+
+  if (!requireNamespace(p, quietly = TRUE)) {
+
+
+
+    install.packages(
+
+      p,
+
+      repos = "https://cloud.r-project.org"
+
+    )
+
+  }
+
+}
+
+
+
+library(ggplot2)
+
+library(dplyr)
+
+library(tidyr)
+
+library(openxlsx)
+
+
+
+
+
+# ============================================================
+
+# OUTPUT DIRECTORY
+
+# ============================================================
+
+
+
+out_dir <- "../results/AK1_panelL_native_ligand_fingerprint"
+
+
+
+dir.create(
+
+  out_dir,
+
+  recursive = TRUE,
+
+  showWarnings = FALSE
+
+)
+
+
+
+
+
+# ============================================================
+
+# VERIFIED RESIDUE SETS
+
+# ============================================================
+
+
+
+# ------------------------------------------------------------
+
+# ISO recurrent ANY contacts across dominant ensemble
+
+# ------------------------------------------------------------
+
+
+
+iso_any <- c(
+
+  "ARG132",
+
+  "ARG138",
+
+  "ARG149",
+
+  "ARG97",
+
+  "ASP140",
+
+  "ASP93",
+
+  "GLY15",
+
+  "GLY16",
+
+  "GLY18",
+
+  "GLY64",
+
+  "LYS21",
+
+  "MET61",
+
+  "PRO17"
+
+)
+
+
+
+
+
+# ------------------------------------------------------------
+
+# Native AP5 ANY-contact fingerprint
+
+# ------------------------------------------------------------
+
+
+
+ap5_any <- c(
+
+  "ARG128",
+
+  "ARG132",
+
+  "ARG138",
+
+  "ARG149",
+
+  "ARG44",
+
+  "ARG97",
+
+  "ASP140",
+
+  "GLN101",
+
+  "GLN65",
+
+  "GLY16",
+
+  "GLY177",
+
+  "GLY18",
+
+  "GLY20",
+
+  "GLY22",
+
+  "GLY40",
+
+  "GLY94",
+
+  "LEU129",
+
+  "LEU43",
+
+  "LEU66",
+
+  "LYS21",
+
+  "MET61",
+
+  "PRO17",
+
+  "SER178",
+
+  "SER19",
+
+  "THR23",
+
+  "THR39",
+
+  "TYR95",
+
+  "VAL179",
+
+  "VAL67",
+
+  "VAL72"
+
+)
+
+
+
+
+
+# ------------------------------------------------------------
+
+# ISO recurrent POLAR contacts
+
+# ------------------------------------------------------------
+
+
+
+iso_polar <- c(
+
+  "LYS21",
+
+  "ARG132",
+
+  "ARG138",
+
+  "ARG149",
+
+  "MET61",
+
+  "ARG97"
+
+)
+
+
+
+
+
+# ------------------------------------------------------------
+
+# Native AP5 POLAR-contact fingerprint
+
+# ------------------------------------------------------------
+
+
+
+ap5_polar <- c(
+
+  "ARG128",
+
+  "ARG132",
+
+  "ARG138",
+
+  "ARG149",
+
+  "ARG44",
+
+  "GLN101",
+
+  "GLN65",
+
+  "GLY177",
+
+  "GLY18",
+
+  "GLY20",
+
+  "GLY22",
+
+  "GLY94",
+
+  "LYS21",
+
+  "SER19",
+
+  "THR23",
+
+  "THR39",
+
+  "VAL179",
+
+  "VAL67"
+
+)
+
+
+
+
+
+# ============================================================
+
+# CALCULATE OVERLAPS
+
+# ============================================================
+
+
+
+shared_any <- intersect(
+
+  iso_any,
+
+  ap5_any
+
+)
+
+
+
+iso_only_any <- setdiff(
+
+  iso_any,
+
+  ap5_any
+
+)
+
+
+
+ap5_only_any <- setdiff(
+
+  ap5_any,
+
+  iso_any
+
+)
+
+
+
+
+
+shared_polar <- intersect(
+
+  iso_polar,
+
+  ap5_polar
+
+)
+
+
+
+iso_only_polar <- setdiff(
+
+  iso_polar,
+
+  ap5_polar
+
+)
+
+
+
+ap5_only_polar <- setdiff(
+
+  ap5_polar,
+
+  iso_polar
+
+)
+
+
+
+
+
+# ============================================================
+
+# SUMMARY METRICS
+
+# ============================================================
+
+
+
+any_iso_coverage <-
+
+  length(shared_any) /
+
+  length(iso_any) *
+
+  100
+
+
+
+
+
+polar_iso_coverage <-
+
+  length(shared_polar) /
+
+  length(iso_polar) *
+
+  100
+
+
+
+
+
+any_jaccard <-
+
+  length(shared_any) /
+
+  length(
+
+    union(
+
+      iso_any,
+
+      ap5_any
+
+    )
+
+  )
+
+
+
+
+
+polar_jaccard <-
+
+  length(shared_polar) /
+
+  length(
+
+    union(
+
+      iso_polar,
+
+      ap5_polar
+
+    )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# VALIDATION
+
+# ============================================================
+
+
+
+stopifnot(
+
+  length(iso_any) == 13
+
+)
+
+
+
+stopifnot(
+
+  length(ap5_any) == 30
+
+)
+
+
+
+stopifnot(
+
+  length(shared_any) == 10
+
+)
+
+
+
+stopifnot(
+
+  length(iso_only_any) == 3
+
+)
+
+
+
+stopifnot(
+
+  length(ap5_only_any) == 20
+
+)
+
+
+
+stopifnot(
+
+  length(iso_polar) == 6
+
+)
+
+
+
+stopifnot(
+
+  length(ap5_polar) == 18
+
+)
+
+
+
+stopifnot(
+
+  length(shared_polar) == 4
+
+)
+
+
+
+stopifnot(
+
+  length(iso_only_polar) == 2
+
+)
+
+
+
+stopifnot(
+
+  length(ap5_only_polar) == 14
+
+)
+
+
+
+
+
+# ============================================================
+
+# PRINT NUMERICAL SUMMARY
+
+# ============================================================
+
+
+
+cat("\n")
+
+cat("============================================================\n")
+
+cat("AK1 NATIVE-LIGAND FINGERPRINT COMPARISON\n")
+
+cat("============================================================\n\n")
+
+
+
+cat(
+
+  sprintf(
+
+    "ANY CONTACTS: %d/%d ISO contacts shared with AP5 = %.1f%%\n",
+
+    length(shared_any),
+
+    length(iso_any),
+
+    any_iso_coverage
+
+  )
+
+)
+
+
+
+cat(
+
+  sprintf(
+
+    "ANY-contact Jaccard = %.3f\n\n",
+
+    any_jaccard
+
+  )
+
+)
+
+
+
+cat(
+
+  sprintf(
+
+    "POLAR CONTACTS: %d/%d ISO polar contacts shared with AP5 = %.1f%%\n",
+
+    length(shared_polar),
+
+    length(iso_polar),
+
+    polar_iso_coverage
+
+  )
+
+)
+
+
+
+cat(
+
+  sprintf(
+
+    "Polar-contact Jaccard = %.3f\n",
+
+    polar_jaccard
+
+  )
+
+)
+
+
+
+
+
+# ============================================================
+
+# PANEL L-A
+
+# POLAR-CONTACT RESIDUE FINGERPRINT
+
+# ============================================================
+
+
+
+
+
+# ------------------------------------------------------------
+
+# RESIDUE ORDER
+
+# ------------------------------------------------------------
+
+
+
+shared_order <- c(
+
+  "LYS21",
+
+  "ARG132",
+
+  "ARG138",
+
+  "ARG149"
+
+)
+
+
+
+iso_only_order <- c(
+
+  "MET61",
+
+  "ARG97"
+
+)
+
+
+
+ap5_only_order <- c(
+
+  "GLY18",
+
+  "SER19",
+
+  "GLY20",
+
+  "GLY22",
+
+  "THR23",
+
+  "THR39",
+
+  "ARG44",
+
+  "GLN65",
+
+  "VAL67",
+
+  "GLY94",
+
+  "GLN101",
+
+  "ARG128",
+
+  "GLY177",
+
+  "VAL179"
+
+)
+
+
+
+
+
+polar_order <- c(
+
+  shared_order,
+
+  iso_only_order,
+
+  ap5_only_order
+
+)
+
+
+
+
+
+polar_class <- data.frame(
+
+
+
+  Residue = polar_order,
+
+
+
+  Category = c(
+
+
+
+    rep(
+
+      "Shared",
+
+      length(shared_order)
+
+    ),
+
+
+
+    rep(
+
+      "ISO only",
+
+      length(iso_only_order)
+
+    ),
+
+
+
+    rep(
+
+      "AP5 only",
+
+      length(ap5_only_order)
+
+    )
+
+  ),
+
+
+
+  stringsAsFactors = FALSE
+
+)
+
+
+
+
+
+# ------------------------------------------------------------
+
+# LONG FORMAT
+
+# ------------------------------------------------------------
+
+
+
+polar_matrix <- polar_class %>%
+
+
+
+  mutate(
+
+
+
+    ISO_present =
+
+      Residue %in% iso_polar,
+
+
+
+    AP5_present =
+
+      Residue %in% ap5_polar
+
+  ) %>%
+
+
+
+  pivot_longer(
+
+
+
+    cols = c(
+
+      ISO_present,
+
+      AP5_present
+
+    ),
+
+
+
+    names_to =
+
+      "Ligand",
+
+
+
+    values_to =
+
+      "Present"
+
+  ) %>%
+
+
+
+  mutate(
+
+
+
+    Ligand = recode(
+
+
+
+      Ligand,
+
+
+
+      "ISO_present" =
+
+        "ISO dominant\ncluster",
+
+
+
+      "AP5_present" =
+
+        "Native AP5"
+
+    ),
+
+
+
+    Category = factor(
+
+
+
+      Category,
+
+
+
+      levels = c(
+
+        "Shared",
+
+        "ISO only",
+
+        "AP5 only"
+
+      )
+
+    ),
+
+
+
+    Residue = factor(
+
+
+
+      Residue,
+
+
+
+      levels = rev(
+
+        polar_order
+
+      )
+
+    ),
+
+
+
+    Ligand = factor(
+
+
+
+      Ligand,
+
+
+
+      levels = c(
+
+        "ISO dominant\ncluster",
+
+        "Native AP5"
+
+      )
+
+    ),
+
+
+
+    Cell_type = case_when(
+
+
+
+      Present &
+
+        Ligand ==
+
+        "ISO dominant\ncluster" ~
+
+        "ISO",
+
+
+
+      Present &
+
+        Ligand ==
+
+        "Native AP5" ~
+
+        "AP5",
+
+
+
+      TRUE ~
+
+        "Absent"
+
+    ),
+
+
+
+    Cell_label = case_when(
+
+
+
+      Present &
+
+        Ligand ==
+
+        "ISO dominant\ncluster" ~
+
+        "8/8",
+
+
+
+      Present &
+
+        Ligand ==
+
+        "Native AP5" ~
+
+        "\u2713",
+
+
+
+      TRUE ~
+
+        ""
+
+    )
+
+  )
+
+
+
+
+
+# ------------------------------------------------------------
+
+# BUILD PANEL L-A
+
+# ------------------------------------------------------------
+
+
+
+pA <- ggplot(
+
+
+
+  polar_matrix,
+
+
+
+  aes(
+
+    x = Ligand,
+
+    y = Residue
+
+  )
+
+
+
+) +
+
+
+
+  geom_tile(
+
+
+
+    aes(
+
+      fill = Cell_type
+
+    ),
+
+
+
+    color = "grey50",
+
+
+
+    linewidth = 0.7,
+
+
+
+    width = 0.92,
+
+
+
+    height = 0.90
+
+  ) +
+
+
+
+  geom_text(
+
+
+
+    aes(
+
+      label = Cell_label
+
+    ),
+
+
+
+    size = 5.1,
+
+
+
+    fontface = "bold"
+
+  ) +
+
+
+
+  facet_grid(
+
+
+
+    Category ~ .,
+
+
+
+    scales = "free_y",
+
+
+
+    space = "free_y",
+
+
+
+    switch = "y"
+
+  ) +
+
+
+
+  scale_fill_manual(
+
+
+
+    values = c(
+
+
+
+      "ISO" =
+
+        "#E69F00",
+
+
+
+      "AP5" =
+
+        "#00BFC4",
+
+
+
+      "Absent" =
+
+        "#F2F2F2"
+
+    ),
+
+
+
+    guide = "none"
+
+  ) +
+
+
+
+  labs(
+
+
+
+    title =
+
+      "AK1 polar-contact fingerprint",
+
+
+
+    subtitle =
+
+      "ISO dominant ensemble compared with crystallographic AP5",
+
+
+
+    x = NULL,
+
+
+
+    y = NULL,
+
+
+
+    caption =
+
+      paste0(
+
+        "Shared polar contacts: LYS21, ARG132, ARG138 and ARG149. ",
+
+        "ISO-specific polar contacts: MET61 and ARG97."
+
+      )
+
+  ) +
+
+
+
+  theme_minimal(
+
+    base_size = 15
+
+  ) +
+
+
+
+  theme(
+
+
+
+    panel.grid =
+
+      element_blank(),
+
+
+
+    axis.text.x =
+
+      element_text(
+
+        size = 15,
+
+        face = "bold",
+
+        color = "black",
+
+        margin = margin(
+
+          t = 8
+
+        )
+
+      ),
+
+
+
+    axis.text.y =
+
+      element_text(
+
+        size = 13.5,
+
+        face = "bold",
+
+        color = "black"
+
+      ),
+
+
+
+    plot.title =
+
+      element_text(
+
+        size = 20,
+
+        face = "bold",
+
+        hjust = 0,
+
+        margin = margin(
+
+          b = 5
+
+        )
+
+      ),
+
+
+
+    plot.subtitle =
+
+      element_text(
+
+        size = 12,
+
+        color = "grey25",
+
+        hjust = 0,
+
+        margin = margin(
+
+          b = 14
+
+        )
+
+      ),
+
+
+
+    plot.caption =
+
+      element_text(
+
+        size = 10,
+
+        hjust = 0,
+
+        color = "grey25",
+
+        margin = margin(
+
+          t = 12
+
+        )
+
+      ),
+
+
+
+    strip.text.y.left =
+
+      element_text(
+
+        angle = 0,
+
+        size = 12.5,
+
+        face = "bold",
+
+        color = "black"
+
+      ),
+
+
+
+    strip.background =
+
+      element_rect(
+
+        fill = "#E8E8E8",
+
+        color = "grey60",
+
+        linewidth = 0.5
+
+      ),
+
+
+
+    strip.placement =
+
+      "outside",
+
+
+
+    panel.spacing.y =
+
+      unit(
+
+        0.45,
+
+        "lines"
+
+      ),
+
+
+
+    plot.margin =
+
+      margin(
+
+        25,
+
+        30,
+
+        30,
+
+        40
+
+      ),
+
+
+
+    plot.title.position =
+
+      "plot",
+
+
+
+    plot.caption.position =
+
+      "plot"
+
+  )
+
+
+
+
+
+# ============================================================
+
+# SAVE PANEL L-A
+
+# ============================================================
+
+
+
+panelA_png <- file.path(
+
+  out_dir,
+
+  "AK1_panelL_A_polar_contact_fingerprint.png"
+
+)
+
+
+
+panelA_pdf <- file.path(
+
+  out_dir,
+
+  "AK1_panelL_A_polar_contact_fingerprint.pdf"
+
+)
+
+
+
+
+
+ggsave(
+
+
+
+  filename =
+
+    panelA_png,
+
+
+
+  plot =
+
+    pA,
+
+
+
+  width =
+
+    9.5,
+
+
+
+  height =
+
+    11,
+
+
+
+  units =
+
+    "in",
+
+
+
+  dpi =
+
+    600,
+
+
+
+  bg =
+
+    "white"
+
+)
+
+
+
+
+
+ggsave(
+
+
+
+  filename =
+
+    panelA_pdf,
+
+
+
+  plot =
+
+    pA,
+
+
+
+  width =
+
+    9.5,
+
+
+
+  height =
+
+    11,
+
+
+
+  units =
+
+    "in",
+
+
+
+  bg =
+
+    "white"
+
+)
+
+
+
+
+
+# ============================================================
+
+# PANEL L-B DATA
+
+# QUANTITATIVE OVERLAP
+
+# ============================================================
+
+
+
+overlap_summary <- data.frame(
+
+
+
+  Contact_type = c(
+
+    "Any contact",
+
+    "Polar contact"
+
+  ),
+
+
+
+  ISO_total = c(
+
+    length(iso_any),
+
+    length(iso_polar)
+
+  ),
+
+
+
+  Shared_with_AP5 = c(
+
+    length(shared_any),
+
+    length(shared_polar)
+
+  ),
+
+
+
+  ISO_coverage_percent = c(
+
+    any_iso_coverage,
+
+    polar_iso_coverage
+
+  ),
+
+
+
+  Jaccard = c(
+
+    any_jaccard,
+
+    polar_jaccard
+
+  ),
+
+
+
+  stringsAsFactors = FALSE
+
+
+
+) %>%
+
+
+
+  mutate(
+
+
+
+    Contact_type = factor(
+
+
+
+      Contact_type,
+
+
+
+      levels = c(
+
+        "Any contact",
+
+        "Polar contact"
+
+      )
+
+    ),
+
+
+
+    Fraction_label =
+
+      paste0(
+
+        Shared_with_AP5,
+
+        "/",
+
+        ISO_total
+
+      ),
+
+
+
+    Percent_label =
+
+      paste0(
+
+        sprintf(
+
+          "%.1f",
+
+          ISO_coverage_percent
+
+        ),
+
+        "%"
+
+      ),
+
+
+
+    Main_label =
+
+      paste0(
+
+        Fraction_label,
+
+        "  (",
+
+        Percent_label,
+
+        ")"
+
+      ),
+
+
+
+    Jaccard_label =
+
+      paste0(
+
+        "Jaccard = ",
+
+        sprintf(
+
+          "%.3f",
+
+          Jaccard
+
+        )
+
+      )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# PANEL L-B
+
+# ============================================================
+
+
+
+pB <- ggplot(
+
+
+
+  overlap_summary,
+
+
+
+  aes(
+
+    x = Contact_type,
+
+    y = ISO_coverage_percent
+
+  )
+
+
+
+) +
+
+
+
+  geom_col(
+
+
+
+    width = 0.56,
+
+
+
+    fill = "#E69F00",
+
+
+
+    color = "black",
+
+
+
+    linewidth = 0.85
+
+  ) +
+
+
+
+  geom_text(
+
+
+
+    aes(
+
+      label = Main_label
+
+    ),
+
+
+
+    vjust = -0.65,
+
+
+
+    size = 5.0,
+
+
+
+    fontface = "bold"
+
+  ) +
+
+
+
+  geom_label(
+
+
+
+    aes(
+
+      y = 12,
+
+      label = Jaccard_label
+
+    ),
+
+
+
+    size = 4.1,
+
+
+
+    label.size = 0.3,
+
+
+
+    fill = "white"
+
+  ) +
+
+
+
+  scale_y_continuous(
+
+
+
+    limits = c(
+
+      0,
+
+      100
+
+    ),
+
+
+
+    breaks = c(
+
+      0,
+
+      25,
+
+      50,
+
+      75,
+
+      100
+
+    ),
+
+
+
+    labels = function(x) {
+
+      paste0(
+
+        x,
+
+        "%"
+
+      )
+
+    },
+
+
+
+    expand = c(
+
+      0,
+
+      0
+
+    )
+
+  ) +
+
+
+
+  labs(
+
+
+
+    title =
+
+      "AK1 fingerprint overlap with native AP5",
+
+
+
+    subtitle =
+
+      paste0(
+
+        "Fraction of recurrent ISO contacts that are also present\n",
+
+        "in the crystallographic AP5 contact environment"
+
+      ),
+
+
+
+    x = NULL,
+
+
+
+    y =
+
+      "Recurrent ISO contacts shared with AP5",
+
+
+
+    caption =
+
+      paste0(
+
+        "Any contact: 10/13 ISO residues overlap with AP5.  ",
+
+        "Polar contact: 4/6 ISO residues overlap with AP5.\n",
+
+        "Jaccard values describe symmetric overlap of the complete ",
+
+        "ISO and AP5 residue sets."
+
+      )
+
+  ) +
+
+
+
+  theme_classic(
+
+    base_size = 16
+
+  ) +
+
+
+
+  theme(
+
+
+
+    axis.text.x =
+
+      element_text(
+
+        size = 16,
+
+        face = "bold",
+
+        color = "black",
+
+        margin = margin(
+
+          t = 10
+
+        )
+
+      ),
+
+
+
+    axis.text.y =
+
+      element_text(
+
+        size = 13,
+
+        color = "black"
+
+      ),
+
+
+
+    axis.title.y =
+
+      element_text(
+
+        size = 15,
+
+        face = "bold",
+
+        margin = margin(
+
+          r = 10
+
+        )
+
+      ),
+
+
+
+    plot.title =
+
+      element_text(
+
+        size = 20,
+
+        face = "bold",
+
+        hjust = 0,
+
+        margin = margin(
+
+          b = 5
+
+        )
+
+      ),
+
+
+
+    plot.subtitle =
+
+      element_text(
+
+        size = 12,
+
+        color = "grey25",
+
+        hjust = 0,
+
+        margin = margin(
+
+          b = 18
+
+        )
+
+      ),
+
+
+
+    plot.caption =
+
+      element_text(
+
+        size = 10.5,
+
+        hjust = 0,
+
+        color = "grey25",
+
+        margin = margin(
+
+          t = 16
+
+        )
+
+      ),
+
+
+
+    plot.margin =
+
+      margin(
+
+        30,
+
+        40,
+
+        35,
+
+        35
+
+      ),
+
+
+
+    plot.title.position =
+
+      "plot",
+
+
+
+    plot.caption.position =
+
+      "plot"
+
+  )
+
+
+
+
+
+# ============================================================
+
+# SAVE PANEL L-B
+
+# ============================================================
+
+
+
+panelB_png <- file.path(
+
+  out_dir,
+
+  "AK1_panelL_B_fingerprint_overlap.png"
+
+)
+
+
+
+panelB_pdf <- file.path(
+
+  out_dir,
+
+  "AK1_panelL_B_fingerprint_overlap.pdf"
+
+)
+
+
+
+
+
+ggsave(
+
+
+
+  filename =
+
+    panelB_png,
+
+
+
+  plot =
+
+    pB,
+
+
+
+  width =
+
+    9,
+
+
+
+  height =
+
+    7.5,
+
+
+
+  units =
+
+    "in",
+
+
+
+  dpi =
+
+    600,
+
+
+
+  bg =
+
+    "white"
+
+)
+
+
+
+
+
+ggsave(
+
+
+
+  filename =
+
+    panelB_pdf,
+
+
+
+  plot =
+
+    pB,
+
+
+
+  width =
+
+    9,
+
+
+
+  height =
+
+    7.5,
+
+
+
+  units =
+
+    "in",
+
+
+
+  bg =
+
+    "white"
+
+)
+
+
+
+
+
+# ============================================================
+
+# RESIDUE-LEVEL TABLES
+
+# ============================================================
+
+
+
+all_any_residues <- sort(
+
+  union(
+
+    iso_any,
+
+    ap5_any
+
+  )
+
+)
+
+
+
+
+
+any_table <- data.frame(
+
+
+
+  Residue =
+
+    all_any_residues,
+
+
+
+  ISO =
+
+    all_any_residues %in% iso_any,
+
+
+
+  AP5 =
+
+    all_any_residues %in% ap5_any,
+
+
+
+  stringsAsFactors =
+
+    FALSE
+
+
+
+) %>%
+
+
+
+  mutate(
+
+
+
+    Classification = case_when(
+
+
+
+      ISO & AP5 ~
+
+        "Shared",
+
+
+
+      ISO & !AP5 ~
+
+        "ISO only",
+
+
+
+      !ISO & AP5 ~
+
+        "AP5 only"
+
+    )
+
+  )
+
+
+
+
+
+all_polar_residues <- sort(
+
+  union(
+
+    iso_polar,
+
+    ap5_polar
+
+  )
+
+)
+
+
+
+
+
+polar_table <- data.frame(
+
+
+
+  Residue =
+
+    all_polar_residues,
+
+
+
+  ISO =
+
+    all_polar_residues %in% iso_polar,
+
+
+
+  AP5 =
+
+    all_polar_residues %in% ap5_polar,
+
+
+
+  stringsAsFactors =
+
+    FALSE
+
+
+
+) %>%
+
+
+
+  mutate(
+
+
+
+    Classification = case_when(
+
+
+
+      ISO & AP5 ~
+
+        "Shared",
+
+
+
+      ISO & !AP5 ~
+
+        "ISO only",
+
+
+
+      !ISO & AP5 ~
+
+        "AP5 only"
+
+    )
+
+  )
+
+
+
+
+
+# ============================================================
+
+# SAVE CSV
+
+# ============================================================
+
+
+
+summary_csv <- file.path(
+
+  out_dir,
+
+  "AK1_panelL_fingerprint_overlap_summary.csv"
+
+)
+
+
+
+any_csv <- file.path(
+
+  out_dir,
+
+  "AK1_panelL_any_contact_fingerprint.csv"
+
+)
+
+
+
+polar_csv <- file.path(
+
+  out_dir,
+
+  "AK1_panelL_polar_contact_fingerprint.csv"
+
+)
+
+
+
+
+
+write.csv(
+
+  overlap_summary,
+
+  summary_csv,
+
+  row.names = FALSE
+
+)
+
+
+
+write.csv(
+
+  any_table,
+
+  any_csv,
+
+  row.names = FALSE
+
+)
+
+
+
+write.csv(
+
+  polar_table,
+
+  polar_csv,
+
+  row.names = FALSE
+
+)
+
+
+
+
+
+# ============================================================
+
+# SAVE EXCEL WORKBOOK
+
+# ============================================================
+
+
+
+xlsx_file <- file.path(
+
+  out_dir,
+
+  "AK1_panelL_native_ligand_fingerprint_data.xlsx"
+
+)
+
+
+
+
+
+wb <- createWorkbook()
+
+
+
+
+
+# ------------------------------------------------------------
+
+# OVERLAP SUMMARY
+
+# ------------------------------------------------------------
+
+
+
+addWorksheet(
+
+  wb,
+
+  "Overlap_Summary"
+
+)
+
+
+
+writeData(
+
+  wb,
+
+  "Overlap_Summary",
+
+  overlap_summary
+
+)
+
+
+
+
+
+# ------------------------------------------------------------
+
+# ANY CONTACT
+
+# ------------------------------------------------------------
+
+
+
+addWorksheet(
+
+  wb,
+
+  "Any_Contact_Fingerprint"
+
+)
+
+
+
+writeData(
+
+  wb,
+
+  "Any_Contact_Fingerprint",
+
+  any_table
+
+)
+
+
+
+
+
+# ------------------------------------------------------------
+
+# POLAR CONTACT
+
+# ------------------------------------------------------------
+
+
+
+addWorksheet(
+
+  wb,
+
+  "Polar_Contact_Fingerprint"
+
+)
+
+
+
+writeData(
+
+  wb,
+
+  "Polar_Contact_Fingerprint",
+
+  polar_table
+
+)
+
+
+
+
+
+# ------------------------------------------------------------
+
+# RESIDUE SETS
+
+# ------------------------------------------------------------
+
+
+
+key_sets <- data.frame(
+
+
+
+  Category = c(
+
+    "Any shared",
+
+    "Any ISO only",
+
+    "Any AP5 only",
+
+    "Polar shared",
+
+    "Polar ISO only",
+
+    "Polar AP5 only"
+
+  ),
+
+
+
+  Residues = c(
+
+
+
+    paste(
+
+      shared_any,
+
+      collapse = ", "
+
+    ),
+
+
+
+    paste(
+
+      iso_only_any,
+
+      collapse = ", "
+
+    ),
+
+
+
+    paste(
+
+      ap5_only_any,
+
+      collapse = ", "
+
+    ),
+
+
+
+    paste(
+
+      shared_polar,
+
+      collapse = ", "
+
+    ),
+
+
+
+    paste(
+
+      iso_only_polar,
+
+      collapse = ", "
+
+    ),
+
+
+
+    paste(
+
+      ap5_only_polar,
+
+      collapse = ", "
+
+    )
+
+  )
+
+)
+
+
+
+
+
+addWorksheet(
+
+  wb,
+
+  "Residue_Sets"
+
+)
+
+
+
+writeData(
+
+  wb,
+
+  "Residue_Sets",
+
+  key_sets
+
+)
+
+
+
+
+
+# ------------------------------------------------------------
+
+# NOTES
+
+# ------------------------------------------------------------
+
+
+
+notes <- data.frame(
+
+
+
+  Item = c(
+
+    "Main interpretation",
+
+    "Any-contact overlap",
+
+    "Polar-contact overlap",
+
+    "Jaccard",
+
+    "Important limitation"
+
+  ),
+
+
+
+  Description = c(
+
+
+
+    paste0(
+
+      "Most recurrent ISO contacts fall within the native AP5 ",
+
+      "contact environment, supporting localization of ISO ",
+
+      "within the experimentally defined AK1 nucleotide-binding region."
+
+    ),
+
+
+
+    paste0(
+
+      length(shared_any),
+
+      " of ",
+
+      length(iso_any),
+
+      " recurrent ISO contact residues (",
+
+      sprintf(
+
+        "%.1f",
+
+        any_iso_coverage
+
+      ),
+
+      "%) were also contacted by AP5."
+
+    ),
+
+
+
+    paste0(
+
+      length(shared_polar),
+
+      " of ",
+
+      length(iso_polar),
+
+      " recurrent ISO polar-contact residues (",
+
+      sprintf(
+
+        "%.1f",
+
+        polar_iso_coverage
+
+      ),
+
+      "%) were also contacted by AP5."
+
+    ),
+
+
+
+    paste0(
+
+      "Jaccard values are ",
+
+      sprintf(
+
+        "%.3f",
+
+        any_jaccard
+
+      ),
+
+      " for any contacts and ",
+
+      sprintf(
+
+        "%.3f",
+
+        polar_jaccard
+
+      ),
+
+      " for polar contacts."
+
+    ),
+
+
+
+    paste0(
+
+      "Fingerprint overlap supports shared pocket occupancy but ",
+
+      "does not demonstrate identical binding mode, mechanism, ",
+
+      "or experimental affinity."
+
+    )
+
+  )
+
+)
+
+
+
+
+
+addWorksheet(
+
+  wb,
+
+  "Notes"
+
+)
+
+
+
+writeData(
+
+  wb,
+
+  "Notes",
+
+  notes
+
+)
+
+
+
+
+
+# ------------------------------------------------------------
+
+# COLUMN WIDTHS
+
+# ------------------------------------------------------------
+
+
+
+setColWidths(
+
+  wb,
+
+  "Overlap_Summary",
+
+  cols = 1:ncol(overlap_summary),
+
+  widths = "auto"
+
+)
+
+
+
+setColWidths(
+
+  wb,
+
+  "Any_Contact_Fingerprint",
+
+  cols = 1:ncol(any_table),
+
+  widths = "auto"
+
+)
+
+
+
+setColWidths(
+
+  wb,
+
+  "Polar_Contact_Fingerprint",
+
+  cols = 1:ncol(polar_table),
+
+  widths = "auto"
+
+)
+
+
+
+setColWidths(
+
+  wb,
+
+  "Residue_Sets",
+
+  cols = 1,
+
+  widths = 22
+
+)
+
+
+
+setColWidths(
+
+  wb,
+
+  "Residue_Sets",
+
+  cols = 2,
+
+  widths = 110
+
+)
+
+
+
+setColWidths(
+
+  wb,
+
+  "Notes",
+
+  cols = 1,
+
+  widths = 28
+
+)
+
+
+
+setColWidths(
+
+  wb,
+
+  "Notes",
+
+  cols = 2,
+
+  widths = 110
+
+)
+
+
+
+
+
+saveWorkbook(
+
+  wb,
+
+  xlsx_file,
+
+  overwrite = TRUE
+
+)
+
+
+
+
+
+# ============================================================
+
+# FINAL SUMMARY
+
+# ============================================================
+
+
+
+cat("\n")
+
+cat("============================================================\n")
+
+cat("PANEL L COMPLETE — TWO SEPARATE FIGURES\n")
+
+cat("============================================================\n\n")
+
+
+
+cat(
+
+  sprintf(
+
+    "ANY CONTACTS: %d/%d = %.1f%% shared with AP5\n",
+
+    length(shared_any),
+
+    length(iso_any),
+
+    any_iso_coverage
+
+  )
+
+)
+
+
+
+cat(
+
+  sprintf(
+
+    "ANY-contact Jaccard = %.3f\n\n",
+
+    any_jaccard
+
+  )
+
+)
+
+
+
+cat(
+
+  sprintf(
+
+    "POLAR CONTACTS: %d/%d = %.1f%% shared with AP5\n",
+
+    length(shared_polar),
+
+    length(iso_polar),
+
+    polar_iso_coverage
+
+  )
+
+)
+
+
+
+cat(
+
+  sprintf(
+
+    "Polar-contact Jaccard = %.3f\n",
+
+    polar_jaccard
+
+  )
+
+)
+
+
+
+cat("\nPanel L-A:\n")
+
+cat(panelA_png, "\n")
+
+
+
+cat("\nPanel L-B:\n")
+
+cat(panelB_png, "\n")
+
+
+
+cat("\nExcel:\n")
+
+cat(xlsx_file, "\n")
+
+END FILE: AK1_panelL_native_ligand_fingerprint.R
+
+================================================================================
+FILE: make_AK1_panelB.pml
+Executable source: code/make_AK1_panelB.pml
+================================================================================
+reinitialize
+
+
+
+
+
+# ============================================================
+
+# LOAD STRUCTURES
+
+# ============================================================
+
+
+
+load ..\receptors\AK1_chainA_FIXED.pdb, AK1
+
+
+
+load ..\ligand\AK1_native_AP5_chainA.pdb, AP5_native
+
+
+
+load ..\results\AK1_repr9009\AK1_ISO_seed9009_best.sdf, ISO
+
+
+
+
+
+# ============================================================
+
+# CLEAN START
+
+# ============================================================
+
+
+
+remove solvent
+
+hide everything
+
+
+
+
+
+# ============================================================
+
+# AK1 PROTEIN
+
+# ============================================================
+
+
+
+show cartoon, AK1
+
+
+
+color gray85, AK1
+
+
+
+set cartoon_transparency, 0.65, AK1
+
+
+
+
+
+# ============================================================
+
+# NATIVE AP5
+
+# Reference ligand only — deliberately subdued
+
+# ============================================================
+
+
+
+show sticks, AP5_native
+
+
+
+color cyan, AP5_native and elem C
+
+color red, AP5_native and elem O
+
+color blue, AP5_native and elem N
+
+
+
+set stick_radius, 0.10, AP5_native
+
+set stick_transparency, 0.55, AP5_native
+
+
+
+
+
+# ============================================================
+
+# ISORHAMNETIN — REPRESENTATIVE SEED 9009
+
+# Main ligand of interest
+
+# ============================================================
+
+
+
+show sticks, ISO
+
+
+
+# Make ISO very obvious
+
+color yellow, ISO and elem C
+
+color red, ISO and elem O
+
+color blue, ISO and elem N
+
+
+
+set stick_radius, 0.32, ISO
+
+
+
+# Small spheres help distinguish ISO from AP5
+
+show spheres, ISO
+
+set sphere_scale, 0.18, ISO
+
+
+
+
+
+# ============================================================
+
+# AK1 POCKET ONLY
+
+# Important: restrict selection to protein
+
+# ============================================================
+
+
+
+select pocket, byres (AK1 within 4.0 of ISO)
+
+
+
+show sticks, pocket
+
+
+
+color palegreen, pocket and elem C
+
+color red, pocket and elem O
+
+color blue, pocket and elem N
+
+
+
+set stick_radius, 0.12, pocket
+
+set stick_transparency, 0.20, pocket
+
+
+
+
+
+# ============================================================
+
+# POLAR CONTACTS BETWEEN ISO AND AK1
+
+# ============================================================
+
+
+
+distance ISO_contacts, \
+
+    (ISO and (elem O+N)), \
+
+    (pocket and (elem O+N)), \
+
+    3.6, mode=2
+
+
+
+set dash_color, black, ISO_contacts
+
+set dash_width, 2.5, ISO_contacts
+
+set dash_gap, 0.25, ISO_contacts
+
+set dash_length, 0.18, ISO_contacts
+
+
+
+# Do not show PyMOL's automatic distance numbers
+
+hide labels, ISO_contacts
+
+
+
+
+
+# ============================================================
+
+# RESIDUE LABELS
+
+# Only residues physically close to ISO
+
+# ============================================================
+
+
+
+hide labels
+
+
+
+select label_residues, \
+
+    (AK1 and name CA and byres (AK1 within 3.8 of ISO))
+
+
+
+label label_residues, "%s%s" % (resn,resi)
+
+
+
+set label_size, 18
+
+set label_color, black
+
+set label_font_id, 7
+
+set label_outline_color, white
+
+
+
+
+
+# ============================================================
+
+# WHITE BACKGROUND
+
+# ============================================================
+
+
+
+bg_color white
+
+
+
+set opaque_background, on
+
+set ray_opaque_background, on
+
+
+
+set antialias, 2
+
+set orthoscopic, on
+
+set depth_cue, 0
+
+set specular, 0.20
+
+set ambient, 0.45
+
+
+
+
+
+# ============================================================
+
+# VIEW
+
+# ============================================================
+
+
+
+orient ISO
+
+
+
+center ISO
+
+
+
+zoom (ISO or pocket), 7
+
+
+
+turn y, 12
+
+turn x, -8
+
+
+
+
+
+# ============================================================
+
+# IMAGE SIZE
+
+# ============================================================
+
+
+
+viewport 2200, 1800
+
+
+
+
+
+# ============================================================
+
+# RENDER
+
+# ============================================================
+
+
+
+ray 3000, 2400
+
+
+
+png ..\results\AK1_panelB\AK1_panelB_seed9009_FINAL.png, dpi=600
+
+END FILE: make_AK1_panelB.pml
+
+================================================================================
+FILE: make_AK1_panelB_callouts.pml
+Executable source: code/make_AK1_panelB_callouts.pml
+================================================================================
+reinitialize
+
+
+
+
+
+# ============================================================
+
+# LOAD STRUCTURES
+
+# ============================================================
+
+
+
+load ..\receptors\AK1_chainA_FIXED.pdb, AK1
+
+
+
+load ..\ligand\AK1_native_AP5_chainA.pdb, AP5_native
+
+
+
+load ..\results\AK1_repr9009\AK1_ISO_seed9009_best.sdf, ISO
+
+
+
+
+
+# ============================================================
+
+# CLEAN START
+
+# ============================================================
+
+
+
+remove solvent
+
+hide everything
+
+
+
+
+
+# ============================================================
+
+# AK1 PROTEIN
+
+# ============================================================
+
+
+
+show cartoon, AK1
+
+color gray85, AK1
+
+set cartoon_transparency, 0.65, AK1
+
+
+
+
+
+# ============================================================
+
+# AP5 REFERENCE
+
+# ============================================================
+
+
+
+show sticks, AP5_native
+
+
+
+color cyan, AP5_native and elem C
+
+color red, AP5_native and elem O
+
+color blue, AP5_native and elem N
+
+
+
+set stick_radius, 0.10, AP5_native
+
+set stick_transparency, 0.60, AP5_native
+
+
+
+
+
+# ============================================================
+
+# REPRESENTATIVE ISORHAMNETIN — SEED 9009
+
+# ============================================================
+
+
+
+show sticks, ISO
+
+
+
+color yellow, ISO and elem C
+
+color red, ISO and elem O
+
+color blue, ISO and elem N
+
+
+
+set stick_radius, 0.32, ISO
+
+
+
+show spheres, ISO
+
+set sphere_scale, 0.17, ISO
+
+
+
+
+
+# ============================================================
+
+# GENERAL POCKET
+
+# ============================================================
+
+
+
+select pocket, byres (AK1 within 4.0 of ISO)
+
+
+
+show sticks, pocket
+
+
+
+color palegreen, pocket and elem C
+
+color red, pocket and elem O
+
+color blue, pocket and elem N
+
+
+
+set stick_radius, 0.11, pocket
+
+set stick_transparency, 0.25, pocket
+
+
+
+
+
+# ============================================================
+
+# DIRECT-CONTACT RESIDUES
+
+# ============================================================
+
+
+
+select direct_contacts, byres (AK1 within 3.6 of ISO)
+
+
+
+# make the actual contacting residues slightly stronger
+
+show sticks, direct_contacts
+
+set stick_radius, 0.16, direct_contacts
+
+
+
+
+
+# ============================================================
+
+# RED CALLOUT MARKERS
+
+# ============================================================
+
+
+
+select direct_CA, direct_contacts and name CA
+
+
+
+show spheres, direct_CA
+
+
+
+color red, direct_CA
+
+
+
+set sphere_scale, 0.34, direct_CA
+
+set sphere_transparency, 0.45, direct_CA
+
+
+
+
+
+# ============================================================
+
+# LABEL ONLY DIRECT-CONTACT RESIDUES
+
+# ============================================================
+
+
+
+hide labels
+
+
+
+label direct_CA, "%s%s" % (resn,resi)
+
+
+
+set label_size, 19
+
+set label_color, red
+
+set label_font_id, 7
+
+set label_outline_color, white
+
+
+
+
+
+# ============================================================
+
+# ISO LABEL
+
+# ============================================================
+
+
+
+pseudoatom ISO_label, ISO
+
+
+
+hide everything, ISO_label
+
+
+
+label ISO_label, "Isorhamnetin"
+
+
+
+set label_size, 22
+
+set label_color, red
+
+set label_font_id, 7
+
+set label_outline_color, white
+
+
+
+
+
+# ============================================================
+
+# PREDICTED POLAR CONTACTS
+
+# ============================================================
+
+
+
+distance ISO_contacts, \
+
+    (ISO and (elem O+N)), \
+
+    (direct_contacts and (elem O+N)), \
+
+    3.6, mode=2
+
+
+
+set dash_color, black, ISO_contacts
+
+set dash_width, 2.5, ISO_contacts
+
+set dash_gap, 0.25, ISO_contacts
+
+set dash_length, 0.18, ISO_contacts
+
+
+
+hide labels, ISO_contacts
+
+
+
+
+
+# ============================================================
+
+# BACKGROUND / APPEARANCE
+
+# ============================================================
+
+
+
+bg_color white
+
+
+
+set opaque_background, on
+
+set ray_opaque_background, on
+
+
+
+set antialias, 2
+
+set orthoscopic, on
+
+set depth_cue, 0
+
+set specular, 0.20
+
+set ambient, 0.45
+
+
+
+
+
+# ============================================================
+
+# VIEW
+
+# ============================================================
+
+
+
+orient ISO
+
+center ISO
+
+
+
+zoom (ISO or pocket), 7
+
+
+
+turn y, 12
+
+turn x, -8
+
+
+
+
+
+# ============================================================
+
+# IMAGE SIZE
+
+# ============================================================
+
+
+
+viewport 2200,1800
+
+
+
+
+
+# ============================================================
+
+# OUTPUT — NEW FILE
+
+# ============================================================
+
+
+
+ray 3000,2400
+
+
+
+png ..\results\AK1_panelB\AK1_panelB_seed9009_CALLOUTS.png, dpi=600
+
+END FILE: make_AK1_panelB_callouts.pml
+
+================================================================================
+FILE: make_AK1_panelB_callouts_v2.pml
+Executable source: code/make_AK1_panelB_callouts_v2.pml
+================================================================================
+reinitialize
+
+
+
+
+
+# ============================================================
+
+# LOAD STRUCTURES
+
+# ============================================================
+
+
+
+load ..\receptors\AK1_chainA_FIXED.pdb, AK1
+
+load ..\ligand\AK1_native_AP5_chainA.pdb, AP5_native
+
+load ..\results\AK1_repr9009\AK1_ISO_seed9009_best.sdf, ISO
+
+
+
+
+
+# ============================================================
+
+# CLEAN START
+
+# ============================================================
+
+
+
+remove solvent
+
+hide everything
+
+
+
+
+
+# ============================================================
+
+# AK1 PROTEIN
+
+# ============================================================
+
+
+
+show cartoon, AK1
+
+color gray85, AK1
+
+set cartoon_transparency, 0.70, AK1
+
+
+
+
+
+# ============================================================
+
+# AP5 — FAINT REFERENCE
+
+# ============================================================
+
+
+
+show sticks, AP5_native
+
+
+
+color cyan, AP5_native and elem C
+
+color red, AP5_native and elem O
+
+color blue, AP5_native and elem N
+
+
+
+set stick_radius, 0.08, AP5_native
+
+set stick_transparency, 0.65, AP5_native
+
+
+
+
+
+# ============================================================
+
+# REPRESENTATIVE ISORHAMNETIN — SEED 9009
+
+# ============================================================
+
+
+
+show sticks, ISO
+
+
+
+color yellow, ISO and elem C
+
+color red, ISO and elem O
+
+color blue, ISO and elem N
+
+
+
+set stick_radius, 0.30, ISO
+
+
+
+show spheres, ISO
+
+set sphere_scale, 0.15, ISO
+
+
+
+
+
+# ============================================================
+
+# GENERAL AK1 POCKET
+
+# ============================================================
+
+
+
+select pocket, byres (AK1 within 4.0 of ISO)
+
+
+
+show sticks, pocket
+
+
+
+color palegreen, pocket and elem C
+
+color red, pocket and elem O
+
+color blue, pocket and elem N
+
+
+
+set stick_radius, 0.10, pocket
+
+set stick_transparency, 0.35, pocket
+
+
+
+
+
+# ============================================================
+
+# CANDIDATE POLAR-CONTACT RESIDUES
+
+#
+
+# Much more selective than "anything within 3.6 A".
+
+# Protein O/N atoms must be near ISO O/N atoms.
+
+# ============================================================
+
+
+
+select polar_res, byres ( \
+
+    (AK1 and (elem O+N)) within 3.6 of \
+
+    (ISO and (elem O+N)) \
+
+)
+
+
+
+show sticks, polar_res
+
+
+
+# Make contacting residues stronger than surrounding pocket
+
+color salmon, polar_res and elem C
+
+color red, polar_res and elem O
+
+color blue, polar_res and elem N
+
+
+
+set stick_radius, 0.18, polar_res
+
+
+
+
+
+# ============================================================
+
+# SMALL RED CALLOUT MARKERS
+
+# ============================================================
+
+
+
+select polar_CA, polar_res and name CA
+
+
+
+show spheres, polar_CA
+
+color red, polar_CA
+
+
+
+# deliberately small
+
+set sphere_scale, 0.16, polar_CA
+
+set sphere_transparency, 0.25, polar_CA
+
+
+
+
+
+# ============================================================
+
+# LABEL ONLY POLAR-CONTACT CANDIDATES
+
+# ============================================================
+
+
+
+hide labels
+
+
+
+label polar_CA, "%s%s" % (resn,resi)
+
+
+
+set label_size, 20
+
+set label_color, black
+
+set label_font_id, 7
+
+set label_outline_color, white
+
+
+
+
+
+# ============================================================
+
+# PREDICTED POLAR CONTACTS
+
+# ============================================================
+
+
+
+distance ISO_polar_contacts, \
+
+    (ISO and (elem O+N)), \
+
+    (polar_res and (elem O+N)), \
+
+    3.6, mode=2
+
+
+
+set dash_color, black, ISO_polar_contacts
+
+set dash_width, 2.5, ISO_polar_contacts
+
+set dash_gap, 0.25, ISO_polar_contacts
+
+set dash_length, 0.18, ISO_polar_contacts
+
+
+
+# keep diagram clean: no automatic distance-number labels
+
+hide labels, ISO_polar_contacts
+
+
+
+
+
+# ============================================================
+
+# BACKGROUND / LIGHTING
+
+# ============================================================
+
+
+
+bg_color white
+
+
+
+set opaque_background, on
+
+set ray_opaque_background, on
+
+
+
+set antialias, 2
+
+set orthoscopic, on
+
+set depth_cue, 0
+
+set specular, 0.20
+
+set ambient, 0.45
+
+
+
+
+
+# ============================================================
+
+# VIEW
+
+# ============================================================
+
+
+
+orient ISO
+
+center ISO
+
+
+
+zoom (ISO or pocket), 8
+
+
+
+turn y, 12
+
+turn x, -8
+
+
+
+
+
+# ============================================================
+
+# IMAGE SIZE
+
+# ============================================================
+
+
+
+viewport 2200,1800
+
+
+
+
+
+# ============================================================
+
+# NEW OUTPUT — DOES NOT OVERWRITE OLD FIGURES
+
+# ============================================================
+
+
+
+ray 3000,2400
+
+
+
+png ..\results\AK1_panelB\AK1_panelB_seed9009_POLAR_CALLOUTS.png, dpi=600
+
+END FILE: make_AK1_panelB_callouts_v2.pml
+
+
+SCRIPTS SELECTED FOR EXECUTION
+The preparation helper selects the following scripts for the working project.
+
+================================================================================
+FILE: code/portable/AK1_panelF_contact_stability.R
+Purpose: Plot mean polar-contact distances with standard-deviation error bars.
+================================================================================
+# ============================================================
+# FIGURE 8 — PANEL F
+# Stability of recurrent AK1–ISO polar contacts
+# across the dominant 8-pose cluster
+# ============================================================
+
+packages <- c("ggplot2", "dplyr")
+
+for (p in packages) {
+  if (!requireNamespace(p, quietly = TRUE)) {
+    install.packages(
+      p,
+      repos = "https://cloud.r-project.org"
+    )
+  }
+}
+
+library(ggplot2)
+library(dplyr)
+
+
+# ============================================================
+# PATHS
+# ============================================================
+
+project <- "C:/Users/akidi/Desktop/ISO_AK_Docking"
+
+input_file <- file.path(
+  project,
+  "results",
+  "AK1_dominant8_contact_frequency",
+  "AK1_dominant8_recurrent_polar_distances_long.csv"
+)
+
+output_dir <- file.path(
+  project,
+  "results",
+  "AK1_panelF"
+)
+
+dir.create(
+  output_dir,
+  showWarnings = FALSE,
+  recursive = TRUE
+)
+
+
+# ============================================================
+# READ REAL DATA
+# ============================================================
+
+dat <- read.csv(
+  input_file,
+  check.names = FALSE
+)
+
+names(dat)[3] <- "Distance"
+
+
+# ============================================================
+# ORDER RESIDUES BY MEAN DISTANCE
+# ============================================================
+
+summary_dat <- dat %>%
+  group_by(Residue) %>%
+  summarise(
+    Mean = mean(Distance),
+    SD = sd(Distance),
+    Min = min(Distance),
+    Max = max(Distance),
+    n = n()
+  ) %>%
+  arrange(Mean)
+
+
+dat$Residue <- factor(
+  dat$Residue,
+  levels = summary_dat$Residue
+)
+
+summary_dat$Residue <- factor(
+  summary_dat$Residue,
+  levels = summary_dat$Residue
+)
+
+
+# ============================================================
+# PRINT SUMMARY
+# ============================================================
+
+print(summary_dat)
+
+
+# ============================================================
+# PLOT
+# ============================================================
+
+p <- ggplot(
+  dat,
+  aes(
+    x = Residue,
+    y = Distance
+  )
+) +
+
+  # 3.6 A screening cutoff
+  geom_hline(
+    yintercept = 3.6,
+    linetype = "dashed",
+    linewidth = 0.8,
+    color = "grey35"
+  ) +
+
+  # individual dominant-pose measurements
+  geom_jitter(
+    width = 0.10,
+    height = 0,
+    size = 3.2,
+    alpha = 0.65,
+    color = "grey35"
+  ) +
+
+  # mean +/- SD
+  geom_errorbar(
+    data = summary_dat,
+    mapping = aes(
+      x = Residue,
+      ymin = Mean - SD,
+      ymax = Mean + SD
+    ),
+    width = 0.18,
+    linewidth = 0.9,
+    inherit.aes = FALSE
+  ) +
+
+  geom_point(
+    data = summary_dat,
+    aes(
+      x = Residue,
+      y = Mean
+    ),
+    shape = 23,
+    size = 5,
+    fill = "#E69F00",
+    color = "black",
+    inherit.aes = FALSE
+  ) +
+
+  # n=8/8 annotation
+  geom_text(
+    data = summary_dat,
+    aes(
+      x = Residue,
+      y = 3.72,
+      label = "8/8"
+    ),
+    size = 4.2,
+    fontface = "bold",
+    inherit.aes = FALSE
+  ) +
+
+  annotate(
+    "text",
+    x = Inf,
+    y = 3.60,
+    label = "3.6 Å polar-contact screening cutoff",
+    hjust = 1.05,
+    vjust = -0.6,
+    size = 4.0,
+    color = "grey25"
+  ) +
+
+  labs(
+    x = "AK1 residue",
+    y = "Minimum polar heavy-atom distance (Å)"
+  ) +
+
+  coord_cartesian(
+    ylim = c(
+      min(dat$Distance) - 0.10,
+      3.82
+    )
+  ) +
+
+  theme_classic(
+    base_size = 15
+  ) +
+
+  theme(
+    axis.text = element_text(
+      color = "black"
+    ),
+
+    axis.text.x = element_text(
+      face = "bold"
+    ),
+
+    axis.title = element_text(
+      face = "bold",
+      color = "black"
+    ),
+
+    plot.margin = margin(
+      15,
+      20,
+      15,
+      15
+    )
+  )
+
+
+# ============================================================
+# SAVE
+# ============================================================
+
+png_file <- file.path(
+  output_dir,
+  "AK1_panelF_recurrent_polar_contact_stability.png"
+)
+
+pdf_file <- file.path(
+  output_dir,
+  "AK1_panelF_recurrent_polar_contact_stability.pdf"
+)
+
+ggsave(
+  filename = png_file,
+  plot = p,
+  width = 7.5,
+  height = 5.5,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+ggsave(
+  filename = pdf_file,
+  plot = p,
+  width = 7.5,
+  height = 5.5,
+  units = "in"
+)
+
+
+cat("\nSaved PNG:\n")
+cat(png_file, "\n")
+
+cat("\nSaved PDF:\n")
+cat(pdf_file, "\n")
+END FILE: AK1_panelF_contact_stability.R
+
+
+================================================================================
+EXECUTION SCRIPT: AK1_panelG_contact_recurrence.R
+Purpose: Plot broad and polar contact recurrence, ordering residues by their shortest polar-contact distance.
+================================================================================
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# =========================================================
+# INPUT / OUTPUT
+# =========================================================
+input_csv <- "../results/AK1_dominant8_contact_frequency/AK1_dominant8_contact_frequency.csv"
+out_dir   <- "../results/AK1_panelG"
+
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+# =========================================================
+# HELPERS
+# =========================================================
+parse_ratio_numerator <- function(x) {
+  x <- trimws(as.character(x))
+  as.numeric(sub("/.*", "", x))
+}
+
+clean_distance <- function(x) {
+  x <- as.character(x)
+  x[x == "-" | x == "" | is.na(x)] <- NA
+  suppressWarnings(as.numeric(gsub("[^0-9.]", "", x)))
+}
+
+# =========================================================
+# READ TABLE
+# Expected CSV columns:
+# Residue, Any, Polar, Polar., Min.polar.dist.
+# =========================================================
+raw <- read.csv(input_csv, check.names = TRUE, stringsAsFactors = FALSE)
+
+# Safety check for expected columns
+print("Detected columns:")
+print(colnames(raw))
+
+# Accept the supplied recurrence table's explicit count/distance column names.
+if (!("Any" %in% names(raw)) && "Any.contact.n" %in% names(raw)) raw$Any <- raw$Any.contact.n
+if (!("Polar" %in% names(raw)) && "Polar.contact.n" %in% names(raw)) raw$Polar <- raw$Polar.contact.n
+if (!("Polar.." %in% names(raw)) && "Polar.contact.." %in% names(raw)) raw[["Polar.."]] <- raw[["Polar.contact.."]]
+if (!("Min.polar.dist." %in% names(raw)) && "Polar.shortest.distance" %in% names(raw)) raw[["Min.polar.dist."]] <- raw[["Polar.shortest.distance"]]
+if (!all(c("Residue", "Any", "Polar") %in% names(raw))) stop("The recurrence CSV needs residue, broad-contact count and polar-contact count columns.")
+
+
+freq <- raw %>%
+  transmute(
+    Residue = Residue,
+    Any = Any,
+    Polar = Polar,
+    PolarPct = if ("Polar.." %in% colnames(raw)) `Polar..` else if ("Polar." %in% colnames(raw)) `Polar.` else NA,
+    MinPolarDist = if ("Min.polar.dist." %in% colnames(raw)) `Min.polar.dist.` else if ("Min.polar.dist" %in% colnames(raw)) `Min.polar.dist` else NA,
+    Any_n = parse_ratio_numerator(Any),
+    Polar_n = parse_ratio_numerator(Polar)
+  ) %>%
+  mutate(
+    MinPolarDist_num = clean_distance(MinPolarDist),
+    RecurrentPolar = Polar_n == 8
+  )
+
+# =========================================================
+# ORDER RESIDUES
+# Main ordering:
+# 1) highest polar recurrence
+# 2) highest any-contact recurrence
+# 3) shortest min polar distance
+# =========================================================
+freq <- freq %>%
+  arrange(desc(Polar_n), desc(Any_n), MinPolarDist_num)
+
+freq <- freq %>%
+  mutate(
+    ResidueLabel = ifelse(RecurrentPolar, paste0(Residue, " *"), Residue)
+  )
+
+residue_order <- freq$ResidueLabel
+
+# =========================================================
+# LONG FORMAT FOR TILE PLOT
+# =========================================================
+plot_df <- bind_rows(
+  freq %>%
+    transmute(
+      ResidueLabel,
+      ContactType = "Any contact",
+      Count = Any_n
+    ),
+  freq %>%
+    transmute(
+      ResidueLabel,
+      ContactType = "Polar contact",
+      Count = Polar_n
+    )
+) %>%
+  mutate(
+    ContactType = factor(ContactType, levels = c("Any contact", "Polar contact")),
+    ResidueLabel = factor(ResidueLabel, levels = rev(residue_order)),
+    Label = paste0(Count, "/8")
+  )
+
+# recurrent polar residues for subtitle
+recurrent_residues <- freq %>%
+  filter(RecurrentPolar) %>%
+  pull(Residue)
+
+subtitle_text <- paste0(
+  length(recurrent_residues),
+  " residues showed polar-contact recurrence in 8/8 dominant poses: ",
+  paste(recurrent_residues, collapse = ", ")
+)
+
+# =========================================================
+# PLOT
+# =========================================================
+p <- ggplot(plot_df, aes(x = ContactType, y = ResidueLabel, fill = Count)) +
+  geom_tile(color = "white", linewidth = 1.0, width = 0.92, height = 0.92) +
+
+  # outline fully recurrent polar residues
+  geom_tile(
+    data = subset(plot_df, ContactType == "Polar contact" & Count == 8),
+    fill = NA, color = "black", linewidth = 1.2, width = 0.92, height = 0.92
+  ) +
+
+  geom_text(aes(label = Label), size = 5.3, fontface = "bold") +
+
+  scale_fill_gradientn(
+    colours = c("#F2F2F2", "#F7D98A", "#E69F00"),
+    values = c(0, 0.5, 1),
+    limits = c(0, 8),
+    breaks = c(0, 2, 4, 6, 8),
+    name = "Recurrence\nacross 8 poses"
+  ) +
+
+  labs(
+    title = "AK1 dominant-cluster contact recurrence",
+    subtitle = subtitle_text,
+    x = NULL,
+    y = "AK1 residue",
+    caption = paste0(
+      "* indicates residues with polar contact in all 8 dominant poses.\n",
+      "Any contact = any heavy-atom contact; Polar contact = candidate H-bond/polar proximity."
+    )
+  ) +
+
+  theme_minimal(base_size = 18) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(size = 16, face = "bold"),
+    axis.text.y = element_text(size = 15, face = "bold"),
+    axis.title.y = element_text(size = 18, face = "bold"),
+    plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 14, hjust = 0.5, margin = margin(b = 12)),
+    legend.title = element_text(size = 15, face = "bold"),
+    legend.text = element_text(size = 12),
+    plot.caption = element_text(size = 11, hjust = 0),
+    plot.margin = margin(20, 20, 20, 20)
+  )
+
+# =========================================================
+# SAVE FIGURES
+# =========================================================
+png_file <- file.path(out_dir, "AK1_panelG_contact_recurrence.png")
+pdf_file <- file.path(out_dir, "AK1_panelG_contact_recurrence.pdf")
+
+ggsave(
+  filename = png_file,
+  plot = p,
+  width = 10,
+  height = 8,
+  dpi = 300,
+  bg = "white"
+)
+
+ggsave(
+  filename = pdf_file,
+  plot = p,
+  width = 10,
+  height = 8,
+  bg = "white"
+)
+
+# =========================================================
+# CONSOLE SUMMARY
+# =========================================================
+cat("============================================================\n")
+cat("AK1 PANEL G — DOMINANT 8-POSE CONTACT RECURRENCE\n")
+cat("============================================================\n\n")
+
+print(freq)
+
+cat("\nSaved files:\n")
+cat(normalizePath(png_file), "\n")
+cat(normalizePath(pdf_file), "\n")
+END FILE: AK1_panelG_contact_recurrence.R

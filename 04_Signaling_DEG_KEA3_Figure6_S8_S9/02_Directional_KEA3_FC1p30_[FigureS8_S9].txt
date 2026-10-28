@@ -1,0 +1,177 @@
+# ============================================================================
+# DIRECTIONAL KEA3 ANALYSIS — SUPPLEMENTARY FIGURE S9
+# ============================================================================
+# This script generates 12 KEA3 queries from the FC 1.30 TAC gene lists.
+# Each of the 6 treatment comparisons is submitted separately for UP and DOWN
+# gene sets. KEA3 integrated and individual-library ranks are retained.
+#
+# HOW TO RUN THIS CODE?
+# In R or RStudio, enter: source(file.choose(), encoding = "UTF-8")
+# Select this TXT, then choose All Expressions.txt from Input_Source_Files.
+# Internet access is required when matching KEA3 responses are not already available locally.
+#
+# REQUIRED INPUTS
+# All Expressions.txt
+# S8_one_direction_per_gene_and_contrast.csv (it should be already in the Input_Source_Files
+# if step 1 was run smoothly)
+
+# OUTPUTS
+# KEA3_FC1p30_integrated_all.csv and KEA3_FC1p30_library_all.csv are saved
+# under Directional_KEA3_FC1p30_Results and copied to Input_Source_Files.
+# The raw KEA3 JSON responses and input checksums are retained alongside
+# their respective gene sets for traceable computational reproducibility.
+# ============================================================================
+
+options(stringsAsFactors = FALSE)
+for (pkg in c("jsonlite", "httr")) {
+  if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg, repos = "https://cloud.r-project.org")
+  if (!requireNamespace(pkg, quietly = TRUE)) stop("Missing R package: ", pkg)
+}
+FC_THRESHOLD <- 1.30
+P_THRESHOLD <- 0.05
+KEA3_URL <- "https://maayanlab.cloud/kea3/api/enrich/"
+message("Choose All Expressions.txt from Input_Source_Files.")
+expression_file <- normalizePath(file.choose(), winslash = "/", mustWork = TRUE)
+if (basename(expression_file) != "All Expressions.txt") stop("Choose All Expressions.txt.")
+input_dir <- dirname(expression_file)
+project_dir <- if (basename(input_dir) == "Input_Source_Files") dirname(input_dir) else input_dir
+output_dir <- file.path(project_dir, "Directional_KEA3_FC1p30_Results")
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+queries_dir <- file.path(output_dir, "KEA3_query_lists")
+raw_dir <- file.path(output_dir, "KEA3_raw_responses")
+dir.create(queries_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(raw_dir, recursive = TRUE, showWarnings = FALSE)
+canon_file <- file.path(input_dir, "S8_one_direction_per_gene_and_contrast.csv")
+if (!file.exists(canon_file)) stop("Run 01_TAC_DEG_FC1p30_S8_S9.txt first.")
+canon <- read.csv(canon_file, stringsAsFactors = FALSE, check.names = FALSE)
+if (!all(c("Gene", "Comparison", "Direction") %in% names(canon)))
+  stop("DEG gene table is missing required Gene, Comparison, or Direction columns.")
+comparison_definitions <- c("Control_vs_NC", "FreeISO_vs_Control", "EXOISO_vs_Control",
+                            "EXOISO_vs_FreeISO", "EXOISO_vs_NC", "FreeISO_vs_NC")
+query_names <- character()
+for (comp in comparison_definitions) for (direction in c("UP", "DOWN")) {
+  q <- paste0(comp, "_", direction, "_FC1p30")
+  genes <- sort(unique(as.character(canon$Gene[canon$Comparison == comp & canon$Direction == direction])))
+  genes <- genes[!is.na(genes) & nzchar(genes)]
+  if (!length(genes)) stop("Empty KEA3 gene list: ", q)
+  writeLines(genes, file.path(queries_dir, paste0(q, ".txt")), useBytes = TRUE)
+  jsonlite::write_json(list(query_name=q, gene_set=as.list(genes)),
+                       file.path(queries_dir, paste0(q, ".json")), auto_unbox=TRUE, pretty=TRUE)
+  query_names <- c(query_names, q)
+}
+
+# The same KEA3 rank parsing is used in the S9 prioritization procedure.
+normalize_kea3_response <- function(raw, query_name) {
+  if (!is.list(raw) || is.null(names(raw)))
+    stop("Unexpected KEA3 response object for ", query_name)
+  normalized <- list()
+  for (lib_name in names(raw)) {
+    tab <- raw[[lib_name]]
+    if (!is.data.frame(tab)) {
+      tab <- tryCatch(as.data.frame(tab, stringsAsFactors = FALSE),
+                      error = function(e) NULL)
+    }
+    if (is.null(tab) || !nrow(tab)) next
+    name_hits <- intersect(c("TF", "Kinase", "Kinase_symbol", "Gene", "kinase", "Symbol"),
+                           names(tab))
+    if (!length(name_hits)) next
+    gene <- trimws(as.character(tab[[name_hits[1L]]]))
+    rank_field <- intersect(c("Rank", "rank", "RANK"), names(tab))
+    rank <- if (length(rank_field))
+      suppressWarnings(as.numeric(tab[[rank_field[1L]]])) else seq_len(nrow(tab))
+    if (!any(is.finite(rank))) rank <- seq_len(nrow(tab))
+    # Canonicalize only established PKC labels, retain the exact API name.
+    # Other possible alias issues can be examined in the output audit.
+    aliases <- c(PKCA="PRKCA", PKCB="PRKCB", PKCD="PRKCD", PKCE="PRKCE",
+                 PKCG="PRKCG", PKCH="PRKCH", PKCI="PRKCI", PKCQ="PRKCQ",
+                 PKCZ="PRKCZ")
+    sym <- gene
+    replace <- gene %in% names(aliases)
+    sym[replace] <- unname(aliases[gene[replace]])
+    m <- data.frame(Query_Name = query_name, Kinase_symbol = sym,
+                    Kinase_API = gene, Rank = rank, stringsAsFactors = FALSE)
+    m <- m[!is.na(m$Kinase_symbol) & nzchar(m$Kinase_symbol) &
+           is.finite(m$Rank), , drop = FALSE]
+    if (!nrow(m)) next
+    libkey <- gsub("[^a-z0-9]", "", tolower(lib_name))
+    if (grepl("integrated", libkey) && grepl("meanrank", libkey)) {
+      m$Integrated_Result_Type <- "MeanRank"
+      normalized[[paste0("i_",length(normalized)+1L)]] <- list(kind="i", data=m)
+    } else if (grepl("integrated", libkey) && grepl("toprank", libkey)) {
+      m$Integrated_Result_Type <- "TopRank_integrated_scaled"
+      normalized[[paste0("i_",length(normalized)+1L)]] <- list(kind="i", data=m)
+    } else if (!grepl("integrated", libkey)) {
+      m$Library_clean <- lib_name
+      normalized[[paste0("l_",length(normalized)+1L)]] <- list(kind="l", data=m)
+    }
+  }
+  integrated <- lapply(normalized, function(x) if (x$kind=="i") x$data else NULL)
+  libraries <- lapply(normalized, function(x) if (x$kind=="l") x$data else NULL)
+  integrated <- Filter(Negate(is.null), integrated)
+  libraries <- Filter(Negate(is.null), libraries)
+  if (length(integrated) < 2L || !length(libraries)) {
+    stop("KEA3 result missing two integrated methods or library tables for ",
+         query_name, ". Available API keys: ", paste(names(raw), collapse=", "))
+  }
+  list(integrated=do.call(rbind, integrated),
+       libraries=do.call(rbind, libraries))
+}
+
+
+# Every saved KEA3 response is paired with the checksum of the exact gene list.
+# A cached response is read only if its gene-list checksum matches this run.
+complete_integrated <- list()
+complete_libraries <- list()
+query_status <- list()
+for (q in query_names) {
+  gene_path <- file.path(queries_dir, paste0(q, ".txt"))
+  genes <- readLines(gene_path, warn = FALSE, encoding = "UTF-8")
+  raw_path <- file.path(raw_dir, paste0(q, "_KEA3_response.json"))
+  hash_path <- file.path(raw_dir, paste0(q, "_input.md5"))
+  input_hash <- unname(tools::md5sum(gene_path))
+  cache_ok <- file.exists(raw_path) && file.exists(hash_path) &&
+              identical(trimws(readLines(hash_path, warn=FALSE)), input_hash)
+  raw_text <- NULL
+  if (cache_ok) raw_text <- paste(readLines(raw_path, warn=FALSE, encoding="UTF-8"), collapse="\n")
+  if (is.null(raw_text)) {
+    message("KEA3 ", q, ": submitting ", length(genes), " genes.")
+    response <- tryCatch(httr::RETRY("POST", KEA3_URL,
+      body=list(query_name=q, gene_set=unname(genes)), encode="json", times=3,
+      pause_base=2, pause_cap=12, httr::timeout(180)),
+      error=function(e) stop("KEA3 request failed for ", q, ": ", conditionMessage(e)))
+    if (httr::status_code(response) != 200L)
+      stop("KEA3 returned HTTP ", httr::status_code(response), " for ", q)
+    raw_text <- httr::content(response, as="text", encoding="UTF-8")
+  }
+  parsed <- tryCatch(normalize_kea3_response(
+    jsonlite::fromJSON(raw_text, simplifyVector=TRUE), q),
+    error=function(e) stop("Could not interpret KEA3 response for ", q, ": ", conditionMessage(e)))
+  if (!cache_ok) {
+    writeLines(raw_text, raw_path, useBytes=TRUE)
+    writeLines(input_hash, hash_path)
+  }
+  complete_integrated[[q]] <- parsed$integrated
+  complete_libraries[[q]] <- parsed$libraries
+  query_status[[q]] <- data.frame(Query_Name=q, N_genes=length(genes),
+                                   Input_MD5=input_hash, Response_MD5=unname(tools::md5sum(raw_path)),
+                                   stringsAsFactors=FALSE)
+}
+if (length(complete_integrated) != 12L || length(complete_libraries) != 12L)
+  stop("All 12 KEA3 queries must have complete integrated and library results.")
+save_csv <- function(data, name) {
+  original <- file.path(output_dir, name)
+  next_input <- file.path(input_dir, name)
+  write.csv(data, original, row.names=FALSE, na="")
+  if (!identical(normalizePath(output_dir, winslash="/"),
+                 normalizePath(input_dir, winslash="/"))) {
+    if (!file.copy(original, next_input, overwrite=TRUE)) stop("Cannot copy: ", name)
+  }
+  if (!identical(unname(tools::md5sum(original)), unname(tools::md5sum(next_input))))
+    stop("Copied file checksum mismatch: ", name)
+  message("Ready: ", next_input)
+}
+save_csv(do.call(rbind, complete_integrated), "KEA3_FC1p30_integrated_all.csv")
+save_csv(do.call(rbind, complete_libraries), "KEA3_FC1p30_library_all.csv")
+write.csv(do.call(rbind, query_status), file.path(output_dir, "KEA3_query_source_checksums.csv"), row.names=FALSE)
+writeLines(capture.output(sessionInfo()), file.path(output_dir, "sessionInfo.txt"))
+message("Directional KEA3 analysis complete. Proceed to the GO and S8–S9 scripts.")

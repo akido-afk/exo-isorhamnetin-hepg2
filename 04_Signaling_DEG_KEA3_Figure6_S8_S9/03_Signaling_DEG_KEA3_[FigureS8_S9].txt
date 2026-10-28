@@ -1,0 +1,969 @@
+# ============================================================================
+# GO-CLASSIFIED SIGNALING AND KEA3 PRIORITIES — SUPPLEMENTARY FIGURES S8–S9
+# ============================================================================
+# This script plots signaling-associated DEGs and KEA3 kinase priorities using
+# the feature-level TAC evidence from script 01 and KEA3 rankings from script 02.
+# The GO classification is calculated within this script.
+#
+# HOW TO RUN THIS CODE?
+# In R or RStudio, enter: source(file.choose(), encoding = "UTF-8")
+# Select this TXT and then All Expressions.txt from Input_Source_Files.
+# Run scripts 01 and 02 before this analysis.
+#
+# INPUTS
+# All Expressions.txt, the 4 TAC DEG CSVs, and the 2 directional KEA3 CSVs.
+# All inputs should be located in Input_Source_Files.
+#
+# OUTPUTS
+# S8 and S9 heatmaps and evidence tables are written to
+# Signaling_KEA3_S8_S9_Results. The S9 kinase-priority table is copied into
+# Input_Source_Files for the Figure 6 analysis.
+# ============================================================================
+
+# --------------------------- User settings -------------------------------
+FC_THRESHOLD <- 1.30             # Absolute linear fold-change threshold
+P_THRESHOLD  <- 0.05             # Nominal TAC comparison p value
+MAKE_FIGURES <- TRUE
+# TRUE = send the 12 FC1.3 gene lists to the official external KEA3 server.
+# FALSE = never send data online, only use saved FC1.3 responses.
+
+# Pairwise contrast identities and their directional KEA3 query names.
+comparison_definitions <- data.frame(
+  Comparison = c("Control_vs_NC", "FreeISO_vs_Control",
+                 "EXOISO_vs_Control", "EXOISO_vs_FreeISO",
+                 "EXOISO_vs_NC", "FreeISO_vs_NC"),
+  File = c("Ctr Vs NC ALL.txt", "Ctr Vs FREE ISO ALL.txt",
+           "EXO-ISO Vs Ctrl ALL.txt", "EXO-ISO Vs FREE ISO ALL.txt",
+           "EXO-ISO Vs NC ALL.txt", "FREE ISO Vs NC ALL.txt"),
+  Orientation = c(1, -1, 1, 1, 1, 1),
+  stringsAsFactors = FALSE
+)
+
+# ------------------------ Files and dependencies -------------------------
+need_package <- function(pkg, bioconductor = FALSE) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    if (bioconductor) {
+      if (!requireNamespace("BiocManager", quietly = TRUE))
+        install.packages("BiocManager", repos = "https://cloud.r-project.org")
+      BiocManager::install(pkg, ask = FALSE, update = FALSE)
+    } else install.packages(pkg, repos = "https://cloud.r-project.org")
+  }
+  if (!requireNamespace(pkg, quietly = TRUE)) stop("Could not load package: ", pkg)
+}
+need_package("jsonlite")
+if (MAKE_FIGURES) {
+  need_package("ComplexHeatmap", bioconductor = TRUE)
+  need_package("circlize")
+}
+
+# Select All Expressions.txt. All required evidence and KEA3 files are read from
+# the same Input_Source_Files directory and were written by scripts 01 and 02.
+message("Choose All Expressions.txt from Input_Source_Files.")
+expressions_file <- normalizePath(file.choose(), winslash="/", mustWork=TRUE)
+if (basename(expressions_file) != "All Expressions.txt")
+  stop("Choose All Expressions.txt from Input_Source_Files.")
+input_dir <- dirname(expressions_file)
+project_dir <- if (basename(input_dir) == "Input_Source_Files") dirname(input_dir) else input_dir
+output_dir <- file.path(project_dir, "Signaling_KEA3_S8_S9_Results")
+plots_dir <- file.path(output_dir, "plots")
+dir.create(plots_dir, recursive=TRUE, showWarnings=FALSE)
+reference_dir <- input_dir
+run_tag <- "FC1p30"
+write_csv <- function(df, name) {
+  utils::write.csv(df, file.path(output_dir, name), row.names=FALSE, na="")
+}
+feature_evidence_file <- file.path(input_dir, "TAC_qualifying_feature_DEGs_ALL.csv")
+gene_membership_file <- file.path(input_dir, "TAC_qualifying_feature_gene_membership_ALL.csv")
+canonical_degs_file <- file.path(input_dir, "S8_one_direction_per_gene_and_contrast.csv")
+ambiguous_directions_file <- file.path(input_dir, "S8_ambiguous_feature_directions.csv")
+kea3_integrated_file <- file.path(input_dir, "KEA3_FC1p30_integrated_all.csv")
+kea3_libraries_file <- file.path(input_dir, "KEA3_FC1p30_library_all.csv")
+required <- c(expressions_file, feature_evidence_file, gene_membership_file,
+              canonical_degs_file, ambiguous_directions_file,
+              kea3_integrated_file, kea3_libraries_file)
+missing <- required[!file.exists(required)]
+if (length(missing)) stop("Run scripts 01 and 02 first. Missing input files:\n",
+                          paste(missing, collapse="\n"))
+message("Reading original TAC evidence and matched KEA3 results.")
+
+# TAC exports begin with provenance comment rows.
+read_tac <- function(path) {
+  lines <- readLines(path, n = 25L, warn = FALSE)
+  at <- which(startsWith(lines, "ID\t"))
+  if (!length(at)) stop("No ID header in TAC export: ", path)
+  utils::read.delim(path, skip = at[1L] - 1L, check.names = FALSE,
+                    stringsAsFactors = FALSE, quote = "", na.strings = c("", "NA"))
+}
+
+# Transcript clusters occasionally have more than one gene annotation.
+# Preserve the original ID for traceability and expand valid symbols only
+# for gene-level membership; do not duplicate biological sample measurements.
+expand_symbols <- function(x) {
+  x <- ifelse(is.na(x), "", as.character(x))
+  lapply(x, function(s) {
+    a <- trimws(unlist(strsplit(gsub("///|//|;|,", "|", s), "|", fixed = TRUE)))
+    unique(a[nzchar(a) & !a %in% c("---", "NA", "-")])
+  })
+}
+
+message("Reading the original 12-sample expression matrix ...")
+ex <- read_tac(expressions_file)
+stopifnot(!anyDuplicated(ex$ID))
+arr <- grep(" Avg \\(log2\\)$", names(ex), value = TRUE)
+if (length(arr) != 12L) stop("Expected 12 biological-sample expression columns; found ", length(arr))
+expr <- as.matrix(data.frame(lapply(ex[arr], as.numeric), check.names = FALSE))
+rownames(expr) <- ex$ID
+colnames(expr) <- arr
+
+# A representative array feature is needed for the displayed group-Z track.
+# Choose the most abundant feature by mean expression; preserve its ID.
+# DEG eligibility itself continues to use ALL original TAC feature IDs.
+symbols_ex <- expand_symbols(ex$`Gene Symbol`)
+ex_map <- data.frame(
+  Gene = rep(NA_character_, sum(lengths(symbols_ex))),
+  ID = rep(ex$ID, lengths(symbols_ex)), stringsAsFactors = FALSE
+)
+ex_map$Gene <- unlist(symbols_ex, use.names = FALSE)
+ex_map <- ex_map[nzchar(ex_map$Gene), , drop = FALSE]
+ex_map <- unique(ex_map)
+feature_average <- rowMeans(expr, na.rm = TRUE)
+choose_feature <- function(g) {
+  ids <- unique(ex_map$ID[ex_map$Gene == g])
+  ids <- ids[ids %in% rownames(expr)]
+  if (!length(ids)) return(NA_character_)
+  ids[order(-feature_average[ids], ids)][1L]
+}
+
+# Read the complete qualifying feature-level evidence generated from all 6
+# TAC contrasts. The input includes feature-to-gene memberships as well as
+# the original feature identifiers; this analysis does not substitute gene means
+# for original TAC differential-expression calls.
+message("Reading all FC >= 1.30 differential-expression memberships ...")
+feature_evidence <- utils::read.csv(
+  feature_evidence_file,
+  stringsAsFactors = FALSE, check.names = FALSE)
+deg <- utils::read.csv(
+  gene_membership_file,
+  stringsAsFactors = FALSE, check.names = FALSE)
+canon <- utils::read.csv(
+  canonical_degs_file,
+  stringsAsFactors = FALSE, check.names = FALSE)
+stopifnot(nrow(deg) > 0L, nrow(canon) > 0L,
+  all(canon$Gene %in% unique(deg$Gene)),
+  all(unique(canon$Comparison) %in% comparison_definitions$Comparison))
+write_csv(feature_evidence, "TAC_qualifying_feature_DEGs_ALL.csv")
+write_csv(deg, "TAC_qualifying_feature_gene_membership_ALL.csv")
+write_csv(canon, "S8_one_direction_per_gene_and_contrast.csv")
+write_csv(utils::read.csv(ambiguous_directions_file, check.names = FALSE),
+  "S8_ambiguous_feature_directions.csv")
+
+# ------------------ Database-supported GO classification ----------------
+# All qualifying TAC genes and all KEA3 predictions enter annotation. This
+# avoids both a manually predetermined candidate set and keyword-only screening.
+# The 554-gene reference screen is used only as a coverage
+# comparator as it cannot force an enzyme assignment.
+# ---------------------- GO functional classification ----------------------
+# GO molecular-function terms define kinase, phosphatase and regulatory classes.
+# GO biological-process terms provide the corresponding pathway group labels.
+# These definitions use org.Hs.eg.db and GO.db annotations and preserve
+# annotation evidence and database-version details in the exported tables.
+
+GO_MF_CLASSES <- data.frame(
+  GO_ID = c("GO:0004672", "GO:0001727", "GO:0016301", "GO:0004721",
+            "GO:0016791", "GO:0019207", "GO:0019208"),
+  Biological_role = c("Protein kinase activity", "Lipid kinase activity",
+                      "Other kinase activity", "Protein phosphatase activity",
+                      "Other phosphatase activity", "Kinase regulator activity",
+                      "Phosphatase regulator activity"),
+  Figure_Group = c(rep("True kinase enzymes", 3L),
+                   rep("True phosphatases", 2L),
+                   rep("Regulators / adjacent", 2L)),
+  Order = seq_len(7L), stringsAsFactors = FALSE)
+
+# Process terms are predefined public GO concepts, never manually assigned to
+# gene symbols. Multipathway membership is preserved in a separate output.
+GO_BP_AXES <- data.frame(
+  GO_ID = c("GO:0000165", "GO:0043491", "GO:0007049", "GO:0006629",
+            "GO:0009117", "GO:0005975", "GO:0006914", "GO:0006950",
+            "GO:0002376", "GO:0007165"),
+  Biological_axis = c("MAPK cascade", "PI3K-AKT signaling", "Cell-cycle processes",
+    "Lipid metabolism", "Nucleotide metabolism", "Carbohydrate metabolism",
+    "Autophagy", "Stress responses", "Immune-system processes",
+    "Other signal transduction"), stringsAsFactors = FALSE)
+
+# Database-backed mapping: current symbols are preferred. An alias maps only
+# when it uniquely identifies one NCBI Entrez gene. Ambiguous aliases are NOT
+# assigned annotations from an arbitrarily selected gene.
+automatic_go_annotations <- function(gene_symbols) {
+  needed <- c("AnnotationDbi", "org.Hs.eg.db", "GO.db")
+  for (pkg in needed) {
+    if (!requireNamespace(pkg, quietly = TRUE)) {
+      if (!requireNamespace("BiocManager", quietly = TRUE))
+        install.packages("BiocManager", repos = "https://cloud.r-project.org")
+      BiocManager::install(pkg, ask = FALSE, update = FALSE)
+    }
+    if (!requireNamespace(pkg, quietly = TRUE))
+      stop("Required Gene Ontology annotation package unavailable: ", pkg)
+  }
+  org <- org.Hs.eg.db::org.Hs.eg.db
+  genes <- sort(unique(trimws(as.character(gene_symbols))))
+  genes <- genes[!is.na(genes) & nzchar(genes)]
+  message("Mapping ", length(genes), " distinct symbols with org.Hs.eg.db ...")
+  valid <- intersect(genes, AnnotationDbi::keys(org, keytype = "SYMBOL"))
+  direct <- if (length(valid))
+    suppressMessages(AnnotationDbi::select(org, keys = valid,
+      columns = c("ENTREZID", "GENENAME"), keytype = "SYMBOL")) else
+      data.frame(SYMBOL=character(), ENTREZID=character(), GENENAME=character())
+  direct$Query_Gene <- direct$SYMBOL
+  direct$Mapping_Method <- "Official symbol"
+  unmatched <- setdiff(genes, unique(direct$Query_Gene))
+  valid_alias <- intersect(unmatched, AnnotationDbi::keys(org, keytype = "ALIAS"))
+  alias <- if (length(valid_alias)) suppressMessages(AnnotationDbi::select(
+    org, keys=valid_alias, columns=c("ENTREZID", "SYMBOL", "GENENAME"),
+    keytype="ALIAS")) else data.frame(ALIAS=character(), ENTREZID=character(),
+                                      SYMBOL=character(), GENENAME=character())
+  if (nrow(alias)) {
+    alias$Query_Gene <- alias$ALIAS
+    alias$Mapping_Method <- "Unambiguous alias"
+    alias <- alias[,c("SYMBOL","ENTREZID","GENENAME","Query_Gene","Mapping_Method")]
+  }
+  direct <- direct[,c("SYMBOL","ENTREZID","GENENAME","Query_Gene","Mapping_Method")]
+  fullmap <- unique(rbind(direct,alias))
+  fullmap <- fullmap[!is.na(fullmap$ENTREZID) & nzchar(fullmap$ENTREZID),,drop=FALSE]
+  ids_by_gene <- split(fullmap$ENTREZID, fullmap$Query_Gene)
+  accepted <- vapply(genes, function(g) {
+    ids <- unique(ids_by_gene[[g]])
+    if (length(ids) == 1L) as.character(ids[1L]) else NA_character_
+  }, character(1))
+  names(accepted) <- genes
+  ent <- sort(unique(accepted[!is.na(accepted)]))
+  message("Retrieving propagated GO annotations for ", length(ent), " unique Entrez IDs ...")
+  go <- if (length(ent)) suppressMessages(AnnotationDbi::select(org, keys = ent,
+    columns = c("GOALL", "ONTOLOGYALL", "EVIDENCEALL"),
+    keytype = "ENTREZID")) else data.frame(ENTREZID=character(),
+      GOALL=character(), ONTOLOGYALL=character(), EVIDENCEALL=character())
+  go <- go[!is.na(go$GOALL) & nzchar(go$GOALL) &
+           go$ONTOLOGYALL %in% c("MF","BP") &
+           (is.na(go$EVIDENCEALL) | go$EVIDENCEALL != "ND"),,drop=FALSE]
+  go <- unique(go[c("ENTREZID","GOALL","ONTOLOGYALL","EVIDENCEALL")])
+  # Keep GO records with valid Entrez identifiers.
+  go <- go[!is.na(go$ENTREZID) & nzchar(go$ENTREZID),,drop=FALSE]
+  by_id <- split(go, go$ENTREZID)
+  role_codes <- GO_MF_CLASSES$GO_ID
+  bp_codes <- GO_BP_AXES$GO_ID
+  role_pairs <- GO_MF_CLASSES[,c("GO_ID","Biological_role","Figure_Group","Order")]
+  bp_pairs <- GO_BP_AXES
+  # The rarest process among those documented for this gene is used for the
+  # SINGLE row-block label. The multi-label process track is also exported.
+  bp_freq <- vapply(bp_codes, function(code) length(unique(go$ENTREZID[
+    go$ONTOLOGYALL=="BP" & go$GOALL==code])), numeric(1))
+  names(bp_freq) <- bp_codes
+  classify_one <- function(g) {
+    ids <- unique(ids_by_gene[[g]])
+    mapping_status <- if (!length(ids)) "No Entrez mapping" else
+       if (length(ids) > 1L) "Ambiguous symbol / alias" else "Mapped"
+    id <- accepted[[g]]
+    z <- if (!is.na(id)) by_id[[id]] else NULL
+    if (is.null(z)) z <- go[0L,,drop=FALSE]
+    mf <- z[z$ONTOLOGYALL == "MF",,drop=FALSE]
+    bp <- z[z$ONTOLOGYALL == "BP",,drop=FALSE]
+    roles <- role_pairs[role_pairs$GO_ID %in% unique(mf$GOALL),,drop=FALSE]
+    roles <- roles[order(roles$Order),,drop=FALSE]
+    if (nrow(roles)) {
+      role <- as.character(roles$Biological_role[1L])
+      grp <- as.character(roles$Figure_Group[1L])
+      role_id <- as.character(roles$GO_ID[1L])
+      evidence <- unique(mf$EVIDENCEALL[mf$GOALL == role_id])
+      evidence <- sort(evidence[!is.na(evidence) & nzchar(evidence)])
+    } else {
+      role <- "No documented kinase/phosphatase molecular function"
+      grp <- "Annotation review"
+      role_id <- ""
+      evidence <- character()
+    }
+    all_roles <- paste(roles$Biological_role, collapse="; ")
+    all_role_ids <- paste(roles$GO_ID, collapse="; ")
+    pathways <- bp_pairs[bp_pairs$GO_ID %in% unique(bp$GOALL),,drop=FALSE]
+    if (nrow(pathways)) {
+      # A less prevalent annotated biological process is more informative.
+      # Alphabetical GO ID breaks ties consistently, without manual selection.
+      pathways$N_annotated_genes <- bp_freq[pathways$GO_ID]
+      pathways <- pathways[order(pathways$N_annotated_genes, pathways$GO_ID),,drop=FALSE]
+      axis <- as.character(pathways$Biological_axis[1L])
+      axis_id <- as.character(pathways$GO_ID[1L])
+      process_ids <- paste(pathways$GO_ID, collapse="; ")
+      process_names <- paste(pathways$Biological_axis, collapse="; ")
+    } else {
+      axis <- if (nrow(roles)) role else "No selected GO biological process"
+      axis_id <- ""
+      process_ids <- ""
+      process_names <- ""
+    }
+    e <- if (length(evidence)) paste(evidence, collapse="; ") else ""
+    ev_status <- if (!length(evidence)) "No supporting GO MF evidence" else
+      if (any(!evidence %in% c("IEA","ISS","ISO","ISA","ISM","RCA")))
+        "Curator-supported or experimental GO annotation" else
+        "Sequence-inferred or electronic GO annotation"
+    data.frame(Gene=g, Entrez_ID=ifelse(is.na(id),"",id),
+      Symbol_mapping=mapping_status,
+      Official_symbol=if (!is.na(id)) {
+        syms <- unique(fullmap$SYMBOL[fullmap$Query_Gene==g & fullmap$ENTREZID==id])
+        if (length(syms)) as.character(syms[1]) else ""
+      } else "",
+      Figure_Group=grp, Biological_Group=axis,
+      GO_MF_Primary_Role=role, GO_MF_Primary_ID=role_id,
+      GO_MF_All_Roles=all_roles, GO_MF_All_Role_IDs=all_role_ids,
+      GO_MF_Evidence_Codes=e, GO_MF_Evidence_Status=ev_status,
+      GO_BP_Primary_ID=axis_id, GO_BP_All_Axes=process_names,
+      GO_BP_All_Axis_IDs=process_ids,
+      N_GO_MF_terms=nrow(mf), N_GO_BP_terms=nrow(bp),
+      Annotation_status=if (grp=="Annotation review") "Unresolved by functional GO" else
+         "GO molecular function assigned",
+      stringsAsFactors=FALSE)
+  }
+  result <- do.call(rbind, lapply(genes, classify_one))
+  rownames(result) <- NULL
+  list(annotations=result, GO_records=go, symbol_map=fullmap,
+       molecular_function_terms=GO_MF_CLASSES,
+       biological_process_terms=transform(GO_BP_AXES,
+           N_annotated_genes=as.numeric(bp_freq[GO_BP_AXES$GO_ID])),
+       database_versions=data.frame(
+        Database=c("org.Hs.eg.db","GO.db","AnnotationDbi","Bioconductor","R"),
+        Version=c(as.character(utils::packageVersion("org.Hs.eg.db")),
+                  as.character(utils::packageVersion("GO.db")),
+                  as.character(utils::packageVersion("AnnotationDbi")),
+                  if (requireNamespace("BiocManager",quietly=TRUE))
+                    as.character(BiocManager::version()) else "not installed",
+                  R.version.string),
+        Retrieved=as.character(Sys.Date()),stringsAsFactors=FALSE))
+}
+reference_screen_file <- file.path(reference_dir, "signaling_gene_classification.csv")
+reference_screen <- if (file.exists(reference_screen_file))
+  utils::read.csv(reference_screen_file, stringsAsFactors=FALSE) else NULL
+kea3_symbols <- unique(utils::read.csv(kea3_integrated_file,
+  stringsAsFactors=FALSE, check.names=FALSE)$Kinase_symbol)
+annotation_universe <- sort(unique(c(canon$Gene, kea3_symbols,
+  if (!is.null(reference_screen)) reference_screen$Gene else character())))
+go_result <- automatic_go_annotations(annotation_universe)
+go_ann <- go_result$annotations
+write_csv(go_ann, "GO_all_tested_genes_functional_annotation.csv")
+write_csv(go_result$GO_records, "GO_annotation_records_all_tested_Entrez.csv")
+write_csv(go_result$symbol_map, "GO_gene_symbol_mapping.csv")
+write_csv(go_result$molecular_function_terms, "GO_molecular_function_class_definitions.csv")
+write_csv(go_result$biological_process_terms, "GO_biological_axis_definitions.csv")
+write_csv(go_result$database_versions, "GO_database_versions.csv")
+# Membership is determined by GO molecular-function annotation. Genes without
+# a matching kinase or phosphatase function are retained as unresolved entries.
+reference_screened <- if (!is.null(reference_screen)) unique(reference_screen$Gene) else character()
+include <- go_ann$Gene %in% unique(c(
+  canon$Gene[canon$Gene %in% go_ann$Gene[go_ann$Figure_Group != "Annotation review"]],
+  intersect(reference_screened, canon$Gene)))
+cur <- go_ann[include,,drop=FALSE]
+cur$Strict_Status <- ifelse(cur$Figure_Group=="Annotation review", "Keep_review", "Keep_GO")
+cur$Review_Status <- ifelse(cur$Figure_Group=="Annotation review",
+  "Unresolved GO evidence", "GO function supported")
+cur$Curation_provenance <- "Gene Ontology / org.Hs.eg.db molecular function and biological process"
+cur$Classification_note <- ifelse(cur$Figure_Group=="Annotation review",
+  "No kinase, phosphatase, or kinase/phosphatase regulator molecular-function annotation",
+  paste0(cur$GO_MF_Primary_ID," [",cur$GO_MF_Evidence_Codes,"]"))
+cur$Source_Category <- ifelse(cur$Gene %in% reference_screened,
+  "Reference-screened (GO classified)", "GO-identified DEG")
+cur$Description <- ""   # Populated from each gene's matching TAC feature below.
+cur$Strict_Class <- cur$Biological_Group
+retained <- cur
+write_csv(cur, "GO_automated_signaling_candidate_catalogue.csv")
+write_csv(data.frame(Gene=reference_screened,
+  Included_in_GO_based_S8=reference_screened %in% cur$Gene,
+  GO_group=go_ann$Figure_Group[match(reference_screened,go_ann$Gene)],
+  stringsAsFactors=FALSE), "GO_reference_screen_coverage.csv")
+message("GO-annotated signaling candidates in S8: ",nrow(cur),
+        " (including ", sum(cur$Figure_Group=="Annotation review"),
+        " unresolved molecular-function annotations).")
+
+summarize_gene <- function(g) {
+  z <- canon[canon$Gene == g, , drop = FALSE]
+  v <- data.frame(Gene = g, N_DEG_comparisons = length(unique(z$Comparison)),
+                  Max_abs_FC = if (nrow(z)) max(z$Abs_FC) else NA_real_,
+                  Min_P_value = if (nrow(z)) min(z$P_value) else NA_real_,
+                  Min_FDR_P_value = if (nrow(z)) min(z$FDR_P_value, na.rm = TRUE) else NA_real_,
+                  UP_comparisons = paste(z$Comparison[z$Direction == "UP"], collapse = "; "),
+                  DOWN_comparisons = paste(z$Comparison[z$Direction == "DOWN"], collapse = "; "),
+                  stringsAsFactors = FALSE)
+  if (!is.finite(v$Min_FDR_P_value)) v$Min_FDR_P_value <- NA_real_
+  v$Direction_summary <- if (!nrow(z)) "Not_DEG" else
+    if (all(z$Direction == "UP")) "UP_only_across_comparisons" else
+      if (all(z$Direction == "DOWN")) "DOWN_only_across_comparisons" else "UP_and_DOWN_across_comparisons"
+  v$Representative_ID <- choose_feature(g)
+  # Obtain the gene description from the matched TAC feature.
+  ix <- match(v$Representative_ID, ex$ID)
+  v$Description <- if (is.na(ix)) "" else as.character(ex$Description[ix])
+  v
+}
+summary_all <- do.call(rbind, lapply(cur$Gene, summarize_gene))
+s8 <- merge(cur, summary_all, by = "Gene", sort = FALSE)
+s8 <- s8[match(cur$Gene, s8$Gene), , drop = FALSE]
+# Biological grouping follows public GO process terms, never a frozen list.
+s8$Biological_Group <- as.character(s8$Strict_Class)
+s8$Biological_Group[is.na(s8$Biological_Group) | !nzchar(s8$Biological_Group)] <- "Unclassified"
+s8$Is_qualifying_DEG <- s8$N_DEG_comparisons > 0L
+write_csv(s8, "S8_GO_signaling_gene_full_audit.csv")
+write_csv(s8[s8$Strict_Status == "Remove", ], "S8_no_exclusion_under_GO_method.csv")
+s8_kept <- s8[s8$Gene %in% retained$Gene & s8$Is_qualifying_DEG, , drop = FALSE]
+write_csv(s8_kept, "S8_recomputed_signaling_gene_summary.csv")
+count_summary <- as.data.frame(table(s8_kept$Figure_Group), stringsAsFactors = FALSE)
+names(count_summary) <- c("Figure_Group", "N_genes")
+write_csv(count_summary, "S8_classification_counts.csv")
+
+# Coverage checks ensure that all DEG-eligible members of the reference
+# signaling screen, together with all additional GO-supported genes, are
+# represented. Reference screening flags have no effect on annotation.
+all_screened <- retained$Gene
+not_in_deg <- setdiff(all_screened, unique(canon$Gene))
+not_in_s8 <- setdiff(all_screened, s8_kept$Gene)
+write_csv(data.frame(Gene=all_screened,
+  Figure_Group=retained$Figure_Group,
+  Review_Status=retained$Review_Status,
+  In_Tac_DEGs=all_screened %in% unique(canon$Gene),
+  Included_in_S8=all_screened %in% s8_kept$Gene,
+  stringsAsFactors = FALSE), "S8_all_screened_gene_coverage_audit.csv")
+if (length(not_in_deg) || length(not_in_s8)) {
+  stop("Coverage check failed. Screened candidates absent from source DEG data or S8: ",
+       paste(unique(c(not_in_deg,not_in_s8)), collapse=", "))
+}
+write_csv(s8_kept[s8_kept$Figure_Group == "Annotation review", , drop=FALSE],
+          "S8_unresolved_GO_annotations.csv")
+message("S8 coverage confirmed: ", nrow(s8_kept),
+        " unique screened DEG candidates, including ",
+        sum(s8_kept$Figure_Group == "Annotation review"), " needing annotation review.")
+
+# ---------------------------- Plot Figure S8 ----------------------------
+# Figure S8 uses the same heatmap layout conventions as Figure S9:
+#   gene | numeric green DEG hits / 6 | one biological-group label per block |
+#   slim class-color strip | 6 comparison directions | 6 log2 FC | 4 group Z.
+# DEG membership, fold changes and expression summaries come from the supplied
+# expression and comparison data, with review flags kept for uncertain classes.
+if (MAKE_FIGURES) {
+  make_s8 <- function(category, label, prefix) {
+    sub <- s8_kept[s8_kept$Figure_Group == category, , drop = FALSE]
+    if (!nrow(sub)) return(invisible(NULL))
+
+    # Biological groups form contiguous blocks; within each block, genes
+    # are ordered by the number of DEG comparisons.
+    sub <- sub[order(sub$Biological_Group, -sub$N_DEG_comparisons, sub$Gene),
+               , drop = FALSE]
+    row.names(sub) <- NULL
+    genes <- sub$Gene
+    comps <- comparison_definitions$Comparison
+    biological_groups <- as.character(sub$Biological_Group)
+    group_levels <- unique(biological_groups)
+    row_blocks <- factor(biological_groups, levels = group_levels)
+
+    directions <- matrix(0L, length(genes), length(comps),
+                         dimnames = list(genes, comps))
+    fcs <- matrix(0, length(genes), length(comps),
+                  dimnames = list(genes, comps))
+    for (i in seq_len(nrow(canon))) {
+      a <- canon[i, ]
+      if (a$Gene %in% genes) {
+        directions[a$Gene, a$Comparison] <- if (a$Direction == "UP") 1L else -1L
+        fcs[a$Gene, a$Comparison] <- a$Signed_log2FC
+      }
+    }
+
+    # Standardize each representative feature across the 12 samples.
+    groups <- c("NC", "Control", "FreeISO", "EXOISO")
+    z <- matrix(NA_real_, length(genes), length(groups),
+                dimnames = list(genes, groups))
+    for (i in seq_along(genes)) {
+      id <- sub$Representative_ID[i]
+      if (is.na(id) || !id %in% rownames(expr)) next
+      a <- as.numeric(expr[id, ])
+      if (!is.finite(stats::sd(a, na.rm = TRUE)) ||
+          stats::sd(a, na.rm = TRUE) <= 0) next
+      a <- as.numeric(scale(a))
+      z[i, ] <- c(mean(a[grepl("^NC ", arr)], na.rm = TRUE),
+                  mean(a[grepl("^Ctr ", arr)], na.rm = TRUE),
+                  mean(a[grepl("^Free ISO ", arr)], na.rm = TRUE),
+                  mean(a[grepl("^EXO ISO ", arr)], na.rm = TRUE))
+    }
+
+    # S9-style numeric hits: show REAL recurrence counts on colored cells.
+    # One distinct DEG comparison is one hit; there are 6 contrasts (0-6).
+    hits <- matrix(as.integer(sub$N_DEG_comparisons), ncol = 1L,
+                   dimnames = list(genes, "DEG hits / 6"))
+    hit_fun <- circlize::colorRamp2(c(0, 3, 6),
+                                    c("#f0faed", "#63b86a", "#00551a"))
+    h_hits <- ComplexHeatmap::Heatmap(
+      hits, name = "DEG hits", col = hit_fun,
+      cluster_rows = FALSE, cluster_columns = FALSE,
+      row_split = row_blocks, row_gap = grid::unit(1.7, "mm"),
+      row_title_side = "left", row_title_rot = 90,
+      row_title_gp = grid::gpar(fontsize = 10, fontface = "bold"),
+      show_row_names = TRUE, row_names_side = "left",
+      row_names_gp = grid::gpar(fontsize = 8, fontface = "bold"),
+      column_names_gp = grid::gpar(fontsize = 9),
+      width = grid::unit(25, "mm"),
+      cell_fun = function(j, i, x, y, width, height, fill) {
+        v <- as.integer(hits[i, j])
+        grid::grid.text(as.character(v), x, y,
+          gp = grid::gpar(fontsize = 8, fontface = "bold",
+                          col = if (v >= 5L) "white" else "#182f22"))
+      })
+
+    # Flat, light-grey biological-group band EXACTLY as in S9. Only one label
+    # at the central gene of each contiguous block, never at every row.
+    group_midpoint <- vapply(group_levels, function(g) {
+      these <- which(biological_groups == g)
+      these[ceiling(length(these) / 2)]
+    }, integer(1))
+    group_band <- matrix(biological_groups, ncol = 1L,
+                         dimnames = list(genes, "Biological group"))
+    h_bio <- ComplexHeatmap::Heatmap(
+      group_band, name = "Biological group",
+      col = stats::setNames(rep("#f5f7f7", length(group_levels)), group_levels),
+      show_row_names = FALSE, cluster_rows = FALSE, cluster_columns = FALSE,
+      show_heatmap_legend = FALSE, width = grid::unit(64, "mm"),
+      column_names_gp = grid::gpar(fontsize = 9),
+      cell_fun = function(j, i, x, y, width, height, fill) {
+        if (i %in% group_midpoint) {
+          grid::grid.text(biological_groups[i], x, y,
+            gp = grid::gpar(fontsize = 8, fontface = "bold", col = "#24323b"))
+        }
+      })
+
+    # A slim colored subclass strip is analogous to S9's narrow Tier track:
+    # no duplicated long labels or overly wide colored text columns.
+    strip_index <- match(biological_groups, group_levels)
+    class_strip <- matrix(as.character(strip_index), ncol = 1L,
+                          dimnames = list(genes, "Class"))
+    class_colors <- grDevices::hcl.colors(
+      length(group_levels), palette = "Set 2", alpha = 1)
+    h_class <- ComplexHeatmap::Heatmap(
+      class_strip, name = "Class", col = stats::setNames(
+        class_colors, as.character(seq_along(group_levels))),
+      show_row_names = FALSE, cluster_rows = FALSE, cluster_columns = FALSE,
+      show_heatmap_legend = FALSE, width = grid::unit(7, "mm"),
+      column_names_gp = grid::gpar(fontsize = 8))
+
+    fc_range <- max(1.5, abs(fcs), na.rm = TRUE)
+    fc_fun <- circlize::colorRamp2(c(-fc_range, 0, fc_range),
+                                   c("#344aa1", "#ffffff", "#d96a57"))
+    z_fun <- circlize::colorRamp2(c(-2, 0, 2),
+                                  c("#373399", "#ffffff", "#b12225"))
+    h_direction <- ComplexHeatmap::Heatmap(
+      directions, name = "Direction",
+      col = c("-1" = "#0e247d", "0" = "#ffffff", "1" = "#af272a"),
+      show_row_names = FALSE, cluster_rows = FALSE, cluster_columns = FALSE,
+      column_names_rot = 90, column_names_gp = grid::gpar(fontsize = 8),
+      width = grid::unit(57, "mm"))
+    h_fc <- ComplexHeatmap::Heatmap(
+      fcs, name = "log2 FC", col = fc_fun,
+      show_row_names = FALSE, cluster_rows = FALSE, cluster_columns = FALSE,
+      column_names_rot = 90, column_names_gp = grid::gpar(fontsize = 8),
+      width = grid::unit(57, "mm"))
+    h_z <- ComplexHeatmap::Heatmap(
+      z, name = "Group Z", col = z_fun, na_col = "#dddddd",
+      show_row_names = FALSE, cluster_rows = FALSE, cluster_columns = FALSE,
+      column_names_rot = 90, column_names_gp = grid::gpar(fontsize = 8),
+      width = grid::unit(39, "mm"))
+
+    ht <- h_hits + h_bio + h_class + h_direction + h_fc + h_z
+    # Scale figure height with the gene count to keep labels readable.
+    # The accompanying CSV retains every gene without truncation.
+    fig_height <- max(8.0, 0.285 * length(genes) + 3.0)
+    fig_width <- 18.6
+    for (dev in c("pdf", "png")) {
+      filepath <- file.path(plots_dir, paste0(prefix, ".", dev))
+      if (dev == "pdf") {
+        grDevices::pdf(filepath, width = fig_width, height = fig_height,
+                       onefile = FALSE)
+      } else {
+        grDevices::png(filepath, width = fig_width, height = fig_height,
+                        units = "in", res = 125)
+      }
+      tryCatch({
+        ComplexHeatmap::draw(
+          ht, merge_legend = TRUE, heatmap_legend_side = "right",
+          column_title = paste0(label, " (", length(genes), " genes; ",
+            sum(sub$Figure_Group == "Annotation review"), " without documented kinase/phosphatase molecular function)"),
+          column_title_gp = grid::gpar(fontsize = 13, fontface = "bold"))
+      }, finally = grDevices::dev.off())
+    }
+    invisible(TRUE)
+  }
+
+  make_s8("True kinase enzymes", "GO-annotated kinase enzymes",
+          "S8a_kinase_enzymes")
+  make_s8("True phosphatases", "GO-annotated phosphatases",
+          "S8b_phosphatases")
+  make_s8("Regulators / adjacent", "GO-annotated kinase/phosphatase regulators",
+          "S8c_regulators_adjacent")
+  make_s8("Annotation review", "Annotations without kinase/phosphatase molecular-function support",
+          "S8d_annotation_review")
+}
+
+# S9 uses the directional KEA3 rankings generated by script 02.
+integrated_path <- kea3_integrated_file
+libraries_path <- kea3_libraries_file
+KEA3_READY <- all(file.exists(c(integrated_path, libraries_path)))
+if (!KEA3_READY) {
+  message("FC ", FC_THRESHOLD, ": S8 and all 12 directional KEA3 query lists are ready.")
+  message("S9 requires the KEA3 results generated by script 02:")
+  message(paste(c(integrated_path, libraries_path)[!file.exists(c(integrated_path, libraries_path))],
+                collapse = "\n"))
+  message("Run script 02 to generate the required 12 directional KEA3 results.")
+} else {
+  message("Recomputing S9 from KEA3 responses matched to ", run_tag, " ...")
+  k <- utils::read.csv(integrated_path, stringsAsFactors = FALSE, check.names = FALSE)
+  libs <- utils::read.csv(libraries_path, stringsAsFactors = FALSE, check.names = FALSE)
+  if (abs(FC_THRESHOLD - 1.50) > 1e-8) {
+    # A matched filename is not enough: require the new query names too.
+    expected_names <- unlist(lapply(comparison_definitions$Comparison, function(comp)
+      paste0(comp, "_", c("UP", "DOWN"), "_", run_tag)), use.names = FALSE)
+    observed_names <- unique(c(as.character(k$Query_Name), as.character(libs$Query_Name)))
+    if (!length(observed_names) || any(!observed_names %in% expected_names))
+      stop("FC-specific KEA3 query names do not match the current run: ",
+           paste(setdiff(observed_names, expected_names), collapse = ", "))
+  }
+  k$Rank_num <- suppressWarnings(as.numeric(k$Rank))
+  libs$Rank_num <- suppressWarnings(as.numeric(libs$Rank))
+  methods <- c("MeanRank", "TopRank_integrated_scaled")
+  k <- k[!is.na(k$Kinase_symbol) & nzchar(k$Kinase_symbol) &
+           k$Integrated_Result_Type %in% methods & is.finite(k$Rank_num), ]
+  libs <- libs[!is.na(libs$Kinase_symbol) & nzchar(libs$Kinase_symbol) &
+                 is.finite(libs$Rank_num), ]
+  # Min rank per query, kinase and integrated ranking method removes any
+  # repeated API labels without counting one kinase twice in a signature.
+  kr <- aggregate(Rank_num ~ Query_Name + Kinase_symbol + Integrated_Result_Type,
+                  data = k, FUN = min)
+  libs <- libs[!is.na(libs$Library_clean) & nzchar(libs$Library_clean), ]
+  # Saved KEA3 tables use the first 50 records within each ranking
+  # method, NOT numeric Rank <= 50. Some integrated lists start at Rank 2
+  # or contain ties; their 50th record can consequently have Rank 51.
+  # Preserving the original API table order reproduces the exact top-50
+  # query membership instead of accidentally adding/removing border genes.
+  k$Group_key <- paste(k$Query_Name, k$Integrated_Result_Type, sep = "||")
+  top50 <- do.call(rbind, lapply(split(k, k$Group_key), function(z)
+    utils::head(z, 50L)))
+  # Many KEA3 aliases resolve to one canonical gene (e.g. PKCD and PRKCD).
+  # Library support was counted separately for each API kinase label and
+  # then maximized over labels/queries. Pooling libraries across aliases
+  # would artificially increase support for the canonical gene.
+  unique_lib <- unique(libs[c("Query_Name", "Kinase_symbol", "Kinase_API",
+                              "Library_clean", "Rank_num")])
+  count_lib <- function(threshold) {
+    v <- unique_lib[unique_lib$Rank_num <= threshold,
+                    c("Query_Name", "Kinase_symbol", "Kinase_API", "Library_clean")]
+    v <- unique(v)
+    # A canonical symbol can represent more than one KEA3 API label. The
+    # The score counts library support only for those exact API
+    # kinase labels that themselves occurred in a top-50 integrated result.
+    selected_api <- unique(paste(top50$Query_Name, top50$Kinase_symbol,
+                                 top50$Kinase_API, sep = "||"))
+    v <- v[paste(v$Query_Name, v$Kinase_symbol, v$Kinase_API,
+                 sep = "||") %in% selected_api, , drop = FALSE]
+    if (!nrow(v)) return(data.frame(Query_Name=character(), Kinase_symbol=character(),
+                                    Kinase_API=character(), N=integer()))
+    agg <- aggregate(Library_clean ~ Query_Name + Kinase_symbol + Kinase_API,
+                     data = v, FUN = length)
+    names(agg)[4L] <- "N"
+    agg
+  }
+  lib20 <- count_lib(20)
+  lib50 <- count_lib(50)
+  # Candidate universe: union of all KEA3 top-50 predictions and every
+  # DEG-eligible GO-classified (or explicitly unresolved) signaling candidate.
+  candidates <- sort(unique(c(top50$Kinase_symbol, s8_kept$Gene)))
+  stopifnot(all(s8_kept$Gene %in% candidates))
+  gene_q <- split(canon, canon$Gene)
+  per_gene <- split(kr, kr$Kinase_symbol)
+  per_top50 <- split(top50, top50$Kinase_symbol)
+  per20 <- split(lib20, lib20$Kinase_symbol)
+  per50 <- split(lib50, lib50$Kinase_symbol)
+  exo_names <- grep("^EXOISO_", comparison_definitions$Comparison, value = TRUE)
+  min_finite <- function(x) if (length(x) && any(is.finite(x))) min(x[is.finite(x)]) else NA_real_
+  max_finite <- function(x) if (length(x) && any(is.finite(x))) max(x[is.finite(x)]) else 0
+  component_top <- function(v) if (is.na(v)) 0 else if (v <= 5) 20 else
+    if (v <= 10) 16 else if (v <= 25) 10 else if (v <= 50) 5 else 0
+  component_mean <- function(v) if (is.na(v)) 0 else if (v <= 5) 15 else
+    if (v <= 10) 12 else if (v <= 25) 8 else if (v <= 50) 4 else 0
+  component_deg <- function(group, n) {
+    base <- switch(group, "True kinase enzymes" = 15,
+                   "True phosphatases" = 10, "Regulators / adjacent" = 8, 0)
+    if (base == 0 || n == 0) 0 else base + min(n, 4)
+  }
+  build_row <- function(g) {
+    x <- per_gene[[g]]
+    if (is.null(x)) x <- kr[0, ]
+    h <- per_top50[[g]]
+    if (is.null(h)) h <- top50[0, ]
+    qq <- unique(h$Query_Name)
+    qe <- grep("^EXOISO_", qq, value = TRUE)
+    tr <- x[x$Integrated_Result_Type == "TopRank_integrated_scaled", ]
+    mr <- x[x$Integrated_Result_Type == "MeanRank", ]
+    # Best-rank evidence is defined WITHIN selected top-50 hits;
+    # an unselected rank 63 must not receive a TopRank component.
+    bestTR <- min_finite(h$Rank_num[h$Integrated_Result_Type == "TopRank_integrated_scaled"])
+    bestMR <- min_finite(h$Rank_num[h$Integrated_Result_Type == "MeanRank"])
+    best <- min_finite(c(bestTR, bestMR))
+    ll20 <- per20[[g]]
+    ll50 <- per50[[g]]
+    ml20 <- if (is.null(ll20)) 0L else max_finite(ll20$N)
+    ml50 <- if (is.null(ll50)) 0L else max_finite(ll50$N)
+    s8info <- s8_kept[s8_kept$Gene == g, ]
+    is_screened <- nrow(s8info) > 0L
+    # Provisional functional assignments contribute to the exploratory
+    # priority score and remain explicitly flagged. Final reported tiers
+    # should be interpreted after review of those assignments.
+    isdeg <- is_screened &&
+      s8info$Figure_Group[1L] %in% c("True kinase enzymes",
+        "True phosphatases", "Regulators / adjacent")
+    group <- if (is_screened) s8info$Figure_Group[1L] else ""
+    ndegs <- if (is_screened) s8info$N_DEG_comparisons[1L] else 0L
+    qcontrol <- any(grepl("^EXOISO_vs_Control_", qe))
+    qfree <- any(grepl("^EXOISO_vs_FreeISO_", qe))
+    qnc <- any(grepl("^EXOISO_vs_NC_", qe))
+    mainScore <- if (qcontrol) 10 else if (qfree) 8 else if (qnc) 6 else 0
+    recScore <- min(30, 2 * length(qq) + 3 * length(qe))
+    scoreTR <- component_top(bestTR)
+    scoreMR <- component_mean(bestMR)
+    libScore <- min(15, 2 * ml20 + 0.5 * ml50)
+    degScore <- component_deg(group, ndegs)
+    score <- recScore + scoreTR + scoreMR + libScore + degScore + mainScore
+    # Tier 1 requires recurrence, a strong integrated rank and GO-supported
+    # DEG evidence. Unresolved annotations receive no enzyme/regulator score.
+    tier <- if (isdeg && length(qe) >= 2 && !is.na(best) && best <= 25) 1L else
+      if (isdeg && length(qe) >= 1) 2L else
+        if (!isdeg && length(qe) >= 2 && !is.na(best) && best <= 10) 3L else
+          if (isdeg && length(qq) == 0) 4L else 5L
+    tier_label <- c("Tier 1: recurrent KEA3 + DEG kinase/regulator",
+                    "Tier 2: KEA3 + DEG kinase/regulator",
+                    "Tier 3: strong KEA3-only predicted kinase",
+                    "Tier 4: DEG kinase/phosphatase only",
+                    "Tier 5: lower-priority supporting candidate")[tier]
+    e <- gene_q[[g]]
+    e <- if (is.null(e)) canon[0,] else e
+    exo_dir <- e[grepl("^EXOISO_", e$Comparison), ]
+    pred_UP <- sum(grepl("_UP_", qe))
+    pred_DOWN <- sum(grepl("_DOWN_", qe))
+    predpattern <- if (!length(qe)) "No EXOISO KEA3 signature" else
+      if (pred_UP && pred_DOWN) "Predicted from both EXOISO UP and DOWN signatures" else
+        if (pred_UP) "Predicted mainly from EXOISO UP signatures" else
+          "Predicted mainly from EXOISO DOWN signatures"
+    degpattern <- if (!nrow(exo_dir)) "No EXOISO DEG direction available" else
+      if (all(exo_dir$Direction == "UP")) "DEG mainly UP in EXOISO comparisons" else
+        if (all(exo_dir$Direction == "DOWN")) "DEG mainly DOWN in EXOISO comparisons" else
+          "DEG from both directions in EXOISO comparisons"
+    data.frame(Kinase_symbol=g, Priority_tier=tier_label, Tier=tier,
+      Priority_score=score, Biological_axis="", Figure_Group=group,
+      Is_DEG_kinase_or_regulator=isdeg,
+      Is_screened_signaling_DEG=is_screened,
+      DEG_annotation_status=if (is_screened) s8info$Review_Status[1L] else "Not screened DEG",
+      DEG_support_is_provisional=isdeg &&
+        s8info$Figure_Group[1L] == "Annotation review",
+      N_queries_top50=length(qq), N_EXOISO_queries_top50=length(qe),
+      N_TopRank_queries_top50=length(unique(h$Query_Name[h$Integrated_Result_Type == "TopRank_integrated_scaled"])),
+      N_MeanRank_queries_top50=length(unique(h$Query_Name[h$Integrated_Result_Type == "MeanRank"])),
+      Best_TopRank_rank=bestTR, Best_MeanRank_rank=bestMR,
+      Max_N_libraries_top20=ml20, Max_N_libraries_top50=ml50,
+      N_DEG_comparisons=ndegs,
+      Max_abs_FC=if (is_screened) s8info$Max_abs_FC[1L] else NA_real_,
+      KEA3_recurrence_score=recScore, TopRank_score_component=scoreTR,
+      MeanRank_score_component=scoreMR, Library_support_score=libScore,
+      DEG_score_component=degScore, Main_EXOISO_score=mainScore,
+      KEA3_direction_pattern=predpattern, DEG_EXOISO_direction_pattern=degpattern,
+      Queries_EXOISO=paste(sort(qe), collapse="; "),
+      Queries_all=paste(sort(qq), collapse="; "),
+      EXOISO_vs_Control_state=if (any(grepl("^EXOISO_vs_Control_UP",qe)) &&
+             any(grepl("^EXOISO_vs_Control_DOWN",qe))) 2L else
+        if (any(grepl("^EXOISO_vs_Control_UP",qe))) 1L else
+          if (any(grepl("^EXOISO_vs_Control_DOWN",qe))) -1L else 0L,
+      EXOISO_vs_FreeISO_state=if (any(grepl("^EXOISO_vs_FreeISO_UP",qe)) &&
+             any(grepl("^EXOISO_vs_FreeISO_DOWN",qe))) 2L else
+        if (any(grepl("^EXOISO_vs_FreeISO_UP",qe))) 1L else
+          if (any(grepl("^EXOISO_vs_FreeISO_DOWN",qe))) -1L else 0L,
+      EXOISO_vs_NC_state=if (any(grepl("^EXOISO_vs_NC_UP",qe)) &&
+             any(grepl("^EXOISO_vs_NC_DOWN",qe))) 2L else
+        if (any(grepl("^EXOISO_vs_NC_UP",qe))) 1L else
+          if (any(grepl("^EXOISO_vs_NC_DOWN",qe))) -1L else 0L,
+      stringsAsFactors = FALSE)
+  }
+  ranked <- do.call(rbind, lapply(candidates, build_row))
+  # Link ranked KEA3 candidates to GO biological-process annotations.
+  ranked$Biological_axis <- go_ann$Biological_Group[
+    match(ranked$Kinase_symbol,go_ann$Gene)]
+  ranked$Biological_axis[is.na(ranked$Biological_axis) |
+    !nzchar(ranked$Biological_axis)] <- "No selected GO biological process"
+  ranked$GO_MF_role <- go_ann$GO_MF_Primary_Role[
+    match(ranked$Kinase_symbol,go_ann$Gene)]
+  ranked$GO_MF_ID <- go_ann$GO_MF_Primary_ID[
+    match(ranked$Kinase_symbol,go_ann$Gene)]
+  ranked$GO_BP_ID <- go_ann$GO_BP_Primary_ID[
+    match(ranked$Kinase_symbol,go_ann$Gene)]
+  ranked$Biological_Group <- ranked$Biological_axis
+  ranked <- ranked[order(-ranked$Priority_score, ranked$Kinase_symbol), ]
+  row.names(ranked) <- NULL
+  write_csv(ranked, "S9_recomputed_all_kinase_priority_scores.csv")
+  write_csv(ranked[ranked$Is_screened_signaling_DEG &
+                     ranked$Figure_Group == "Annotation review", ],
+            "S9_unresolved_GO_annotations.csv")
+  if (!all(s8_kept$Gene %in% ranked$Kinase_symbol)) {
+    stop("S9 lost one or more screened signaling candidates")
+  }
+  write_csv(kr, "S9_integrated_KEA3_per_query_ranks.csv")
+  write_csv(lib20, "S9_kinase_library_support_top20_per_query.csv")
+  write_csv(lib50, "S9_kinase_library_support_top50_per_query.csv")
+  write_csv(ranked[seq_len(min(30L,nrow(ranked))), ], "S9_top30_overall_priority.csv")
+  write_csv(ranked[ranked$Tier == 1, ], "S9_tier1_recurrent_KEA3_and_DEG.csv")
+  main <- ranked[ranked$N_EXOISO_queries_top50 > 0L, ]
+  write_csv(head(main, 50L), "S9_EXOISO_focused_top50.csv")
+
+
+  if (MAKE_FIGURES) {
+    make_s9 <- function(dat, prefix, heading) {
+      if (!nrow(dat)) return(invisible(NULL))
+      ord <- order(dat$Biological_axis, -dat$Priority_score, dat$Kinase_symbol)
+      d <- dat[ord, ]
+      gn <- d$Kinase_symbol
+      score <- matrix(d$Priority_score, ncol=1L, dimnames=list(gn,"Priority score"))
+      e <- as.matrix(d[c("KEA3_recurrence_score", "TopRank_score_component",
+                         "MeanRank_score_component", "Library_support_score",
+                         "DEG_score_component", "Main_EXOISO_score")])
+      rownames(e) <- gn
+      maxes <- c(30,20,15,15,20,10)
+      ee <- sweep(e,2,maxes,"/")
+      colnames(ee) <- c("KEA3 recur.", "TopRank", "MeanRank", "Libraries",
+                        "DEG", "EXOISO")
+      sig <- as.matrix(d[c("EXOISO_vs_Control_state","EXOISO_vs_FreeISO_state",
+                           "EXOISO_vs_NC_state")])
+      rownames(sig) <- gn
+      colnames(sig) <- c("EXO vs Ctrl", "EXO vs Free", "EXO vs NC")
+      de <- matrix(ifelse(!d$Is_DEG_kinase_or_regulator, 0,
+                          ifelse(grepl("UP", d$DEG_EXOISO_direction_pattern) &
+                                 grepl("DOWN",d$DEG_EXOISO_direction_pattern),2,
+                            ifelse(grepl("UP",d$DEG_EXOISO_direction_pattern),1,
+                              ifelse(grepl("DOWN",d$DEG_EXOISO_direction_pattern),-1,0)))),
+                   ncol=1L, dimnames=list(gn,"DEG"))
+      tier <- matrix(d$Tier, ncol=1L, dimnames=list(gn,"Tier"))
+      # Classification blocks: center one label per biological axis.
+      bio_labels <- as.character(d$Biological_Group)
+      bio_levels <- unique(bio_labels)
+      bio_mid <- unlist(lapply(split(seq_along(bio_labels),
+                                    factor(bio_labels, levels=bio_levels)),
+                               function(indices) indices[ceiling(length(indices)/2)]),
+                        use.names=FALSE)
+      bio_matrix <- matrix(bio_labels, ncol=1L,
+                           dimnames=list(gn,"Biological group"))
+      hbio <- ComplexHeatmap::Heatmap(bio_matrix, name="Biological group",
+         col=setNames(rep("#f5f7f7",length(bio_levels)),bio_levels),
+         cluster_rows=FALSE, cluster_columns=FALSE,
+         show_row_names=FALSE, show_heatmap_legend=FALSE,
+         width=grid::unit(64,"mm"), column_names_gp=grid::gpar(fontsize=9),
+         cell_fun=function(j,i,x,y,width,height,fill) {
+           if (i %in% bio_mid) grid::grid.text(bio_labels[i],x=x,y=y,
+                           gp=grid::gpar(fontsize=8,fontface="bold",col="#24323b"))
+         })
+      split_rows <- factor(d$Biological_axis, levels=unique(d$Biological_axis))
+      hscore <- ComplexHeatmap::Heatmap(score, name="Priority score", col =
+         circlize::colorRamp2(c(0,50,100), c("#f0faed","#55ab4e","#00551a")),
+         cluster_rows=FALSE, cluster_columns=FALSE, row_split=split_rows,
+         row_gap=grid::unit(1.5,"mm"),
+         show_row_names=TRUE, row_names_side="left",
+         row_names_gp=grid::gpar(fontsize=8,fontface="bold"),
+         width=grid::unit(26,"mm"),
+         cell_fun=function(j,i,x,y,width,height,fill) {
+           v <- score[i,j]
+           grid::grid.text(sprintf("%.1f",v),x,y,
+             gp=grid::gpar(fontsize=8,fontface="bold",
+                  col=if (v >= 75) "white" else "#1b3527"))
+         })
+      # KEA3 top-50 hits: each direction-specific query counted once even if
+      # a kinase appears in BOTH MeanRank and TopRank (max 12 total, 6 EXO).
+      hit_counts <- matrix(d$N_queries_top50,ncol=1L,
+                           dimnames=list(gn,"KEA3 hits / 12"))
+      hit_exo <- matrix(d$N_EXOISO_queries_top50,ncol=1L,
+                        dimnames=list(gn,"EXO hits / 6"))
+      deg_counts <- matrix(d$N_DEG_comparisons,ncol=1L,
+                           dimnames=list(gn,"DEG hits / 6"))
+      numeric_hit_heatmap <- function(mat, title, upper) {
+        ComplexHeatmap::Heatmap(mat,name=title,
+          col=circlize::colorRamp2(c(0,upper/2,upper),
+                                   c("#f0faed","#63b86a","#00551a")),
+          show_row_names=FALSE,cluster_rows=FALSE,cluster_columns=FALSE,
+          width=grid::unit(20,"mm"),column_names_gp=grid::gpar(fontsize=8),
+          cell_fun=function(j,i,x,y,width,height,fill) {
+            v <- as.integer(mat[i,j])
+            grid::grid.text(as.character(v),x,y,
+              gp=grid::gpar(fontsize=8,fontface="bold",
+                col=if(v >= upper*0.72) "white" else "#182f22"))
+          })
+      }
+      h_hits <- numeric_hit_heatmap(hit_counts,"KEA3 hits",12)
+      h_exo <- numeric_hit_heatmap(hit_exo,"EXO KEA3 hits",6)
+      h_deg_hits <- numeric_hit_heatmap(deg_counts,"DEG hits",6)
+      htier <- ComplexHeatmap::Heatmap(tier, name="Tier", col=
+         c("1"="#6b1d99","2"="#8549b8","3"="#1594d7","4"="#4dac54","5"="#aaaaaa"),
+         cluster_rows=FALSE, cluster_columns=FALSE, show_row_names=FALSE,
+         width=grid::unit(7,"mm"))
+      hcomp <- ComplexHeatmap::Heatmap(ee, name="Relative evidence", col=
+         circlize::colorRamp2(c(0,0.5,1),c("#e9f8e7","#6abf6d","#005719")),
+         cluster_rows=FALSE, cluster_columns=FALSE, show_row_names=FALSE,
+         column_names_rot=90, column_names_gp=grid::gpar(fontsize=8),
+         width=grid::unit(61,"mm"))
+      hdir <- ComplexHeatmap::Heatmap(sig, name="KEA3 EXOISO", col=
+         c("-1"="#001875", "0"="#ffffff", "1"="#b61f24", "2"="#642d87"),
+         cluster_rows=FALSE, cluster_columns=FALSE, show_row_names=FALSE,
+         column_names_rot=90, column_names_gp=grid::gpar(fontsize=8),
+         width=grid::unit(38,"mm"))
+      hdeg <- ComplexHeatmap::Heatmap(de, name="DEG EXOISO", col=
+         c("-1"="#001875", "0"="#ffffff", "1"="#b61f24", "2"="#642d87"),
+         cluster_rows=FALSE, cluster_columns=FALSE, show_row_names=FALSE,
+         column_names_rot=90, width=grid::unit(13,"mm"))
+      obj <- hscore + h_hits + h_exo + h_deg_hits + hbio + htier + hcomp + hdir + hdeg
+      h <- max(8.0, 0.34*nrow(d)+3.0)
+      for (kind in c("pdf", "png")) {
+        file <- file.path(plots_dir, paste0(prefix,".",kind))
+        if (kind=="pdf") grDevices::pdf(file,width=18.6,height=h,onefile=FALSE)
+        else grDevices::png(file,width=18.6,height=h,units="in",res=160)
+        ComplexHeatmap::draw(obj, merge_legend=TRUE, heatmap_legend_side="right",
+          column_title=heading,
+          column_title_gp=grid::gpar(fontsize=13,fontface="bold"))
+        grDevices::dev.off()
+      }
+    }
+    make_s9(head(ranked,30L), "S9a_top30_overall", "Top 30 overall kinase-priority candidates")
+    make_s9(ranked[ranked$Tier==1, ], "S9b_tier1", "Tier 1: recurrent KEA3 and DEG evidence")
+    make_s9(head(main,50L), "S9c_EXOISO_focused_top50", "EXO-ISO-focused priority candidates")
+  }
+}
+
+# The Figure 6 input tables are available beside All Expressions.txt.
+priority_output <- file.path(output_dir, "S9_recomputed_all_kinase_priority_scores.csv")
+if (KEA3_READY) {
+  if (!file.exists(priority_output)) stop("S9 priority scores were not generated.")
+  priority_input <- file.path(input_dir, basename(priority_output))
+  if (!file.copy(priority_output, priority_input, overwrite=TRUE))
+    stop("Cannot copy S9 priorities to Input_Source_Files.")
+  if (!identical(unname(tools::md5sum(priority_output)), unname(tools::md5sum(priority_input))))
+    stop("S9 priority input checksum mismatch.")
+}
+
+# Reproducibility record and assertions for the fixed FC 1.30 input set.
+source_files <- required
+hash_table <- data.frame(File=basename(source_files),
+  MD5=unname(tools::md5sum(source_files)))
+write_csv(hash_table, "input_file_checksums.csv")
+writeLines(c(
+  paste("FC threshold (absolute linear) =", FC_THRESHOLD),
+  paste("Nominal p threshold =", P_THRESHOLD),
+  paste("GO-classified and annotation-unresolved S8 candidates =", nrow(s8_kept)),
+  paste("GO-unresolved S8 candidate classifications =",
+        sum(s8_kept$Figure_Group == "Annotation review")),
+  paste("S9 computed using saved KEA3 response tables =", KEA3_READY),
+  "KEA3 response queries are the 12 FC 1.30 directional lists.",
+  "GO classification uses the installed org.Hs.eg.db and GO.db annotations.",
+  "TAC differential expression is prepared from the 6 original comparison exports.",
+  "GO annotation-derived functional labels have evidence codes, unmapped and unresolved genes remain visible."
+), file.path(output_dir, "RUN_PARAMETERS_AND_SCOPE.txt"))
+writeLines(capture.output(sessionInfo()), file.path(output_dir, "sessionInfo.txt"))
+message("S8 and S9 workflow finished. Output directory: ", output_dir)

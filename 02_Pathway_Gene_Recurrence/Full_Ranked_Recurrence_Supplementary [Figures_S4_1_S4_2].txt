@@ -1,0 +1,904 @@
+# ========================================================================
+# Full Ranked Recurrence 
+# ========================================================================
+#
+# WHAT THIS ANALYSIS DOES?
+# This script reproduces the full-ranked gene-recurrence maps shown in our Supplementary Figures S4.1 and S4.2.
+#
+# HOW TO RUN THIS CODE?
+# It also uses R or RStudio using source(file.choose(), encoding = "UTF-8").
+#
+# Figure S4.1 shows the upregulated genes and S4.2 shows the downregulated genes. 
+# Unlike the main Figure 4 panels, which display the top 50 genes, these
+# supplementary maps include every gene overlapping at least one selected
+# Hallmark, GO or KEGG term. Each direction is divided into 2 parts so that
+# the individual gene labels and annotation columns remain legible.
+#
+# To run the analysis in RStudio, enter :
+#   source(file.choose(), encoding = "UTF-8")
+# Choose this script, then select the same input/All Expressions.txt when asked.
+# Running the whole file through source() is important: a pasted console script
+# can keep going after an error and leave incomplete output behind.
+#
+# REQUIRED INPUT FILES 
+# The other TAC exports and annotation snapshots are found automatically when
+# stored in their respective input/ and reference/ folders:
+#   All Expressions.txt
+#   All Expressions of Groups.txt
+#   EXO-ISO Vs Ctrl ALL.txt
+#   GO_2026_07_26_HUMAN_gene_term_membership.tsv.gz
+#   MSIGDB_H_CACHE.tsv.gz
+#   MSIGDB_KEGG_LEGACY_CACHE.tsv.gz
+#
+# We rebuild the feature evidence directly from these files, retain genes at
+# nominal p < 0.05 and absolute linear fold change >= 1.30 and select GO/KEGG
+# terms separately for UP and DOWN using the same rules as Figure 4. The 6
+# Hallmark sets for each direction remain fixed. The code then calculates gene
+# recurrence across the selected terms and generates the S4 panels.
+#
+# For continuity with the supplementary figures, each ranked list is
+# split in half before Ward.D2 clustering of the genes within each part. The
+# heatmaps show annotation hits, individual term memberships, 4-group
+# expression Z-scores, and gene symbols. 
+#
+# These figures show all recurrence-positive genes, not all qualifying DEGs.
+# Complete DEG lists are also exported separately so you can inspect
+# genes with no membership in the selected terms. Every recurrence-positive
+# gene must appear in exactly one part of the appropriate direction.
+#
+# This run writes its own intermediate tables and plots to Full_Ranked_Recurrence/.
+# ---------------------------------------------------------------------------
+
+options(stringsAsFactors=FALSE)
+cran <- c("msigdbr", "ComplexHeatmap", "circlize")
+for (pkg in cran) if (!requireNamespace(pkg, quietly=TRUE)) {
+  if (pkg == "ComplexHeatmap") {
+    if (!requireNamespace("BiocManager",quietly=TRUE)) install.packages("BiocManager")
+    BiocManager::install("ComplexHeatmap", ask=FALSE, update=FALSE)
+  } else install.packages(pkg, repos="https://cloud.r-project.org")
+}
+for (pkg in cran) if (!requireNamespace(pkg,quietly=TRUE)) stop("Please install: ",pkg)
+
+# First it asks for the original sample-level TAC file. Choosing the dataset here lets
+# the rest of the analysis run without a machine-specific working directory.
+if (!interactive()) {
+  stop("Open R or RStudio interactively, then use source(file.choose(), encoding='UTF-8').",
+       call. = FALSE)
+}
+message("Select the ORIGINAL TAC file: All Expressions.txt")
+samples_file <- normalizePath(file.choose(), winslash = "/", mustWork = TRUE)
+if (basename(samples_file) != "All Expressions.txt") {
+  stop("Please select the original sample-level All Expressions.txt. You selected: ",
+       basename(samples_file), call. = FALSE)
+}
+in_dir <- dirname(samples_file)
+
+# TAC exports begin with short metadata lines. Find the table header first,
+# then read the data without altering cluster IDs or column names.
+read_tac_export <- function(path) {
+  lines <- readLines(path, n = 30L, warn = FALSE, encoding = "UTF-8")
+  hdr <- which(startsWith(sub("^\ufeff", "", lines), "ID\t"))[1L]
+  if (is.na(hdr)) stop("Could not find the TAC 'ID' header in ", basename(path))
+  x <- read.delim(path, skip = hdr - 1L, header = TRUE,
+                  check.names = FALSE, quote = "", comment.char = "",
+                  stringsAsFactors = FALSE, fileEncoding = "UTF-8-BOM")
+  if (!"ID" %in% names(x) || anyNA(x$ID) || anyDuplicated(x$ID)) {
+    stop("TAC export has missing/duplicated ID values: ", basename(path))
+  }
+  x
+}
+
+# Most companion exports will sit beside the selected expression file. If
+# one is missing, ask for its location.
+source_roots <- unique(c(in_dir, dirname(in_dir), dirname(dirname(in_dir))))
+source_dirs <- unique(c(source_roots,
+                        file.path(source_roots, "Input_Source_Files"),
+                        file.path(source_roots, "input")))
+choose_companion <- function(expected_name, explanation) {
+  paths <- file.path(source_dirs, expected_name)
+  found <- paths[file.exists(paths)]
+  if (length(found)) {
+    candidate <- normalizePath(found[1L], winslash = "/", mustWork = TRUE)
+    message("Found ", expected_name, ": ", candidate)
+    return(candidate)
+  }
+  message("Select ", expected_name, " — ", explanation)
+  normalizePath(file.choose(), winslash = "/", mustWork = TRUE)
+}
+
+group_file <- choose_companion(
+  "All Expressions of Groups.txt",
+  "TAC's original four-group mean expression table"
+)
+pair_file <- choose_companion(
+  "EXO-ISO Vs Ctrl ALL.txt",
+  "TAC's EXO-ISO-versus-Control pairwise statistics"
+)
+
+samples <- read_tac_export(samples_file)
+groups <- read_tac_export(group_file)
+pair <- read_tac_export(pair_file)
+req_samples <- c("ID", "Gene Symbol", "Ctr 1 Avg (log2)",
+                 "EXO ISO 1 Avg (log2)", "Free ISO 1 Avg (log2)",
+                 "NC 1 Avg (log2)")
+req_groups <- c("ID", "Control Avg (log2)", "EXO-ISO Avg (log2)",
+                "Free ISO Avg (log2)", "NC Avg (log2)")
+req_pair <- c("ID", "EXO-ISO Avg (log2)", "Control Avg (log2)",
+              "Fold Change", "P-val")
+for (entry in list(list(samples, req_samples, samples_file),
+                   list(groups, req_groups, group_file),
+                   list(pair, req_pair, pair_file))) {
+  missing <- setdiff(entry[[2]], names(entry[[1]]))
+  if (length(missing)) {
+    stop("Wrong TAC export or missing columns in ", basename(entry[[3]]),
+         ": ", paste(missing, collapse = ", "), call. = FALSE)
+  }
+}
+if (nrow(samples) < 2L ||
+    !setequal(samples$ID, groups$ID) ||
+    !setequal(samples$ID, pair$ID)) {
+  stop("The three TAC exports do not contain the same exact transcript-cluster IDs.")
+}
+# Join by transcript-cluster ID rather than row number, TAC exports can be
+# ordered differently even when they contain the same features.
+groups <- groups[match(samples$ID, groups$ID), , drop = FALSE]
+pair <- pair[match(samples$ID, pair$ID), , drop = FALSE]
+stopifnot(identical(samples$ID, groups$ID), identical(samples$ID, pair$ID))
+
+as_tac_numeric <- function(x, nm) {
+  y <- suppressWarnings(as.numeric(x))
+  bad <- !is.na(x) & nzchar(trimws(as.character(x))) & is.na(y)
+  if (any(bad)) stop("Non-numeric values in TAC column: ", nm)
+  y
+}
+mu <- lapply(req_groups[-1L], function(nm) as_tac_numeric(groups[[nm]], nm))
+names(mu) <- req_groups[-1L]
+for (nm in req_groups[-1L]) {
+  if (any(!is.finite(mu[[nm]]))) {
+    stop("Missing or nonfinite group expression in: ", nm)
+  }
+}
+pair_exo <- as_tac_numeric(pair[["EXO-ISO Avg (log2)"]], "EXO-ISO paired mean")
+pair_ctrl <- as_tac_numeric(pair[["Control Avg (log2)"]], "Ctrl paired mean")
+if (any(abs(pair_exo - mu[["EXO-ISO Avg (log2)"]]) > 1e-8) ||
+    any(abs(pair_ctrl - mu[["Control Avg (log2)"]]) > 1e-8)) {
+  stop("TAC pairwise group means differ from the group export. ",
+       "Check that both exports come from the same TAC analysis run.")
+}
+
+# Assemble the expression and comparison fields needed for the recurrence
+# analysis. This is a Figure 4-specific subset, not the full Figure 3 table.
+evidence <- data.frame(
+  ID = samples$ID,
+  Gene_symbol_Tac = as.character(samples[["Gene Symbol"]]),
+  EXO_vs_Ctrl_log2FC = mu[["EXO-ISO Avg (log2)"]] - mu[["Control Avg (log2)"]],
+  EXO_vs_Ctrl_p = as_tac_numeric(pair[["P-val"]], "EXO-vs-Ctrl P-val"),
+  NC_Tac_mean = mu[["NC Avg (log2)"]],
+  Ctrl_Tac_mean = mu[["Control Avg (log2)"]],
+  Free_Tac_mean = mu[["Free ISO Avg (log2)"]],
+  EXO_Tac_mean = mu[["EXO-ISO Avg (log2)"]],
+  check.names = FALSE, stringsAsFactors = FALSE
+)
+# Keep TAC's FDR values for reference when available. The manuscript's
+# Figure 4 gene filter uses the nominal comparison p-values though.
+if ("FDR P-val" %in% names(pair)) {
+  evidence$EXO_vs_Ctrl_FDR <- as_tac_numeric(pair[["FDR P-val"]],
+                                             "EXO-vs-Ctrl FDR P-val")
+}
+
+# This saves a fresh copy of the analysis beside the input package. A short folder
+# name also avoids the Windows path-length problem we encountered during plotting.
+root <- if (basename(in_dir) %in% c("Input_Source_Files", "input")) {
+  dirname(in_dir)
+} else {
+  in_dir
+}
+out_dir <- file.path(root, "Full_Ranked_Recurrence_RUN")
+prepared_dir <- file.path(out_dir, "prepared_input")
+dir.create(prepared_dir, recursive = TRUE, showWarnings = FALSE)
+input_file <- file.path(prepared_dir, sprintf(
+  "08_All_Feature_Analysis_Evidence_%d.csv", nrow(evidence)))
+write.csv(evidence, input_file, row.names = FALSE, na = "")
+message("Prepared Figure 4 expression/statistics table: ", input_file)
+message("Exact cluster IDs joined: ", nrow(evidence))
+message("Now continuing automatically into directional GO/KEGG/Hallmark analysis.")
+rm(samples, groups, pair)
+
+# Read the dated GO annotation snapshot supplied with the reproducibility package.
+GO_FILE_NAME <- "GO_2026_07_26_HUMAN_gene_term_membership.tsv.gz"
+possible_ref_dirs <- unique(c(
+  file.path(source_roots, "reference"), source_roots,
+  file.path(source_roots, "results", "reference")
+))
+go_candidates <- file.path(possible_ref_dirs, GO_FILE_NAME)
+go_existing <- go_candidates[file.exists(go_candidates)]
+if (length(go_existing)) {
+  go_file <- normalizePath(go_existing[1L], winslash = "/", mustWork = TRUE)
+  message("Found original frozen GO annotations: ", go_file)
+} else {
+  message("Select frozen GO annotations: ", GO_FILE_NAME)
+  go_file <- normalizePath(file.choose(), winslash = "/", mustWork = TRUE)
+}
+if (basename(go_file) != GO_FILE_NAME) {
+  message("GO annotation file selected under a different filename: ", basename(go_file))
+}
+ref_dir <- dirname(go_file)
+write.csv(data.frame(
+  Input = c("Per-sample TAC", "Group-mean TAC", "EXO-vs-Ctrl TAC", "Frozen GO"),
+  File = c(samples_file, group_file, pair_file, go_file),
+  stringsAsFactors = FALSE
+), file.path(out_dir, "Figure4_Source_Provenance.csv"), row.names = FALSE)
+message("Results will be saved in: ", normalizePath(out_dir, winslash = "/"))
+
+# These are the thresholds and term counts used for the manuscript figures.
+# A different dataset may justify different settings, but they should be
+# documented before results are compared.
+DEG_P_CUTOFF <- 0.05
+DEG_LINEAR_FC <- 1.30
+TOP_TERMS_PER_COLLECTION <- 10L
+MIN_GENES_PER_SELECTED_TERM <- 1L
+# Terms are ordered by their nominal enrichment p-values. We retain the
+# adjusted values for inspection, a high rank does not imply FDR significance.
+
+
+# 1. Identify qualifying genes from the TAC comparison
+e <- read.csv(input_file,
+              fileEncoding="UTF-8-BOM",check.names=FALSE,stringsAsFactors=FALSE)
+required <- c("ID","Gene_symbol_Tac","EXO_vs_Ctrl_log2FC","EXO_vs_Ctrl_p",
+              "NC_Tac_mean","Ctrl_Tac_mean","Free_Tac_mean","EXO_Tac_mean")
+if (!all(required %in% names(e))) stop("Missing required columns: ",paste(setdiff(required,names(e)),collapse=", "))
+if (nrow(e) < 1L || anyDuplicated(e$ID)) {
+  stop("The input must contain at least one uniquely identified feature per row.")
+}
+message("Transcript clusters in supplied table: ", nrow(e))
+e$Gene <- toupper(trimws(e$Gene_symbol_Tac))
+e$log2FC <- suppressWarnings(as.numeric(e$EXO_vs_Ctrl_log2FC))
+e$p <- suppressWarnings(as.numeric(e$EXO_vs_Ctrl_p))
+e$unambiguous <- !is.na(e$Gene) & grepl("^[A-Z0-9._-]+$",e$Gene) & nzchar(e$Gene)
+e$unambiguous[is.na(e$unambiguous)] <- FALSE
+e$pass <- is.finite(e$p) & e$p < DEG_P_CUTOFF & is.finite(e$log2FC) &
+          abs(e$log2FC) >= log2(DEG_LINEAR_FC)-1e-10
+e$Direction <- ifelse(e$log2FC>0,"UP","DOWN")
+write.csv(e[!e$unambiguous & e$pass,c("ID","Gene_symbol_Tac","log2FC","p")],
+          file.path(out_dir,"Ambiguous_qualifying_features_EXCLUDED.csv"),row.names=FALSE)
+write.csv(e[e$pass,c("ID","Gene_symbol_Tac","log2FC","p","Direction")],
+          file.path(out_dir,"All_Qualifying_Features_1p30.csv"),row.names=FALSE)
+
+# TAC may represent a gene with several clusters. Choose one qualifying
+# cluster per unambiguous gene using the same documented ordering each time.
+eligible_features <- e[e$pass & e$unambiguous,,drop=FALSE]
+eligible_features <- eligible_features[order(eligible_features$Gene,-abs(eligible_features$log2FC),eligible_features$p,eligible_features$ID),,drop=FALSE]
+representatives <- eligible_features[!duplicated(eligible_features$Gene),,drop=FALSE]
+write.csv(representatives[,c("Gene","ID","log2FC","p","Direction")],
+          file.path(out_dir,"Selected_Representative_Gene_Features.csv"),row.names=FALSE)
+counts <- aggregate(Direction ~ Gene, data=eligible_features,FUN=function(v)paste(sort(unique(v)),collapse="/"))
+write.csv(counts[counts$Direction=="DOWN/UP",,drop=FALSE],
+          file.path(out_dir,"Contradictory_Multifeature_Genes_For_Review.csv"),row.names=FALSE)
+message("Qualifying transcript-cluster features: ",nrow(eligible_features)," (unambiguous; before gene collapse)")
+message("Qualifying gene representatives: ",nrow(representatives),"; UP=",sum(representatives$Direction=="UP"),"; DOWN=",sum(representatives$Direction=="DOWN"))
+
+# Use the full set of tested, unambiguous genes as the enrichment background,
+# not only the genes that passed the differential-expression filter.
+universe <- sort(unique(e$Gene[e$unambiguous])); N <- length(universe)
+write.csv(data.frame(Gene=universe),file.path(out_dir,"Background_Universe_Gene_Symbols.csv"),row.names=FALSE)
+
+# 2. Read the frozen human GO membership table
+go <- read.delim(gzfile(go_file),
+                 check.names=FALSE,stringsAsFactors=FALSE)
+go <- unique(go[go$Gene %in% universe,c("Source","Term_ID","Description","Gene")])
+GO_groups <- split(go$Gene,paste(go$Source,go$Term_ID,sep="||"))
+GO_meta <- unique(go[,c("Source","Term_ID","Description")])
+
+# 3. Read Hallmark and KEGG membership tables
+# The included reference files are preferred for consistency across runs.
+# If a cache is absent, msigdbr is used to retrieve the collection.
+msig_get <- function(collection,subcollection=NULL) {
+  f <- file.path(ref_dir,paste0(if(collection=="H")"MSIGDB_H_" else "MSIGDB_KEGG_LEGACY_", "CACHE.tsv.gz"))
+  if (file.exists(f)) return(read.delim(gzfile(f),stringsAsFactors=FALSE))
+  message("First run: loading MSigDB ",collection,"/",subcollection," via msigdbr")
+  out <- tryCatch({
+    if (is.null(subcollection)) msigdbr::msigdbr(species="Homo sapiens",collection=collection)
+    else msigdbr::msigdbr(species="Homo sapiens",collection=collection,subcollection=subcollection)
+  },error=function(ex) stop("Unable to load MSigDB membership. Internet/R package setup may be required: ",conditionMessage(ex)))
+  if (!all(c("gs_name","gene_symbol") %in% names(out)) || nrow(out)<10)
+    stop("MSigDB ",collection,"/",subcollection," absent. Cannot substitute partial ORA gene lists.")
+  sel <- unique(out[,c("gs_name","gene_symbol")]); names(sel)<-c("Term","Gene")
+  gz <- gzfile(f,"wt");write.table(sel,gz,sep="\t",row.names=FALSE,quote=TRUE);close(gz)
+  sel
+}
+h <- msig_get("H")
+kegg <- tryCatch(msig_get("C2","CP:KEGG_LEGACY"), error=function(ex) {
+  stop(paste0("KEGG_LEGACY membership could not be loaded. ",conditionMessage(ex),
+   "\nPlease check your internet connection and install/update msigdbr. ",
+   "No incomplete substitute was applied."),call.=FALSE)
+})
+normalize_name <- function(x) gsub("[^A-Z0-9]","",toupper(as.character(x)))
+H_names <- unique(h$Term); KEGG_names <- unique(kegg$Term)
+H_groups <- split(toupper(h$Gene),h$Term)
+K_groups <- split(toupper(kegg$Gene),kegg$Term)
+
+# Test each term against its full reference membership within the measured gene universe.
+make_ora <- function(source,term_meta,groups,targets) {
+  output <- vector("list",nrow(term_meta));i<-0L
+  for (j in seq_len(nrow(term_meta))) {
+    key <- term_meta$Key[j]
+    tgenes <- intersect(unique(groups[[key]]),universe)
+    K <- length(tgenes);n <- length(targets);g <- intersect(tgenes,targets);k <- length(g)
+    if (K<3 || K>N || n<1) next
+    i<-i+1L
+    output[[i]] <- data.frame(Source=source,ID=term_meta$ID[j],Description=term_meta$Description[j],
+      Count=k,Background_count=K,Foreground_count=n,pvalue=phyper(k-1,K,N-K,n,lower.tail=FALSE),
+      geneID=paste(g,collapse="/"),stringsAsFactors=FALSE)
+  }
+  if (i == 0L) return(data.frame(Source = character(), ID = character(),
+    Description = character(), Count = integer(), Background_count = integer(),
+    Foreground_count = integer(), pvalue = numeric(), geneID = character(),
+    p.adjust = numeric(), stringsAsFactors = FALSE))
+  out <- do.call(rbind,output[seq_len(i)])
+  out$p.adjust <- p.adjust(out$pvalue,method="BH")
+  out[order(out$pvalue,-out$Count,out$Description),,drop=FALSE]
+}
+GO_meta$Key <- paste(GO_meta$Source,GO_meta$Term_ID,sep="||");GO_meta$ID<-GO_meta$Term_ID
+HM <- data.frame(Key=H_names,ID=H_names,Description=gsub("_"," ",sub("^HALLMARK_","",H_names)),stringsAsFactors=FALSE)
+KM <- data.frame(Key=KEGG_names,ID=KEGG_names,Description=gsub("_"," ",sub("^KEGG_(LEGACY_)?","",KEGG_names)),stringsAsFactors=FALSE)
+# Each gene contributes at most one membership to a given term, even when
+# multiple transcript clusters represent that gene.
+
+# 4. Select metabolism-related GO and KEGG terms
+# The same inclusion and exclusion criteria apply to both directions. Terms
+# are then ranked independently using the UP and DOWN enrichment results.
+# GO cellular-component terms describe locations, not metabolic reactions.
+# A retained term can have a low annotation count without being statistically
+# significant after correction, the full results record both p-values.
+
+exclude <- c("olfactory","odorant","smell","sensory","taste","synaptic","postsynaptic",
+  "presynaptic","gaba","neuro","axon","dendrite","benzodiazepine","nicotine","addiction",
+  "visual","phototransduction","muscle","myofibril","sarcolemma","t-tubule","cardiac",
+  "heart","sperm","spermatid","germ cell","fertilization","acrosome","reproductive",
+  "cilium","ciliary","axoneme","cornified","keratin","hair","skin","salivary",
+  "pancreatic secretion","carbohydrate digestion","digestion and absorption","starch and sucrose","amylase")
+include <- list(
+ "GO:BP"=c("metabolic process","metabolism","biosynthetic process","catabolic process","oxidation","oxidative",
+     "reduction","redox","glutathione","xenobiotic","drug metabolic","lipid metabolic","fatty acid",
+     "cholesterol","sterol","bile acid","retino","vitamin","cofactor","carbohydrate metabolic","glucose metabolic",
+     "glycogen","hexose metabolic","monosaccharide metabolic","pyruvate","acetyl","nadh","nadp",
+     "atp metabolic","glycosylation","glycolipid","glycoprotein","proteoglycan","hyaluronan biosynthetic","glycosaminoglycan"),
+ "GO:MF"=c("transferase activity","hydrolase activity","oxidoreductase activity","dehydrogenase activity","monooxygenase activity",
+     "dioxygenase activity","reductase activity","kinase activity","phosphatase activity","ligase activity",
+     "isomerase activity","lyase activity","glutathione","udp","glycosyltransferase","acetyltransferase",
+     "methyltransferase","sulfotransferase","ubiquitin","nad","fad","heme","iron","zinc","cofactor","vitamin",
+     "retinol","lipid binding","fatty acid binding","cholesterol binding","bile acid","hyaluronan synthase","catalytic activity"),
+ "GO:CC"=c("mitochond","respirasome","respiratory chain","oxidative phosphorylation","endoplasmic reticulum",
+     "er membrane","golgi","lysosome","lysosomal","endosome","endosomal","peroxisome","peroxisomal",
+     "lipid droplet","vacuolar","secretory vesicle","transport vesicle","membrane coat","organelle membrane",
+     "basement membrane","extracellular matrix","hyaluronan","transporter complex","atpase complex","plasma membrane protein complex"),
+ "KEGG"=c("metabolism","biosynthesis","degradation","glycolysis","gluconeogenesis","pentose","pyruvate",
+     "citrate cycle","oxidative phosphorylation","fatty acid","glycerolipid","glycerophospholipid","sphingolipid",
+     "ether lipid","arachidonic acid","linoleic acid","cholesterol","bile secretion","bile acid","retinol",
+     "steroid","xenobiotics","drug metabolism","cytochrome p450","glutathione","abc transporters","peroxisome"))
+
+# Preserve the 6 Hallmark sets used to frame each direction in Figure 4.
+# Unlike the GO/KEGG collections, these are not chosen afresh by ORA rank.
+FIXED_HALLMARKS <- list(
+  UP = c(
+    "HALLMARK_ANGIOGENESIS",
+    "HALLMARK_ALLOGRAFT_REJECTION",
+    "HALLMARK_INFLAMMATORY_RESPONSE",
+    "HALLMARK_KRAS_SIGNALING_DN",
+    "HALLMARK_HYPOXIA",
+    "HALLMARK_MYOGENESIS"
+  ),
+  DOWN = c(
+    "HALLMARK_ADIPOGENESIS",
+    "HALLMARK_OXIDATIVE_PHOSPHORYLATION",
+    "HALLMARK_E2F_TARGETS",
+    "HALLMARK_BILE_ACID_METABOLISM",
+    "HALLMARK_GLYCOLYSIS",
+    "HALLMARK_FATTY_ACID_METABOLISM"
+  )
+)
+for (direction in names(FIXED_HALLMARKS)) {
+  if (length(FIXED_HALLMARKS[[direction]]) != 6L ||
+      anyDuplicated(FIXED_HALLMARKS[[direction]]) ||
+      !all(FIXED_HALLMARKS[[direction]] %in% HM$ID)) {
+    stop("Missing or duplicated predefined Hallmark terms for ", direction,
+         ". Review the MSigDB collection and the six term IDs.")
+  }
+}
+
+select_strict <- function(df,source) {
+  if (nrow(df)<1) return(df)
+  name <- tolower(df$Description)
+  keep <- grepl(paste(include[[source]],collapse="|"),name) &
+    !grepl(paste(exclude,collapse="|"),name)
+  x <- df[keep & df$Count >= MIN_GENES_PER_SELECTED_TERM,,drop=FALSE]
+  x <- x[order(x$pvalue,-x$Count,x$ID,x$Description),,drop=FALSE]
+  head(x, TOP_TERMS_PER_COLLECTION)
+}
+
+# 5. Match the selected terms to their constituent genes
+get_msig_genes <- function(groups, meta, query) {
+  index <- match(normalize_name(query),normalize_name(meta$Description))
+  if (is.na(index)) index <- match(normalize_name(query), normalize_name(meta$ID))
+  if(is.na(index)) return(NULL)
+  groups[[meta$Key[index]]]
+}
+make_annotation <- function(selected,genes) {
+  rows <- list();i<-0L;miss<-character()
+  for (j in seq_len(nrow(selected))) {
+    src <- selected$Source[j]; t <- selected$Description[j]; id <- selected$ID[j]
+    termgenes <- switch(src,
+      "GO:BP"=GO_groups[[paste(src,id,sep="||")]],
+      "GO:CC"=GO_groups[[paste(src,id,sep="||")]],
+      "GO:MF"=GO_groups[[paste(src,id,sep="||")]],
+      "KEGG"=get_msig_genes(K_groups,KM,t),
+      "Hallmark"=get_msig_genes(H_groups,HM,t),
+      NULL)
+    if (is.null(termgenes)) {miss<-c(miss,paste(src,t,id,sep=" | "));next}
+    gs <- intersect(intersect(unique(termgenes),genes),universe)
+    if (length(gs)>0L) {
+      i<-i+1L;rows[[i]]<-data.frame(Gene=gs,Source=src,Term=t,ID=id,
+        Term_Label=paste(src,t,sep=": "),stringsAsFactors=FALSE)
+    }
+  }
+  list(data=if(i)unique(do.call(rbind,rows)) else
+    data.frame(Gene=character(),Source=character(),Term=character(),ID=character(),Term_Label=character()),
+    unmapped=unique(miss))
+}
+
+# GO and KEGG are selected independently for UP and DOWN.
+
+# 6. Calculate full recurrence rankings for each DEG direction
+run_direction <- function(dir) {
+  genes <- representatives$Gene[representatives$Direction == dir]
+  if (!length(genes)) stop("No ",dir," genes pass the DEG criteria.")
+  prefix <- file.path(out_dir,paste0("FIG4_",dir))
+
+  # Hallmark uses the defined 6 sets: GO and KEGG are tested against all
+  # eligible background genes, separately for UP and DOWN.
+  fixed_ids <- FIXED_HALLMARKS[[dir]]
+  hm_selected <- HM[match(fixed_ids, HM$ID), , drop = FALSE]
+  if (anyNA(hm_selected$ID)) stop("Predefined Hallmark ID missing for ", dir)
+  ora <- list()
+  for (src in c("Hallmark","GO:BP","KEGG","GO:MF","GO:CC")) {
+    rr <- if (src == "Hallmark") {
+      make_ora(src, hm_selected, H_groups, genes)
+    } else if (src == "KEGG") {
+      make_ora(src, KM, K_groups, genes)
+    } else {
+      make_ora(src, GO_meta[GO_meta$Source == src,,drop=FALSE], GO_groups, genes)
+    }
+    ora[[src]] <- rr
+    write.csv(rr,paste0(prefix,"_",gsub(":","_",src),"_ALL_ORA.csv"),row.names=FALSE)
+  }
+
+  # Keep all 6 Hallmarks. For each GO/KEGG collection, choose up to 10
+  # qualifying terms using the current direction's enrichment ranking.
+  selection <- lapply(names(ora),function(src) {
+    tab <- ora[[src]]
+    if (src == "Hallmark") {
+      tab <- tab[match(fixed_ids, tab$ID), , drop = FALSE]
+      if (anyNA(tab$ID) || nrow(tab) != 6L) {
+        stop("Unable to retain the six predefined Hallmarks for ", dir)
+      }
+      tab
+    } else {
+      select_strict(tab, src)
+    }
+  })
+  names(selection) <- names(ora)
+  if (!sum(vapply(selection,nrow,integer(1)))) {
+    stop("No metabolism-related terms overlapped ",dir," DEGs.")
+  }
+  base_terms <- unique(do.call(rbind,lapply(selection,function(z) {
+    z[,c("Source","ID","Description"),drop=FALSE]
+  })))
+  rownames(base_terms) <- NULL
+
+  # Export the term-selection evidence so anyone can trace each chosen
+  # annotation to its membership counts and nominal/adjusted p-values.
+  selected_evidence <- do.call(rbind, lapply(names(selection), function(src) {
+    z <- selection[[src]][,c("Source","ID","Description","Count",
+                                "Background_count","Foreground_count",
+                                "pvalue","p.adjust"),drop=FALSE]
+    z$Selection_rule <- if (src == "Hallmark") {
+      "Predefined direction-specific Hallmark set"
+    } else {
+      "Top metabolism-related ORA term; same procedure in UP and DOWN"
+    }
+    z
+  }))
+  write.csv(selected_evidence,paste0(prefix,"_Selected_Term_ORA_Evidence.csv"),row.names=FALSE)
+  write.csv(data.frame(Direction=dir,Source=names(selection),
+                       Selected_Terms=vapply(selection,nrow,integer(1))),
+            paste0(prefix,"_Selected_Term_Counts_By_Collection.csv"),row.names=FALSE)
+  write.csv(base_terms,paste0(prefix,"_Selected_Terms.csv"),row.names=FALSE)
+  message(dir, " fixed Hallmarks: ", paste(fixed_ids, collapse = ", "))
+  for (src in c("GO:BP", "GO:MF", "GO:CC", "KEGG")) {
+    message(dir, " selected ", src, " metabolism terms: ", nrow(selection[[src]]))
+  }
+  # Consider every qualifying gene. 
+  ann <- make_annotation(base_terms,genes)
+  write.csv(data.frame(Unmapped_term=ann$unmapped),paste0(prefix,"_Unmapped_Terms.csv"),row.names=FALSE)
+  if(!nrow(ann$data))stop("No annotations matched for direction: ",dir)
+  write.csv(ann$data,paste0(prefix,"_Gene_Term_Membership_LONG.csv"),row.names=FALSE)
+  ag <- ann$data
+  # A hit is one unique gene-to-term membership.
+  split_gene <- split(seq_len(nrow(ag)),ag$Gene)
+  summarize <- function(g) {
+    z<-ag[split_gene[[g]],,drop=FALSE]
+    c(Total_Hits=length(unique(z$Term_Label)),
+      Hallmark_Hits=length(unique(z$Term_Label[z$Source=="Hallmark"])),
+      GO_BP_Hits=length(unique(z$Term_Label[z$Source=="GO:BP"])),
+      KEGG_Hits=length(unique(z$Term_Label[z$Source=="KEGG"])),
+      GO_MF_Hits=length(unique(z$Term_Label[z$Source=="GO:MF"])),
+      GO_CC_Hits=length(unique(z$Term_Label[z$Source=="GO:CC"])))
+  }
+  genes_hit <- names(split_gene)
+  cnt <- as.data.frame(t(vapply(genes_hit,summarize,numeric(6))),stringsAsFactors=FALSE)
+  cnt$Gene<-genes_hit
+  cnt<-cnt[order(-cnt$Total_Hits,-cnt$Hallmark_Hits,-cnt$KEGG_Hits,
+                 -cnt$GO_BP_Hits,-cnt$GO_MF_Hits,-cnt$GO_CC_Hits,cnt$Gene),,drop=FALSE]
+  # Retain the entire recurrence-positive list for S4, not just the first
+  # 50 genes displayed in the main Figure 4 panels.
+  if (nrow(cnt) < 2L) stop("Fewer than two recurrence-positive genes: ", dir)
+  matched_rep <- match(cnt$Gene, representatives$Gene)
+  if (anyNA(matched_rep)) stop("Missing representative TAC feature for ", dir)
+  cnt$Direction <- dir
+  cnt$Clariom_ID <- representatives$ID[matched_rep]
+  cnt$log2FC <- representatives$log2FC[matched_rep]
+  cnt$p <- representatives$p[matched_rep]
+  write.csv(cnt, paste0(prefix,"_ALL_Ranked_Gene_Hits.csv"), row.names=FALSE)
+  message(dir, ": ", nrow(cnt), " recurrence-positive genes retained for S4")
+  return(cnt)
+}
+
+# Save the complete DEG lists as companion tables. They include genes
+# with no membership in the selected pathways and therefore absent from S4.
+for (direction in c("UP", "DOWN")) {
+  all_dir <- representatives[representatives$Direction == direction,
+                             c("Gene", "ID", "log2FC", "p", "Direction")]
+  all_dir <- all_dir[order(-abs(all_dir$log2FC), all_dir$p, all_dir$Gene), ]
+  all_dir$FC_Magnitude <- 2^abs(all_dir$log2FC)
+  write.csv(all_dir, file.path(out_dir, paste0("S4_", direction,
+            "_ALL_Qualifying_DEG_Genes.csv")), row.names = FALSE)
+}
+up <- run_direction("UP")
+down <- run_direction("DOWN")
+# 7. Record input/output checks and the R package versions
+write.csv(data.frame(Metric=c("All_TAC_features","Unambiguous_gene_universe","Pass_FC1p30_feature_total",
+          "UP_rep_genes","DOWN_rep_genes","UP_Figure4_count","DOWN_Figure4_count"),
+          Value=c(nrow(e),N,sum(e$pass),sum(representatives$Direction=="UP"),sum(representatives$Direction=="DOWN"),nrow(up),nrow(down))),
+          file.path(out_dir,"FINAL_Figure4_Run_QC.csv"),row.names=FALSE)
+writeLines(capture.output(sessionInfo()),file.path(out_dir,"R_sessionInfo.txt"))
+message("Directional recurrence tables saved to: ", normalizePath(out_dir,winslash="/"))
+
+
+# ---------------------------------------------------------------------------
+# This to plot the full supplementary maps from the intermediate files just created.
+# These are produced within this run, and you do not need to supply them.
+# We keep the 2-part layout and do not apply functional submodules.
+# ---------------------------------------------------------------------------
+RESULTS <- out_dir
+OUTPUT <- file.path(out_dir, "plots")
+dir.create(OUTPUT, recursive = TRUE, showWarnings = FALSE)
+if (!dir.exists(OUTPUT)) stop("Cannot create output directory: ", OUTPUT)
+
+PANELS_PER_DIRECTION <- 2L
+MIN_PLOT_HEIGHT <- 13
+MAX_PLOT_HEIGHT <- 36
+PLOT_WIDTH <- 26
+CLUSTER_WITHIN_PANEL <- TRUE
+
+read_csv <- function(file) {
+  if (!file.exists(file)) stop("Missing Figure 4 result: ", basename(file), call. = FALSE)
+  read.csv(file, check.names = FALSE, stringsAsFactors = FALSE,
+           fileEncoding = "UTF-8-BOM")
+}
+
+# Read the representative feature and TAC group means generated within
+# this run. These keep the heatmaps tied to the original measured clusters.
+rep_file <- file.path(RESULTS, "Selected_Representative_Gene_Features.csv")
+reps <- read_csv(rep_file)
+if (!all(c("Gene", "ID", "log2FC", "p", "Direction") %in% names(reps))) {
+  stop("The representative-feature file is missing required columns.")
+}
+if (anyDuplicated(reps$Gene) || anyDuplicated(reps$ID)) {
+  stop("Expected one representative feature per gene in the Figure 4 results.")
+}
+prepared <- file.path(RESULTS, "prepared_input", "08_All_Feature_Analysis_Evidence_21448.csv")
+if (!file.exists(prepared)) {
+  possibilities <- list.files(file.path(RESULTS, "prepared_input"),
+                              pattern = "^08_All_Feature_Analysis_Evidence_[0-9]+[.]csv$",
+                              full.names = TRUE)
+  if (length(possibilities) == 1L) prepared <- possibilities[1L]
+  else stop("Could not uniquely locate the prepared TAC evidence CSV in prepared_input/.")
+}
+evidence <- read_csv(prepared)
+means_cols <- c("NC_Tac_mean", "Ctrl_Tac_mean", "Free_Tac_mean", "EXO_Tac_mean")
+if (!all(c("ID", means_cols) %in% names(evidence)) || anyDuplicated(evidence$ID)) {
+  stop("The prepared TAC evidence file needs unique IDs and all four group means.")
+}
+
+sources <- c("Hallmark", "GO:BP", "KEGG", "GO:MF", "GO:CC")
+count_cols <- c("Total_Hits", "Hallmark_Hits", "GO_BP_Hits",
+                "KEGG_Hits", "GO_MF_Hits", "GO_CC_Hits")
+colors <- c("Hallmark" = "#7E57C2", "GO:BP" = "#F4A261",
+            "KEGG" = "#4CAF50", "GO:MF" = "#7F7F7F",
+            "GO:CC" = "#2A9D8F")
+
+short_term <- function(x) {
+  x <- sub("^Hallmark: *", "H: ", x)
+  x <- sub("^GO:BP: *", "BP: ", x)
+  x <- sub("^GO:MF: *", "MF: ", x)
+  x <- sub("^GO:CC: *", "CC: ", x)
+  x <- sub("^KEGG: *", "KEGG: ", x)
+  gsub("_", " ", x, fixed = TRUE)
+}
+
+# Constant annotation columns carry no clustering information. Leave them
+# in the plotted matrix while avoiding division by zero during scaling.
+scale_columns_safe <- function(x) {
+  x <- as.matrix(x)
+  storage.mode(x) <- "double"
+  avg <- colMeans(x)
+  dev <- apply(x, 2, stats::sd)
+  dev[!is.finite(dev) | dev == 0] <- 1
+  sweep(sweep(x, 2, avg, "-"), 2, dev, "/")
+}
+
+# The supplementary layout combines a row dendrogram, 6 hit-count columns,
+# the 5 annotation collections and the 4-group expression Z-scores.
+# Gene labels sit on the right, as in the S4 figures.
+make_s4_plot <- function(panel, direction, part, total_parts, n_total) {
+  gene <- as.character(panel$genes$Gene)
+  if (!length(gene) || anyNA(gene) || anyDuplicated(gene)) {
+    stop("Missing or duplicated gene names in S4 plot input")
+  }
+  binary <- panel$term_mat
+  z <- panel$z
+  counts <- panel$counts
+  n <- length(gene)
+  rownames(counts) <- gene
+  rownames(binary) <- gene
+  rownames(z) <- gene
+  if (CLUSTER_WITHIN_PANEL && n > 2L) {
+    # Cluster within this rank-defined part using term membership and group
+    # expression. This changes display order, not recurrence rank or part.
+    features <- cbind(scale_columns_safe(binary), z)
+    hc <- stats::hclust(stats::dist(features, method = "euclidean"),
+                        method = "ward.D2")
+    row_order <- hc$labels[hc$order]
+  } else {
+    hc <- FALSE
+    row_order <- gene
+  }
+
+  stopifnot(setequal(row_order, gene), !anyDuplicated(row_order),
+            nrow(binary) == length(gene), nrow(z) == length(gene),
+            nrow(counts) == length(gene))
+  panel$genes$Clustered_Within_Part_Position <- match(panel$genes$Gene, row_order)
+  panel$genes$S4_Part <- part
+  panel$genes$Original_Rank <- match(panel$genes$Gene, panel$all_ranked_genes)
+  row_file <- file.path(OUTPUT, sprintf("S4_%s_part%d_gene_order.csv", direction, part))
+  write.csv(panel$genes[order(panel$genes$Clustered_Within_Part_Position),],
+            row_file, row.names = FALSE)
+
+  top_mat <- as.matrix(counts[, count_cols, drop = FALSE])
+  storage.mode(top_mat) <- "double"
+  if (any(!is.finite(top_mat))) stop("Nonfinite S4 recurrence counts; check generated tables.")
+  colnames(top_mat) <- c("Total Hits", "Hallmark Hits", "GO:BP Hits",
+                         "KEGG Hits", "GO:MF Hits", "GO:CC Hits")
+  # Show the overall recurrence count alongside the 5 collection counts.
+  hit_col <- circlize::colorRamp2(c(0, max(1, max(top_mat, na.rm = TRUE))),
+                                  c("white", "darkgreen"))
+  z_col <- circlize::colorRamp2(c(-2, 0, 2),
+                                c("#3E2B83", "#FFFFFF", "#F47766"))
+  height_in <- min(MAX_PLOT_HEIGHT, max(MIN_PLOT_HEIGHT, 7 + 0.18 * n))
+  heatmap_height <- grid::unit(max(5, min(height_in - 5.5, n * 0.14)), "in")
+  base <- ComplexHeatmap::Heatmap(top_mat, name = "Hit counts", col = hit_col,
+    cluster_rows = hc, cluster_columns = FALSE, show_row_dend = TRUE,
+    row_dend_side = "left", show_row_names = FALSE, show_column_dend = FALSE,
+    column_names_side = "bottom", column_names_rot = 90,
+    column_names_gp = grid::gpar(fontsize = 7),
+    height = heatmap_height, width = grid::unit(6 * 4.1, "mm"),
+    show_heatmap_legend = TRUE, heatmap_legend_param = list(title = "Hit counts"),
+    use_raster = FALSE)
+
+  ht <- base
+  for (src in sources) {
+    src_cols <- which(startsWith(colnames(binary), paste0(src, ": ")))
+    if (length(src_cols) == 0L) next
+    m <- binary[, src_cols, drop = FALSE]
+   # Use the same collection colors as Figure 4, white marks no membership
+   # in the corresponding selected term.
+    m2 <- matrix(ifelse(m > 0, "1", "0"), nrow = nrow(m), ncol = ncol(m),
+                 dimnames = dimnames(m))
+    colnames(m2) <- make.unique(short_term(colnames(m2)))
+    ht <- ht + ComplexHeatmap::Heatmap(m2, name = src,
+      col = c("0" = "white", "1" = unname(colors[[src]])),
+      cluster_rows = FALSE, cluster_columns = FALSE,
+      show_row_names = FALSE, show_column_names = TRUE,
+      column_names_side = "bottom", column_names_rot = 90,
+      column_names_gp = grid::gpar(fontsize = 7),
+      column_names_max_height = grid::unit(100, "mm"),
+      width = grid::unit(ncol(m2) * 4.0, "mm"),
+      heatmap_legend_param = list(at = "1", labels = "Hit"),
+      use_raster = FALSE)
+  }
+  ht <- ht + ComplexHeatmap::Heatmap(z, name = "Group Z", col = z_col,
+    cluster_rows = FALSE, cluster_columns = FALSE,
+    show_row_names = TRUE, row_names_side = "right",
+    row_names_gp = grid::gpar(fontsize = if (n >= 150) 6.1 else 7),
+    row_names_max_width = grid::unit(30, "mm"),
+    column_names_side = "bottom", column_names_rot = 90,
+    column_names_gp = grid::gpar(fontsize = 8),
+    height = heatmap_height, width = grid::unit(4 * 5.0, "mm"),
+    heatmap_legend_param = list(at = c(-2, -1, 0, 1, 2)),
+    use_raster = FALSE)
+
+  # Set the figure height from the number of rows. This keeps long gene
+  # lists readable without changing the annotation or color conventions.
+  prefix <- file.path(OUTPUT, sprintf("S4_%s_part%dof%d", direction, part, total_parts))
+  render <- function() ComplexHeatmap::draw(ht, merge_legends = FALSE,
+    heatmap_legend_side = "right", annotation_legend_side = "right",
+    padding = grid::unit(c(5, 5, 5, 5), "mm"))
+
+  grDevices::pdf(paste0(prefix, ".pdf"), width = PLOT_WIDTH, height = height_in,
+                 useDingbats = FALSE, onefile = FALSE)
+  tryCatch(render(), finally = grDevices::dev.off())
+  grDevices::png(paste0(prefix, ".png"), width = PLOT_WIDTH * 190,
+                 height = height_in * 190, res = 190, bg = "white")
+  tryCatch(render(), finally = grDevices::dev.off())
+  # Export TIFF separately for journal submission, alongside PDF and PNG.
+  grDevices::tiff(paste0(prefix, ".tiff"), width = PLOT_WIDTH * 180,
+                  height = height_in * 180, res = 180,
+                  compression = "lzw", bg = "white")
+  tryCatch(render(), finally = grDevices::dev.off())
+  message(direction, " part ", part, "/", total_parts, ": ", n,
+          " genes; saved ", basename(prefix), ".pdf/.png/.tiff")
+  data.frame(Direction = direction, Part = part, Total_Parts = total_parts,
+             First_Rank = min(panel$genes$Original_Rank),
+             Last_Rank = max(panel$genes$Original_Rank),
+             Genes = n, Selected_Terms = ncol(binary),
+             Annotation_Hits = sum(binary),
+             File = basename(prefix), stringsAsFactors = FALSE)
+}
+
+prepare_direction <- function(direction) {
+  prefix <- file.path(RESULTS, paste0("FIG4_", direction))
+  ranked <- read_csv(paste0(prefix, "_ALL_Ranked_Gene_Hits.csv"))
+  selected <- read_csv(paste0(prefix, "_Selected_Terms.csv"))
+  long <- read_csv(paste0(prefix, "_Gene_Term_Membership_LONG.csv"))
+  if (!all(c("Gene", count_cols) %in% names(ranked))) {
+    stop(direction, ": unexpected recurrence score columns.")
+  }
+  if (!all(c("Source", "Description", "ID") %in% names(selected))) {
+    stop(direction, ": unexpected selected annotation term columns.")
+  }
+  if (!all(c("Gene", "Source", "Term", "ID", "Term_Label") %in% names(long))) {
+    stop(direction, ": unexpected gene-to-term membership columns.")
+  }
+  if (anyDuplicated(ranked$Gene) || anyNA(ranked$Gene)) {
+    stop(direction, ": gene ranks are not unique.")
+  }
+  if (!all(long$Gene %in% ranked$Gene) || !setequal(unique(long$Gene), ranked$Gene)) {
+    stop(direction, ": ranked genes and membership genes do not match.")
+  }
+  if (any(ranked$Total_Hits <= 0)) stop(direction, ": ranked table contains zero-hit genes.")
+
+  # Keep the selected terms in Figure 4 collection order for a consistent
+  # display across both directions and across the split parts.
+  selected <- selected[order(match(selected$Source, sources)), , drop = FALSE]
+  term_labels <- paste(selected$Source, selected$Description, sep = ": ")
+  if (anyDuplicated(term_labels)) stop(direction, ": duplicate display term labels.")
+  if (!all(long$Term_Label %in% term_labels)) {
+    stop(direction, ": long memberships contain terms absent from the selected term list.")
+  }
+  # Rebuild the binary matrix from every ranked gene.
+  ranked$Original_Recurrence_Rank <- seq_len(nrow(ranked))
+  all_genes <- ranked$Gene
+  bin <- matrix(0L, nrow = nrow(ranked), ncol = length(term_labels),
+                dimnames = list(all_genes, term_labels))
+  ix <- cbind(match(long$Gene, all_genes), match(long$Term_Label, term_labels))
+  bin[ix] <- 1L
+  col_sums <- cbind(
+    Total_Hits = rowSums(bin),
+    Hallmark_Hits = rowSums(bin[, startsWith(colnames(bin), "Hallmark: "), drop = FALSE]),
+    GO_BP_Hits = rowSums(bin[, startsWith(colnames(bin), "GO:BP: "), drop = FALSE]),
+    KEGG_Hits = rowSums(bin[, startsWith(colnames(bin), "KEGG: "), drop = FALSE]),
+    GO_MF_Hits = rowSums(bin[, startsWith(colnames(bin), "GO:MF: "), drop = FALSE]),
+    GO_CC_Hits = rowSums(bin[, startsWith(colnames(bin), "GO:CC: "), drop = FALSE]))
+  # Verify each gene's total and collection-level hit counts against the
+  # membership matrix before producing any plot.
+  for (nm in count_cols) {
+    if (!identical(as.integer(col_sums[, nm]), as.integer(ranked[[nm]]))) {
+      stop(direction, ": ", nm, " does not match Figure 4 membership evidence.")
+    }
+  }
+
+  match_rep <- match(all_genes, reps$Gene)
+  if (anyNA(match_rep)) stop(direction, ": missing representative gene features.")
+  info <- reps[match_rep, c("Gene", "ID", "log2FC", "p", "Direction"), drop = FALSE]
+  if (any(info$Direction != direction)) stop(direction, ": mixed DEG directions.")
+  evidence_ix <- match(info$ID, evidence$ID)
+  if (anyNA(evidence_ix)) stop(direction, ": missing TAC group expression evidence.")
+  expr <- as.matrix(evidence[evidence_ix, means_cols, drop = FALSE])
+  storage.mode(expr) <- "numeric"
+  if (any(!is.finite(expr))) stop(direction, ": nonfinite group expression.")
+  colnames(expr) <- c("NC", "Control", "FreeISO", "EXOISO")
+  rownames(expr) <- all_genes
+  z <- t(apply(expr, 1, function(x) {
+    if (stats::sd(x) == 0) rep(0, length(x))
+    else as.numeric((x - mean(x)) / stats::sd(x))
+  }))
+  dimnames(z) <- dimnames(expr)
+  ranked$Clariom_ID <- info$ID
+  ranked$log2FC <- info$log2FC
+  ranked$nominal_p <- info$p
+  ranked$Direction <- info$Direction
+  write.csv(ranked, file.path(OUTPUT, paste0("S4_", direction, "_all_recurrence_positive_genes.csv")), row.names = FALSE)
+  write.csv(selected, file.path(OUTPUT, paste0("S4_", direction, "_selected_terms.csv")), row.names = FALSE)
+  write.csv(cbind(Gene = all_genes, as.data.frame(bin, check.names = FALSE)),
+            file.path(OUTPUT, paste0("S4_", direction, "_full_binary_matrix.csv")), row.names = FALSE)
+  write.csv(cbind(Gene = all_genes, as.data.frame(z, check.names = FALSE)),
+            file.path(OUTPUT, paste0("S4_", direction, "_full_group_Z.csv")), row.names = FALSE)
+
+  # Divide the ranked genes into nearly equal parts first, cluster gene
+  # rows only within their assigned part, as in the S4 figures.
+  n <- nrow(ranked)
+  n_parts <- min(PANELS_PER_DIRECTION, n)
+  groups <- split(seq_len(n), cut(seq_len(n), breaks = n_parts, labels = FALSE))
+  if (sum(lengths(groups)) != n) stop(direction, ": failed to distribute all genes across parts.")
+  list(ranked = ranked, binary = bin, z = z, groups = groups)
+}
+
+qc <- list()
+for (direction in c("UP", "DOWN")) {
+  message("Processing complete ", direction, " recurrence-positive gene list...")
+  x <- prepare_direction(direction)
+  included <- character()
+  for (part in seq_along(x$groups)) {
+    ix <- x$groups[[part]]
+    part_genes <- x$ranked$Gene[ix]
+    if (any(part_genes %in% included)) stop("A recurrence-positive gene was assigned twice.")
+    included <- c(included, part_genes)
+    sub <- list(genes = x$ranked[ix, , drop = FALSE],
+                counts = x$ranked[ix, count_cols, drop = FALSE],
+                term_mat = x$binary[ix, , drop = FALSE],
+                z = x$z[ix, , drop = FALSE],
+                all_ranked_genes = x$ranked$Gene)
+    qc[[length(qc) + 1L]] <- make_s4_plot(sub, direction, part,
+                                          length(x$groups), nrow(x$ranked))
+  }
+  if (anyDuplicated(included) || !identical(included, x$ranked$Gene)) {
+    stop(direction, ": not every recurrence-positive gene was included exactly once.")
+  }
+}
+if (length(qc) != 2L * PANELS_PER_DIRECTION) {
+  stop("S4 is incomplete: expected four successfully exported figure parts, got ", length(qc))
+}
+qc_table <- do.call(rbind, qc)
+if (nrow(qc_table) != 2L * PANELS_PER_DIRECTION ||
+    !identical(sort(unique(qc_table$Direction)), c("DOWN", "UP"))) {
+  stop("S4 figure coverage audit did not contain both complete directions.")
+}
+write.csv(qc_table, file.path(OUTPUT, "S4_Full_Panel_Coverage_QC.csv"), row.names = FALSE)
+writeLines(capture.output(sessionInfo()), file.path(OUTPUT, "R_sessionInfo_S4.txt"))
+writeLines(c(
+  "Supplementary Figure S4.1: UP recurrence-positive genes (two parts).",
+  "Supplementary Figure S4.2: DOWN recurrence-positive genes (two parts).",
+  "Source: original TAC exports, processed in this script.",
+  "Method: rebuild evidence from original TAC comparison exports; linear FC >= 1.30, nominal p < 0.05.",
+  "The same predefined Hallmarks and symmetric metabolic GO/KEGG term-selection rules as current Figure 4.",
+  "Each recurrence-positive gene appears once across the two parts for its direction.",
+  "The plotted genes have at least one selected term membership; full DEG tables are separately exported.",
+  "Rank halves are defined before within-panel Ward.D2 clustering.",
+  "No submodules, manually ordered genes or named-gene exceptions are used.",
+  "Binary term membership and hit counts are crosschecked against fresh data from this same run.",
+  "Expression heatmaps display row Z-scores of the four original TAC group means."
+), file.path(OUTPUT, "README_S4_Full_Recurrence.txt"))
+message("COMPLETE. All four S4.1/S4.2 panels and their CSVs saved to: ", OUTPUT)
+if (interactive() && .Platform$OS.type == "windows") {
+  try(shell.exec(normalizePath(OUTPUT, winslash = "\\")), silent = TRUE)
+}

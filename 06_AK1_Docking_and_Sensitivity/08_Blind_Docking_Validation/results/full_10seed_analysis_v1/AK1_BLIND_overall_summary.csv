@@ -1,0 +1,22 @@
+Metric,Value
+Blind seeds analyzed,10
+Total blind poses analyzed,200
+Mean global-best Vina score,-8.743
+SD global-best Vina score,0.027792884780900817
+Mode 1 targeted-like <=2A seeds,10
+Mode 1 targeted-like <=2A percent,100.0
+Mode 1 targeted-like <=3A seeds,10
+Mode 1 targeted-like <=3A percent,100.0
+Seeds recovering any targeted-like pose <=2A,10
+Seeds recovering any targeted-like pose <=2A percent,100.0
+Seeds recovering any targeted-like pose <=3A,10
+Seeds recovering any targeted-like pose <=3A percent,100.0
+All blind poses targeted-like <=2A,29
+All blind poses targeted-like <=2A percent,14.5
+All blind poses targeted-like <=3A,62
+All blind poses targeted-like <=3A percent,31.0
+Mean mode-1 nearest targeted-family RMSD,0.22601423263535306
+Median first <=2A targeted-like rank,1.0
+Median first <=3A targeted-like rank,1.0
+Mode 1 nearest dominant-family seeds,10
+Mode 1 nearest alternative-family seeds,0
